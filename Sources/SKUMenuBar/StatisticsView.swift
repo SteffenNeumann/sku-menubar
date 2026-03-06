@@ -214,7 +214,7 @@ struct StatisticsView: View {
     private var loadingView: some View {
         VStack(spacing: 14) {
             ProgressView().scaleEffect(0.9).tint(.purple)
-            Text("Lade \(selectedYear)…").font(.system(size: 11)).foregroundStyle(.tertiary)
+            Text("Lade \(String(selectedYear))…").font(.system(size: 11)).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity).padding(32).glassCard()
     }
@@ -222,7 +222,7 @@ struct StatisticsView: View {
     private var emptyView: some View {
         VStack(spacing: 10) {
             Image(systemName: "chart.bar.xaxis").font(.system(size: 32)).foregroundStyle(.tertiary)
-            Text("Keine Daten für \(selectedYear)")
+            Text("Keine Daten für \(String(selectedYear))")
                 .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
             Text("Stelle sicher, dass Token und Account korrekt konfiguriert sind.")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
@@ -236,7 +236,7 @@ struct StatisticsView: View {
     private var yearSummaryCard: some View {
         VStack(spacing: 12) {
             HStack {
-                Label("Jahresübersicht \(selectedYear)", systemImage: "calendar.badge.checkmark")
+                Label("Jahresübersicht \(String(selectedYear))", systemImage: "calendar.badge.checkmark")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
                 if overBudgetCount > 0 {
