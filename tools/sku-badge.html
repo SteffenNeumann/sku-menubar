@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub SKU Budget Badge</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --accent: #238636;
+    --accent2: #1f6feb;
+    --warn: #d29922;
+    --danger: #da3633;
+    --bar-bg: #21262d;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .badge {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    width: 340px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+
+  .badge-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .badge-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .status-dot.loading { background: var(--warn); animation: none; }
+  .status-dot.error   { background: var(--danger); animation: none; }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .4; }
+  }
+
+  .sku-block + .sku-block { margin-top: 14px; }
+
+  .sku-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+
+  .sku-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .sku-value {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar-track {
+    height: 6px;
+    background: var(--bar-bg);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width .6s cubic-bezier(.4,0,.2,1), background .3s;
+  }
+
+  .bar-today     { background: var(--accent2); }
+  .bar-remaining { background: var(--accent); }
+  .bar-warn      { background: var(--warn); }
+  .bar-danger    { background: var(--danger); }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+
+  .meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .refresh-btn {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    padding: 2px 4px; border-radius: 4px;
+    font-size: 10px;
+    transition: color .15s, background .15s;
+  }
+  .refresh-btn:hover { color: var(--text); background: var(--bar-bg); }
+
+  .settings-wrap { margin-top: 10px; }
+
+  .settings-toggle {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    font-size: 10px; padding: 2px 4px; border-radius: 4px;
+    transition: color .15s;
+  }
+  .settings-toggle:hover { color: var(--text); }
+
+  .settings-panel {
+    display: none;
+    margin-top: 10px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .settings-panel.open { display: flex; }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+
+  .field label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .field input, .field select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12px;
+    padding: 5px 8px;
+    outline: none;
+    width: 100%;
+    transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent2); }
+  .field input[type="password"] { letter-spacing: 2px; }
+
+  .hint {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.4;
+    padding: 6px 8px;
+    background: rgba(31,111,235,.08);
+    border: 1px solid rgba(31,111,235,.2);
+    border-radius: 6px;
+  }
+
+  .save-btn {
+    background: var(--accent);
+    border: none; border-radius: 6px;
+    color: #fff; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+    padding: 6px 0; width: 100%;
+    transition: opacity .15s;
+  }
+  .save-btn:hover { opacity: .85; }
+
+  .error-msg {
+    font-size: 11px; color: var(--danger);
+    display: none;
+    padding: 6px 8px;
+    background: rgba(218,54,51,.1);
+    border-radius: 6px;
+    border: 1px solid rgba(218,54,51,.3);
+    margin-top: 10px;
+  }
+  .error-msg.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div class="badge">
+  <div class="badge-header">
+    <div class="badge-title">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="var(--muted)">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+          0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+          -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+          .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+          -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27
+          .68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+          .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+          0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+      GitHub SKU Budget
+    </div>
+    <div class="status-dot loading" id="dot"></div>
+  </div>
+
+  <!-- Heute verbraucht -->
+  <div class="sku-block">
+    <div class="sku-label-row">
+      <span class="sku-label">Heute verbraucht</span>
+      <span class="sku-value" id="val-today">—</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill bar-today" id="bar-today" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Monat gesamt -->
+  <div class="sku-block">
+    <div class="sku-label-row">
+      <span class="sku-label">Monat bisher</span>
+      <span class="sku-value" id="val-month">—</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill bar-remaining" id="bar-month" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Noch verfügbar -->
+  <div class="sku-block">
+    <div class="sku-label-row">
+      <span class="sku-label">Noch verfügbar</span>
+      <span class="sku-value" id="val-remain">—</span>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill bar-remaining" id="bar-remain" style="width:100%"></div>
+    </div>
+  </div>
+
+  <div id="err-msg" class="error-msg"></div>
+
+  <hr class="divider">
+
+  <div class="meta-row">
+    <span id="last-update">Noch nicht geladen</span>
+    <button class="refresh-btn" onclick="fetchData()">↻ Aktualisieren</button>
+  </div>
+
+  <div class="settings-wrap">
+    <button class="settings-toggle" onclick="toggleSettings()">⚙ Einstellungen</button>
+    <div class="settings-panel" id="settings">
+
+      <div class="hint">
+        Benötigt ein <strong>Fine-grained PAT</strong> mit:<br>
+        • User-Konto → Permission: <em>Plan (read)</em><br>
+        • Organisation → Permission: <em>Administration (read)</em>
+      </div>
+
+      <div class="field">
+        <label>GitHub PAT (Token)</label>
+        <input type="password" id="inp-token" placeholder="github_pat_..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Account-Typ</label>
+        <select id="inp-type">
+          <option value="user">User (persönlich)</option>
+          <option value="org">Organisation</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Username / Org-Name</label>
+        <input type="text" id="inp-name" placeholder="z.B. octocat">
+      </div>
+      <div class="field">
+        <label>Produkt-Filter</label>
+        <select id="inp-product">
+          <option value="">Alle Produkte</option>
+          <option value="actions">Actions</option>
+          <option value="copilot">Copilot</option>
+          <option value="packages">Packages</option>
+          <option value="shared_storage">Shared Storage</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Monatsbudget ($)</label>
+        <input type="number" id="inp-budget" placeholder="z.B. 10" min="0" step="0.01">
+      </div>
+      <div class="field">
+        <label>Auto-Update Interval</label>
+        <select id="inp-interval">
+          <option value="60000">1 Minute</option>
+          <option value="300000" selected>5 Minuten</option>
+          <option value="600000">10 Minuten</option>
+          <option value="1800000">30 Minuten</option>
+        </select>
+      </div>
+      <button class="save-btn" onclick="saveAndFetch()">Speichern & Laden</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const LS = 'gh_sku_badge_v2';
+let timer = null;
+
+const fmt = n => '$' + n.toFixed(4).replace(/\.?0+$/, '') || '$0';
+
+function cfg() {
+  try { return JSON.parse(localStorage.getItem(LS) || '{}'); } catch { return {}; }
+}
+function saveCfg(o) { localStorage.setItem(LS, JSON.stringify(o)); }
+
+function loadInputs() {
+  const c = cfg();
+  if (c.token)    document.getElementById('inp-token').value    = c.token;
+  if (c.type)     document.getElementById('inp-type').value     = c.type;
+  if (c.name)     document.getElementById('inp-name').value     = c.name;
+  if (c.product)  document.getElementById('inp-product').value  = c.product;
+  if (c.budget)   document.getElementById('inp-budget').value   = c.budget;
+  if (c.interval) document.getElementById('inp-interval').value = c.interval;
+}
+
+function saveAndFetch() {
+  saveCfg({
+    token:    document.getElementById('inp-token').value.trim(),
+    type:     document.getElementById('inp-type').value,
+    name:     document.getElementById('inp-name').value.trim(),
+    product:  document.getElementById('inp-product').value,
+    budget:   parseFloat(document.getElementById('inp-budget').value) || 0,
+    interval: document.getElementById('inp-interval').value,
+  });
+  document.getElementById('settings').classList.remove('open');
+  startAutoRefresh();
+  fetchData();
+}
+
+function toggleSettings() {
+  document.getElementById('settings').classList.toggle('open');
+}
+
+function setDot(s) {
+  document.getElementById('dot').className = 'status-dot' + (s ? ' ' + s : '');
+}
+
+function showError(msg) {
+  const el = document.getElementById('err-msg');
+  el.textContent = msg;
+  el.classList.add('visible');
+  setDot('error');
+}
+
+function clearError() {
+  document.getElementById('err-msg').classList.remove('visible');
+}
+
+function setBar(id, pct) {
+  const el = document.getElementById(id);
+  const p = Math.max(0, Math.min(100, pct));
+  el.style.width = p + '%';
+  // colour: green → yellow → red
+  el.className = 'bar-fill ' + (p > 90 ? 'bar-danger' : p > 70 ? 'bar-warn' : 'bar-remaining');
+}
+
+function sumNet(items) {
+  return (items || []).reduce((s, i) => s + (i.netAmount ?? i.grossAmount ?? 0), 0);
+}
+
+async function ghFetch(path, token) {
+  const r = await fetch('https://api.github.com' + path, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    }
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(`${r.status}: ${j.message || r.statusText}`);
+  }
+  return r.json();
+}
+
+async function fetchData() {
+  clearError();
+  setDot('loading');
+
+  const c = cfg();
+  if (!c.token || !c.name) {
+    showError('Einstellungen öffnen → Token & Username eintragen.');
+    return;
+  }
+
+  const now   = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const day   = now.getDate();
+
+  const base = c.type === 'org'
+    ? `/organizations/${c.name}/settings/billing/usage`
+    : `/users/${c.name}/settings/billing/usage`;
+
+  const productParam = c.product ? `&product=${c.product}` : '';
+
+  try {
+    const [todayData, monthData] = await Promise.all([
+      ghFetch(`${base}?year=${year}&month=${month}&day=${day}${productParam}`, c.token),
+      ghFetch(`${base}?year=${year}&month=${month}${productParam}`, c.token),
+    ]);
+
+    const todayCost = sumNet(todayData.usageItems);
+    const monthCost = sumNet(monthData.usageItems);
+    const budget    = c.budget || 0;
+    const remain    = Math.max(0, budget - monthCost);
+
+    // Heute-Balken: verhältnis zu tagesanteil des budgets
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const dailyBudget = budget > 0 ? budget / daysInMonth : 0;
+    const todayPct  = dailyBudget > 0 ? (todayCost / dailyBudget) * 100 : 0;
+
+    // Monat-Balken: gegen Gesamtbudget
+    const monthPct  = budget > 0 ? (monthCost / budget) * 100 : 0;
+
+    // Verfügbar-Balken
+    const remainPct = budget > 0 ? (remain / budget) * 100 : 100;
+
+    document.getElementById('val-today').textContent =
+      todayCost > 0 ? fmt(todayCost) : '$0.00';
+    document.getElementById('val-month').textContent =
+      monthCost > 0 ? fmt(monthCost) + (budget > 0 ? ` / $${budget}` : '') : '$0.00';
+    document.getElementById('val-remain').textContent =
+      budget > 0 ? fmt(remain) : 'Kein Budget gesetzt';
+
+    // Heute-Balken bleibt blau
+    const todayEl = document.getElementById('bar-today');
+    todayEl.style.width = Math.max(0, Math.min(100, todayPct)) + '%';
+
+    setBar('bar-month', monthPct);
+    setBar('bar-remain', remainPct);
+
+    document.getElementById('last-update').textContent =
+      'Aktualisiert ' + now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    setDot('');
+
+  } catch (e) {
+    showError('API Fehler – ' + e.message);
+  }
+}
+
+function startAutoRefresh() {
+  if (timer) clearInterval(timer);
+  const ms = parseInt(cfg().interval || '300000', 10);
+  timer = setInterval(fetchData, ms);
+}
+
+loadInputs();
+startAutoRefresh();
+
+const c = cfg();
+if (c.token && c.name) {
+  fetchData();
+} else {
+  setDot('error');
+  document.getElementById('settings').classList.add('open');
+  showError('Einstellungen öffnen → Token & Username eintragen.');
+}
+</script>
+</body>
+</html>
