@@ -5,13 +5,16 @@ import Combine
 final class AppState: ObservableObject {
 
     // MARK: - Published state
-    @Published var todayCost:   Double = 0
-    @Published var monthCost:   Double = 0
-    @Published var dailyUsage:  [DailyUsage] = []
-    @Published var isLoading:   Bool = false
-    @Published var errorMsg:    String?
-    @Published var lastUpdate:  Date?
-    @Published var showSettings: Bool = false
+    @Published var todayCost:        Double = 0
+    @Published var monthCost:        Double = 0
+    @Published var dailyUsage:       [DailyUsage] = []
+    @Published var isLoading:        Bool = false
+    @Published var errorMsg:         String?
+    @Published var lastUpdate:       Date?
+    @Published var showSettings:     Bool = false
+    @Published var showStats:        Bool = false
+    @Published var historicalMonths: [MonthlyUsage] = []
+    @Published var isLoadingHistory: Bool = false
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
@@ -146,5 +149,63 @@ final class AppState: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    // MARK: - History fetch (for Statistics view)
+
+    func loadHistory(year: Int) async {
+        guard !settings.token.isEmpty, !settings.name.isEmpty else { return }
+
+        isLoadingHistory = true
+        historicalMonths = []
+
+        let token       = settings.token
+        let accountType = settings.accountType
+        let name        = settings.name
+        let product     = settings.product.isEmpty ? nil : settings.product
+
+        let cal          = Calendar.current
+        let currentYear  = cal.component(.year,  from: Date())
+        let currentMonth = cal.component(.month, from: Date())
+        let maxMonth     = (year == currentYear) ? currentMonth : 12
+
+        var results: [MonthlyUsage] = []
+
+        await withTaskGroup(of: MonthlyUsage.self) { group in
+            for m in 1...maxMonth {
+                group.addTask {
+                    do {
+                        let items = try await GitHubService().fetchUsage(
+                            token: token, accountType: accountType,
+                            name: name, product: product,
+                            year: year, month: m
+                        )
+                        let total = items.reduce(0) { $0 + $1.cost }
+                        var byProduct: [String: Double] = [:]
+                        for item in items {
+                            let p = item.product ?? "Sonstige"
+                            byProduct[p, default: 0] += item.cost
+                        }
+                        return MonthlyUsage(
+                            id: "\(year)-\(String(format: "%02d", m))",
+                            year: year, month: m,
+                            total: total, byProduct: byProduct
+                        )
+                    } catch {
+                        return MonthlyUsage(
+                            id: "\(year)-\(String(format: "%02d", m))",
+                            year: year, month: m,
+                            total: 0, byProduct: [:]
+                        )
+                    }
+                }
+            }
+            for await result in group {
+                results.append(result)
+            }
+        }
+
+        historicalMonths = results.sorted { $0.month < $1.month }
+        isLoadingHistory = false
     }
 }

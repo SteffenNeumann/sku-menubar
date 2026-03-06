@@ -61,6 +61,34 @@ struct ContentView: View {
     @State private var refreshRotation: Double = 0
 
     var body: some View {
+        ZStack {
+            // ── Dashboard page ───────────────────────────────────────
+            if !state.showStats {
+                dashboardPage
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal:   .move(edge: .leading).combined(with: .opacity)
+                    ))
+            }
+
+            // ── Statistics page ──────────────────────────────────────
+            if state.showStats {
+                StatisticsView()
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal:   .move(edge: .trailing).combined(with: .opacity)
+                    ))
+            }
+        }
+        .frame(width: 360)
+        .frame(minHeight: 220, maxHeight: 740)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: state.showStats)
+        .clipped()
+    }
+
+    // MARK: - Dashboard Page
+
+    private var dashboardPage: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 10) {
 
@@ -227,19 +255,38 @@ struct ContentView: View {
 
             Spacer()
 
-            Button {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                    state.showSettings.toggle()
+            HStack(spacing: 6) {
+                // Statistics button
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        state.showSettings = false
+                        state.showStats    = true
+                    }
+                } label: {
+                    Image(systemName: "chart.bar.xaxis.ascending")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(.primary.opacity(0.05), in: Circle())
                 }
-            } label: {
-                Image(systemName: state.showSettings ? "xmark.circle.fill" : "gearshape.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(state.showSettings ? .red.opacity(0.75) : .secondary)
-                    .frame(width: 28, height: 28)
-                    .background(.primary.opacity(0.05), in: Circle())
+                .buttonStyle(.plain)
+                .help("Statistiken")
+
+                // Settings button
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                        state.showSettings.toggle()
+                    }
+                } label: {
+                    Image(systemName: state.showSettings ? "xmark.circle.fill" : "gearshape.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(state.showSettings ? .red.opacity(0.75) : .secondary)
+                        .frame(width: 28, height: 28)
+                        .background(.primary.opacity(0.05), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(state.showSettings ? "Schließen" : "Einstellungen")
             }
-            .buttonStyle(.plain)
-            .help(state.showSettings ? "Schließen" : "Einstellungen")
         }
         .padding(.horizontal, 4)
         .padding(.bottom, 2)

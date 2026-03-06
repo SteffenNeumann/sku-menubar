@@ -53,6 +53,28 @@ struct DailyUsage: Identifiable {
     }
 }
 
+// MARK: - Monthly Aggregation
+
+struct MonthlyUsage: Identifiable {
+    let id: String          // "yyyy-MM"
+    let year: Int
+    let month: Int
+    let total: Double
+    let byProduct: [String: Double]
+
+    var shortName: String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "de_DE")
+        return df.shortMonthSymbols[month - 1]
+    }
+
+    var monthName: String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "de_DE")
+        return df.monthSymbols[month - 1]
+    }
+}
+
 // MARK: - Errors
 
 enum APIError: LocalizedError {
