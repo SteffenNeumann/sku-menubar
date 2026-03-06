@@ -61,6 +61,7 @@ struct MonthlyUsage: Identifiable {
     let month: Int
     let total: Double
     let byProduct: [String: Double]
+    let byDay: [String: Double]     // "yyyy-MM-dd" -> amount
 
     var shortName: String {
         let df = DateFormatter()
@@ -72,6 +73,34 @@ struct MonthlyUsage: Identifiable {
         let df = DateFormatter()
         df.locale = Locale(identifier: "de_DE")
         return df.monthSymbols[month - 1]
+    }
+}
+
+// MARK: - Weekly / Daily (drill-down)
+
+struct WeeklyUsage: Identifiable {
+    let id: Int         // weekOfYear
+    let weekOfYear: Int
+    let total: Double
+    var label: String { "KW \(weekOfYear)" }
+}
+
+struct DayUsage: Identifiable {
+    let id: String      // "yyyy-MM-dd"
+    let date: Date
+    let amount: Double
+
+    var weekdayShort: String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "de_DE")
+        df.dateFormat = "EEE"
+        return String(df.string(from: date).prefix(2))
+    }
+
+    var dateShort: String {
+        let df = DateFormatter()
+        df.dateFormat = "d."
+        return df.string(from: date)
     }
 }
 

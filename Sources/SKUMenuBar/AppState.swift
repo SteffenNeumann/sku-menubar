@@ -182,20 +182,23 @@ final class AppState: ObservableObject {
                         )
                         let total = items.reduce(0) { $0 + $1.cost }
                         var byProduct: [String: Double] = [:]
+                        var byDay:     [String: Double] = [:]
+                        func dk(_ raw: String) -> String { String(raw.prefix(10)) }
                         for item in items {
                             let p = item.product ?? "Sonstige"
                             byProduct[p, default: 0] += item.cost
+                            if let ds = item.date { byDay[dk(ds), default: 0] += item.cost }
                         }
                         return MonthlyUsage(
                             id: "\(year)-\(String(format: "%02d", m))",
                             year: year, month: m,
-                            total: total, byProduct: byProduct
+                            total: total, byProduct: byProduct, byDay: byDay
                         )
                     } catch {
                         return MonthlyUsage(
                             id: "\(year)-\(String(format: "%02d", m))",
                             year: year, month: m,
-                            total: 0, byProduct: [:]
+                            total: 0, byProduct: [:], byDay: [:]
                         )
                     }
                 }
