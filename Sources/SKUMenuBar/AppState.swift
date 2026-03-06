@@ -96,6 +96,7 @@ final class AppState: ObservableObject {
             )
             let (fetchedToday, fetchedMonth) = try await (todayItems, monthItems)
 
+
             // Today: direkt aus dem day=-Call summieren (identisch zur HTML-Version)
             todayCost = fetchedToday.reduce(0) { $0 + $1.cost }
 

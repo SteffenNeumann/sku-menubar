@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Glassmorphism background
+// MARK: - NSVisualEffect background (blurs the desktop behind the panel)
 
 struct VisualEffectBackground: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .popover
@@ -20,117 +20,228 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
+// MARK: - Reusable Glass Card modifier
+
+struct GlassCard: ViewModifier {
+    var cornerRadius: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.22),
+                                Color.white.opacity(0.06)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.5
+                    )
+            )
+    }
+}
+
+extension View {
+    func glassCard(cornerRadius: CGFloat = 12) -> some View {
+        modifier(GlassCard(cornerRadius: cornerRadius))
+    }
+}
+
 // MARK: - Content
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    @State private var refreshRotation: Double = 0
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 10) {
 
-                // ── Header ───────────────────────────────────────────────
-                HStack(spacing: 8) {
-                    Image(systemName: "eurosign.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.blue)
-                    Text("SKU Budget")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    if state.isLoading {
-                        ProgressView().scaleEffect(0.55).frame(width: 14, height: 14)
-                    } else if state.errorMsg != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(.red).font(.system(size: 12))
-                    } else {
-                        Circle().fill(.green).frame(width: 7, height: 7)
-                    }
-                    Button {
-                        Task { await state.refresh() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Aktualisieren")
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+                // ── Header ──────────────────────────────────────────────
+                headerCard
 
-                glassDiv
-
-                // ── Budget bars ──────────────────────────────────────────
+                // ── Budget ──────────────────────────────────────────────
                 BudgetBarsView()
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
 
-                // ── Error ────────────────────────────────────────────────
+                // ── Error ───────────────────────────────────────────────
                 if let err = state.errorMsg {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange).font(.system(size: 11))
-                        Text(err)
-                            .font(.system(size: 11))
-                            .lineLimit(2)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
+                    errorCard(err)
                 }
 
-                glassDiv
-
-                // ── Habit tracker ────────────────────────────────────────
-                // Extra padding-top damit Hover-Popups der 1. Zeile nicht abgeschnitten werden
+                // ── Habit grid ──────────────────────────────────────────
                 HabitGridView(days: state.dailyUsage)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-                    .padding(.bottom, 14)
+                    .padding(14)
+                    .glassCard()
 
-                glassDiv
-
-                // ── Footer ───────────────────────────────────────────────
-                HStack {
-                    if let t = state.lastUpdate {
-                        Label(t.formatted(date: .omitted, time: .shortened), systemImage: "clock")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        Text("Noch nicht geladen")
-                            .font(.system(size: 10)).foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                    Button { state.showSettings.toggle() } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain).help("Einstellungen")
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                // ── Settings ─────────────────────────────────────────────
+                // ── Settings (inline expandable) ────────────────────────
                 if state.showSettings {
-                    glassDiv
                     SettingsFormView()
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
+                        .padding(14)
+                        .glassCard()
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal:   .move(edge: .top).combined(with: .opacity)
+                        ))
                 }
+
+                // ── Footer ──────────────────────────────────────────────
+                footerRow
             }
+            .padding(12)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.showSettings)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.errorMsg != nil)
         }
-        .frame(width: 330)
-        .frame(minHeight: 200, maxHeight: 660)
+        .frame(width: 360)
+        .frame(minHeight: 220, maxHeight: 740)
         .background(VisualEffectBackground())
     }
 
-    // Hauch-Trennlinie im Glas-Stil
-    private var glassDiv: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(height: 0.5)
+    // MARK: - Header Card
+
+    private var headerCard: some View {
+        HStack(spacing: 12) {
+
+            // Gradient icon badge
+            ZStack {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(
+                        LinearGradient(
+                            colors: [.blue, Color(hue: 0.62, saturation: 0.8, brightness: 0.9)],
+                            startPoint: .topLeading,
+                            endPoint:   .bottomTrailing
+                        )
+                    )
+                    .frame(width: 34, height: 34)
+                    .shadow(color: .blue.opacity(0.45), radius: 6, y: 3)
+
+                Image(systemName: "dollarsign")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+
+            // Title
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SKU Budget")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("GitHub Billing Monitor")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            // Status indicator
+            statusIndicator
+
+            // Refresh button
+            Button {
+                withAnimation(.linear(duration: 0.6)) { refreshRotation += 360 }
+                Task { await state.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(refreshRotation))
+                    .frame(width: 30, height: 30)
+                    .background(.primary.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Aktualisieren")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .glassCard()
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if state.isLoading {
+            ProgressView()
+                .scaleEffect(0.65)
+                .frame(width: 18, height: 18)
+        } else if state.errorMsg != nil {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.red)
+                .font(.system(size: 14))
+        } else {
+            ZStack {
+                Circle()
+                    .fill(.green.opacity(0.25))
+                    .frame(width: 16, height: 16)
+                Circle()
+                    .fill(.green)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: .green.opacity(0.7), radius: 4)
+            }
+        }
+    }
+
+    // MARK: - Error Card
+
+    private func errorCard(_ msg: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.system(size: 13))
+            Text(msg)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary.opacity(0.85))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.orange.opacity(0.35), lineWidth: 0.5)
+        )
+    }
+
+    // MARK: - Footer
+
+    private var footerRow: some View {
+        HStack {
+            if let t = state.lastUpdate {
+                Label(
+                    t.formatted(date: .omitted, time: .shortened),
+                    systemImage: "clock"
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            } else {
+                Text("Noch nicht geladen")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    state.showSettings.toggle()
+                }
+            } label: {
+                Image(systemName: state.showSettings ? "xmark.circle.fill" : "gearshape.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(state.showSettings ? .red.opacity(0.75) : .secondary)
+                    .frame(width: 28, height: 28)
+                    .background(.primary.opacity(0.05), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(state.showSettings ? "Schließen" : "Einstellungen")
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 2)
     }
 }

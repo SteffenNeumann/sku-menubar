@@ -14,12 +14,12 @@ struct SKUMenuBarApp: App {
                     ? "arrow.clockwise"
                     : state.errorMsg != nil
                         ? "exclamationmark.circle.fill"
-                        : "eurosign.circle.fill")
+                        : "dollarsign.circle.fill")
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(state.errorMsg != nil ? .red : .primary)
 
                 if state.todayCost > 0.005 {
-                    Text(String(format: "€%.2f", state.todayCost))
+                    Text(String(format: "$%.2f", state.todayCost))
                         .font(.system(size: 11, design: .monospaced))
                 }
             }
