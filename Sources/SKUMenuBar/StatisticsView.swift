@@ -27,7 +27,7 @@ struct StatisticsView: View {
 
     private var months: [MonthlyUsage] { state.historicalMonths }
 
-    private var yearTotal:     Double { months.reduce(0) { $0 + $1.total } }
+    private var yearTotal:     Double { months.reduce(0) { $0 + $1.total } + state.claudeYearCost }
     private var activeMonths:  [MonthlyUsage] { months.filter { $0.total > 0 } }
     private var avgMonthly:    Double { activeMonths.isEmpty ? 0 : yearTotal / Double(activeMonths.count) }
     private var peakMonth:     MonthlyUsage? { months.max(by: { $0.total < $1.total }) }
@@ -41,7 +41,11 @@ struct StatisticsView: View {
     private var allProducts: [(name: String, amount: Double)] {
         var combined: [String: Double] = [:]
         for m in months { for (p, v) in m.byProduct { combined[p, default: 0] += v } }
-        return combined.map { (name: $0.key, amount: $0.value) }.sorted { $0.amount > $1.amount }
+        // Add Claude year cost as virtual product
+        if state.claudeYearCost > 0 { combined["Claude (Anthropic API)"] = state.claudeYearCost }
+        return combined.map { (name: $0.key, amount: $0.value) }
+            .filter { $0.amount > 0 }
+            .sorted { $0.amount > $1.amount }
     }
 
     private var trendData: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)? {
@@ -718,7 +722,8 @@ struct StatisticsView: View {
 
     private func productIcon(for product: String) -> String {
         switch product.lowercased() {
-        case let p where p.contains("copilot"):   return "sparkles"
+        case let p where p.contains("claude"):    return "sparkles"
+        case let p where p.contains("copilot"):   return "person.fill.checkmark"
         case let p where p.contains("action"):    return "bolt.fill"
         case let p where p.contains("package"):   return "shippingbox.fill"
         case let p where p.contains("codespace"): return "desktopcomputer"
@@ -727,8 +732,12 @@ struct StatisticsView: View {
         }
     }
 
-    private func fmt(_ v: Double) -> String { String(format: "$%.2f", v) }
+    private func fmt(_ v: Double) -> String { state.fmt(v) }
     private func fmtShort(_ v: Double) -> String {
-        v >= 100 ? String(format: "$%.0f", v) : v >= 1 ? String(format: "$%.1f", v) : String(format: "$%.2f", v)
+        let s = state.currencySymbol
+        let val = state.settings.currency == "EUR" ? v * state.settings.eurRate : v
+        return val >= 100 ? s + String(format: "%.0f", val)
+             : val >= 1   ? s + String(format: "%.1f", val)
+             :               s + String(format: "%.2f", val)
     }
 }

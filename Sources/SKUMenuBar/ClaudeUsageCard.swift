@@ -88,7 +88,7 @@ struct ClaudeUsageCard: View {
             if state.claudeIsLoading {
                 ProgressView().scaleEffect(0.6)
             } else {
-                Button { Task { await state.refreshClaude() } } label: {
+                Button { Task { await state.refreshClaude(force: true) } } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -155,7 +155,7 @@ struct ClaudeUsageCard: View {
 
     // MARK: - Helpers
 
-    private func fmt(_ v: Double) -> String { String(format: "$%.3f", v) }
+    private func fmt(_ v: Double) -> String { state.fmt(v, decimals: 3) }
 
     private func fmtTokens(_ n: Int) -> String {
         n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1_000_000)

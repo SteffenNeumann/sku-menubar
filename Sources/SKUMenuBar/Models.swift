@@ -12,37 +12,101 @@ struct GitHubSettings: Codable {
     // Claude / Anthropic
     var anthropicAdminKey: String = ""
     var anthropicOrgId:    String = ""
+    // Currency
+    var currency: String = "USD"       // "USD" | "EUR"
+    var eurRate:  Double = 0.92        // USD → EUR exchange rate
+
+    init() {}
+
+    // Custom decoder: use decodeIfPresent so missing keys fall back to defaults
+    // (needed when loading settings saved by an older version of the app)
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token             = (try? c.decodeIfPresent(String.self, forKey: .token))            ?? ""
+        accountType       = (try? c.decodeIfPresent(String.self, forKey: .accountType))      ?? "user"
+        name              = (try? c.decodeIfPresent(String.self, forKey: .name))             ?? ""
+        product           = (try? c.decodeIfPresent(String.self, forKey: .product))          ?? ""
+        budget            = (try? c.decodeIfPresent(Double.self, forKey: .budget))           ?? 10.0
+        intervalSeconds   = (try? c.decodeIfPresent(Int.self,    forKey: .intervalSeconds))  ?? 300
+        anthropicAdminKey = (try? c.decodeIfPresent(String.self, forKey: .anthropicAdminKey)) ?? ""
+        anthropicOrgId    = (try? c.decodeIfPresent(String.self, forKey: .anthropicOrgId))   ?? ""
+        currency          = (try? c.decodeIfPresent(String.self, forKey: .currency))         ?? "USD"
+        eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
+    }
 }
 
 // MARK: - Anthropic API Models
 
+/// Top-level response: array of time buckets (paginated)
 struct AnthropicUsageResponse: Codable {
-    let data: [AnthropicUsageEntry]?
-}
-
-struct AnthropicUsageEntry: Codable {
-    let startTime:                  String?
-    let endTime:                    String?
-    let inputTokens:                Int?
-    let outputTokens:               Int?
-    let cacheReadInputTokens:       Int?
-    let cacheCreationInputTokens:   Int?
-    let costUsd:                    Double?
-
-    var totalTokens: Int {
-        (inputTokens ?? 0) + (outputTokens ?? 0) +
-        (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
-    }
+    let data:     [AnthropicUsageBucket]?
+    let hasMore:  Bool?
+    let nextPage: String?
 
     enum CodingKeys: String, CodingKey {
-        case startTime                = "start_time"
-        case endTime                  = "end_time"
-        case inputTokens              = "input_tokens"
-        case outputTokens             = "output_tokens"
-        case cacheReadInputTokens     = "cache_read_input_tokens"
-        case cacheCreationInputTokens = "cache_creation_input_tokens"
-        case costUsd                  = "cost_usd"
+        case data
+        case hasMore  = "has_more"
+        case nextPage = "next_page"
     }
+}
+
+/// One time bucket (e.g. 1-hour or 1-day window)
+struct AnthropicUsageBucket: Codable {
+    let startingAt: String?
+    let endingAt:   String?
+    let results:    [AnthropicUsageResult]?
+
+    enum CodingKeys: String, CodingKey {
+        case startingAt = "starting_at"
+        case endingAt   = "ending_at"
+        case results
+    }
+
+    var totalTokens: Int { (results ?? []).map(\.totalTokens).reduce(0, +) }
+}
+
+/// Per-model/key usage within a bucket
+struct AnthropicUsageResult: Codable {
+    let uncachedInputTokens:  Int?
+    let cacheReadInputTokens: Int?
+    let outputTokens:         Int?
+    let cacheCreation:        AnthropicCacheCreation?
+
+    enum CodingKeys: String, CodingKey {
+        case uncachedInputTokens  = "uncached_input_tokens"
+        case cacheReadInputTokens = "cache_read_input_tokens"
+        case outputTokens         = "output_tokens"
+        case cacheCreation        = "cache_creation"
+    }
+
+    var totalTokens: Int {
+        (uncachedInputTokens ?? 0) +
+        (cacheReadInputTokens ?? 0) +
+        (outputTokens ?? 0) +
+        (cacheCreation?.total ?? 0)
+    }
+
+    /// Approximate USD cost using Sonnet list prices (no model field in response)
+    /// Input (uncached) $3/MTok, cache-read $0.30/MTok, cache-write $3.75/MTok, output $15/MTok
+    var estimatedCostUsd: Double {
+        let inp  = Double(uncachedInputTokens  ?? 0) * 3.00   / 1_000_000
+        let cr   = Double(cacheReadInputTokens ?? 0) * 0.30   / 1_000_000
+        let cw   = Double(cacheCreation?.total ?? 0) * 3.75   / 1_000_000
+        let out  = Double(outputTokens         ?? 0) * 15.00  / 1_000_000
+        return inp + cr + cw + out
+    }
+}
+
+struct AnthropicCacheCreation: Codable {
+    let ephemeral1hInputTokens: Int?
+    let ephemeral5mInputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case ephemeral1hInputTokens = "ephemeral_1h_input_tokens"
+        case ephemeral5mInputTokens = "ephemeral_5m_input_tokens"
+    }
+
+    var total: Int { (ephemeral1hInputTokens ?? 0) + (ephemeral5mInputTokens ?? 0) }
 }
 
 // MARK: - API Response

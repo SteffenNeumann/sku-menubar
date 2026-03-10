@@ -3,6 +3,7 @@ import SwiftUI
 /// 28-day contribution-style heat map grid (4 weeks × 7 days).
 struct HabitGridView: View {
     let days: [DailyUsage]
+    @EnvironmentObject var state: AppState
 
     @State private var hoveredId: String?
 
@@ -124,7 +125,5 @@ struct HabitGridView: View {
         )
     }
 
-    private func fmt(_ v: Double) -> String {
-        String(format: "$%.2f", v)
-    }
+    private func fmt(_ v: Double) -> String { state.fmt(v) }
 }

@@ -187,7 +187,5 @@ struct BudgetBarsView: View {
         pct < 0.2 ? .red : pct < 0.4 ? .orange : .green
     }
 
-    private func fmt(_ v: Double) -> String {
-        String(format: "$%.2f", v)
-    }
+    private func fmt(_ v: Double) -> String { state.fmt(v) }
 }

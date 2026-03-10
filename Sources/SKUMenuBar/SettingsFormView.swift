@@ -54,6 +54,24 @@ struct SettingsFormView: View {
                 }
             }
 
+            // ── Währung ─────────────────────────────────────────────
+            settingsSection(title: "Währung") {
+                HStack(spacing: 8) {
+                    inputField("Anzeige") {
+                        Picker("", selection: $draft.currency) {
+                            Text("USD ($)").tag("USD")
+                            Text("EUR (€)").tag("EUR")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                    inputField("EUR/USD Kurs") {
+                        TextField("0.92", value: $draft.eurRate, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+
             // ── Budget & Filter ─────────────────────────────────────
             settingsSection(title: "Budget & Filter") {
                 inputField("Produkt-Filter") {

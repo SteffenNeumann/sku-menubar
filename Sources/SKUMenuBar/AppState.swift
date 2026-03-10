@@ -29,10 +29,20 @@ final class AppState: ObservableObject {
     @Published var claudeMonthTokens:  Int = 0
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
+    @Published var claudeLastUpdate: Date?
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
         didSet { persist(); reschedule() }
+    }
+
+    // MARK: - Currency formatting
+    var currencySymbol: String { settings.currency == "EUR" ? "€" : "$" }
+
+    func fmt(_ usd: Double, decimals: Int = 2) -> String {
+        let v = settings.currency == "EUR" ? usd * settings.eurRate : usd
+        let spec = "%.\(decimals)f"
+        return currencySymbol + String(format: spec, v)
     }
 
     // MARK: - Derived
@@ -46,7 +56,8 @@ final class AppState: ObservableObject {
 
     // MARK: - Private
     private let service = GitHubService()
-    private let ud      = UserDefaults.standard
+    // Use named suite so settings persist across binary vs .app bundle changes
+    private let ud      = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let key     = "gh_sku_settings_v2"
     private var timer:  Timer?
 
@@ -191,7 +202,7 @@ final class AppState: ObservableObject {
             Task { await self.fetchYearCost(year: _y, upToMonth: _m) }
 
         } catch {
-            errorMsg = error.localizedDescription
+            errorMsg = "GitHub: \(error.localizedDescription)"
         }
 
         isLoading = false
@@ -285,11 +296,15 @@ final class AppState: ObservableObject {
 
     // MARK: - Claude usage fetch
 
-    func refreshClaude() async {
+    func refreshClaude(force: Bool = false) async {
         let key   = settings.anthropicAdminKey
         let orgId = settings.anthropicOrgId
         guard !key.isEmpty, !orgId.isEmpty else {
             claudeError = "Anthropic Admin Key und Org-ID in Einstellungen eintragen"
+            return
+        }
+        // Rate-limit guard: max once per 15 minutes (Anthropic Admin API limit)
+        if let last = claudeLastUpdate, Date().timeIntervalSince(last) < 900, !force {
             return
         }
 
@@ -297,36 +312,46 @@ final class AppState: ObservableObject {
         claudeError     = nil
 
         let svc = AnthropicService()
-        let cal = Calendar.current
         let now = Date()
 
-        // Date helpers
-        let startOfDay   = cal.startOfDay(for: now)
-        let startOfWeek  = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
-        let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: now))!
-        let startOfYear  = cal.date(from: cal.dateComponents([.year], from: now))!
-        let endOfDay     = cal.date(byAdding: .day, value: 1, to: startOfDay)!
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = TimeZone(identifier: "UTC")!
 
+        let startOfDay   = utcCal.startOfDay(for: now)
+        let endNow       = now   // API only accepts past timestamps as ending_at
+        let startOfWeek  = utcCal.date(from: utcCal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? startOfDay
+        let startOfMonth = utcCal.date(from: utcCal.dateComponents([.year, .month], from: now)) ?? startOfDay
+        let startOfYear  = utcCal.date(from: utcCal.dateComponents([.year], from: now)) ?? startOfDay
+
+        // Use usage_report for both cost (costUsd) and token counts –
+        // avoids the cost_report endpoint which rejects same-day date ranges.
         do {
-            // Fetch today, week, month, year in parallel
-            async let todayItems  = svc.fetchUsage(adminKey: key, orgId: orgId, start: startOfDay,  end: endOfDay,    granularity: "hour")
-            async let weekItems   = svc.fetchUsage(adminKey: key, orgId: orgId, start: startOfWeek, end: endOfDay,    granularity: "day")
-            async let monthItems  = svc.fetchUsage(adminKey: key, orgId: orgId, start: startOfMonth,end: endOfDay,    granularity: "day")
-            async let yearItems   = svc.fetchUsage(adminKey: key, orgId: orgId, start: startOfYear, end: endOfDay,    granularity: "day")
+            async let uToday = svc.fetchUsage(adminKey: key, start: startOfDay,   end: endNow, bucketWidth: "1h")
+            async let uWeek  = svc.fetchUsage(adminKey: key, start: startOfWeek,  end: endNow, bucketWidth: "1d")
+            async let uMonth = svc.fetchUsage(adminKey: key, start: startOfMonth, end: endNow, bucketWidth: "1d")
+            async let uYear  = svc.fetchUsage(adminKey: key, start: startOfYear,  end: endNow, bucketWidth: "1d")
 
-            let (td, wk, mo, yr) = try await (todayItems, weekItems, monthItems, yearItems)
+            let (today, week, month, year) = try await (uToday, uWeek, uMonth, uYear)
 
-            claudeTodayCost   = td.compactMap(\.costUsd).reduce(0, +)
-            claudeWeekCost    = wk.compactMap(\.costUsd).reduce(0, +)
-            claudeMonthCost   = mo.compactMap(\.costUsd).reduce(0, +)
-            claudeYearCost    = yr.compactMap(\.costUsd).reduce(0, +)
-            claudeTodayTokens = td.map(\.totalTokens).reduce(0, +)
-            claudeMonthTokens = mo.map(\.totalTokens).reduce(0, +)
+            func cost(_ buckets: [AnthropicUsageBucket]) -> Double {
+                buckets.flatMap { $0.results ?? [] }.map(\.estimatedCostUsd).reduce(0, +)
+            }
+            func tokens(_ buckets: [AnthropicUsageBucket]) -> Int {
+                buckets.map(\.totalTokens).reduce(0, +)
+            }
+
+            claudeTodayCost   = cost(today)
+            claudeWeekCost    = cost(week)
+            claudeMonthCost   = cost(month)
+            claudeYearCost    = cost(year)
+            claudeTodayTokens = tokens(today)
+            claudeMonthTokens = tokens(month)
 
         } catch {
-            claudeError = error.localizedDescription
+            claudeError = "Anthropic: \(error.localizedDescription)"
         }
 
+        claudeLastUpdate = Date()
         claudeIsLoading = false
     }
 }

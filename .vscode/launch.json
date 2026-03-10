@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:sku-menubar}",
+      "name": "Debug SKUMenuBar",
+      "target": "SKUMenuBar",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug SKUMenuBar"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:sku-menubar}",
+      "name": "Release SKUMenuBar",
+      "target": "SKUMenuBar",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release SKUMenuBar"
+    }
+  ]
+}

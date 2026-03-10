@@ -9,44 +9,55 @@ struct SourceBreakdownCard: View {
     var period: Period = .month
 
     private var data: [String: Double] {
-        period == .today ? state.todayByProduct : state.monthByProduct
+        var d = period == .today ? state.todayByProduct : state.monthByProduct
+        // Add Claude/Anthropic costs as a virtual product
+        let claudeCost = period == .today ? state.claudeTodayCost : state.claudeMonthCost
+        if claudeCost > 0 { d["__claude__"] = claudeCost }
+        return d
     }
 
     private var total: Double { data.values.reduce(0, +) }
 
     private var sorted: [(product: String, amount: Double)] {
         data.map { (product: $0.key, amount: $0.value) }
+            .filter { $0.amount > 0 }
             .sorted { $0.amount > $1.amount }
     }
 
     // MARK: - Product metadata
 
     private func icon(for product: String) -> String {
-        switch product.lowercased() {
-        case let p where p.contains("copilot"):    return "sparkles"
+        switch product {
+        case "__claude__":                         return "sparkles"
+        default: switch product.lowercased() {
+        case let p where p.contains("copilot"):    return "person.fill.checkmark"
         case let p where p.contains("action"):     return "bolt.fill"
         case let p where p.contains("package"):    return "shippingbox.fill"
         case let p where p.contains("codespace"):  return "desktopcomputer"
         case let p where p.contains("storage"):    return "internaldrive.fill"
         case let p where p.contains("lfs"):        return "cylinder.split.1x2.fill"
         default:                                   return "square.grid.2x2.fill"
-        }
+        }}
     }
 
     private func color(for product: String) -> Color {
-        switch product.lowercased() {
-        case let p where p.contains("copilot"):    return .purple
+        switch product {
+        case "__claude__":                         return .purple
+        default: switch product.lowercased() {
+        case let p where p.contains("copilot"):    return .blue
         case let p where p.contains("action"):     return .orange
-        case let p where p.contains("package"):    return .blue
+        case let p where p.contains("package"):    return .teal
         case let p where p.contains("codespace"):  return .cyan
         case let p where p.contains("storage"):    return .green
-        case let p where p.contains("lfs"):        return .teal
+        case let p where p.contains("lfs"):        return .mint
         default:                                   return .secondary
-        }
+        }}
     }
 
     private func displayName(for product: String) -> String {
-        switch product.lowercased() {
+        switch product {
+        case "__claude__":                         return "Claude (Anthropic API)"
+        default: switch product.lowercased() {
         case let p where p.contains("copilot"):    return "GitHub Copilot"
         case let p where p.contains("action"):     return "GitHub Actions"
         case let p where p.contains("package"):    return "Packages"
@@ -54,6 +65,13 @@ struct SourceBreakdownCard: View {
         case let p where p.contains("storage"):    return "Storage"
         case let p where p.contains("lfs"):        return "Git LFS"
         default:                                   return product
+        }}
+    }
+
+    private func subtitle(for product: String) -> String {
+        switch product {
+        case "__claude__": return "anthropic admin api"
+        default:           return product
         }
     }
 
@@ -136,7 +154,7 @@ struct SourceBreakdownCard: View {
                     Text(displayName(for: product))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.primary)
-                    Text(product)
+                    Text(subtitle(for: product))
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -148,28 +166,32 @@ struct SourceBreakdownCard: View {
                     Text(fmt(amount))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
-                    Text("\(Int(pct * 100))%")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(clr.opacity(0.85))
+                    if sorted.count > 1 {
+                        Text("\(Int(pct * 100))%")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(clr.opacity(0.85))
+                    }
                 }
             }
 
-            // Progress bar
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.07))
-                    Capsule()
-                        .fill(LinearGradient(
-                            colors: [clr.opacity(0.55), clr.opacity(0.9)],
-                            startPoint: .leading, endPoint: .trailing
-                        ))
-                        .frame(width: geo.size.width * max(0, min(1, pct)))
-                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: pct)
+            // Progress bar — only useful with multiple products
+            if sorted.count > 1 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.07))
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [clr.opacity(0.55), clr.opacity(0.9)],
+                                startPoint: .leading, endPoint: .trailing
+                            ))
+                            .frame(width: geo.size.width * max(0, min(1, pct)))
+                            .animation(.spring(response: 0.55, dampingFraction: 0.8), value: pct)
+                    }
                 }
+                .frame(height: 4)
             }
-            .frame(height: 4)
         }
     }
 
-    private func fmt(_ v: Double) -> String { String(format: "$%.2f", v) }
+    private func fmt(_ v: Double) -> String { state.fmt(v) }
 }

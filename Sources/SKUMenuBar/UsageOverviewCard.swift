@@ -153,7 +153,7 @@ struct UsageOverviewCard: View {
 
     // MARK: - Helpers
 
-    private func fmt(_ v: Double) -> String { String(format: "$%.2f", v) }
+    private func fmt(_ v: Double) -> String { state.fmt(v) }
 
     private func barTint(_ pct: Double, _ base: Color) -> Color {
         pct > 0.9 ? .red : pct > 0.75 ? .orange : base
