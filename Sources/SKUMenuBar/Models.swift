@@ -9,6 +9,40 @@ struct GitHubSettings: Codable {
     var product: String = ""           // "" = all
     var budget: Double = 10.0
     var intervalSeconds: Int = 300
+    // Claude / Anthropic
+    var anthropicAdminKey: String = ""
+    var anthropicOrgId:    String = ""
+}
+
+// MARK: - Anthropic API Models
+
+struct AnthropicUsageResponse: Codable {
+    let data: [AnthropicUsageEntry]?
+}
+
+struct AnthropicUsageEntry: Codable {
+    let startTime:                  String?
+    let endTime:                    String?
+    let inputTokens:                Int?
+    let outputTokens:               Int?
+    let cacheReadInputTokens:       Int?
+    let cacheCreationInputTokens:   Int?
+    let costUsd:                    Double?
+
+    var totalTokens: Int {
+        (inputTokens ?? 0) + (outputTokens ?? 0) +
+        (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case startTime                = "start_time"
+        case endTime                  = "end_time"
+        case inputTokens              = "input_tokens"
+        case outputTokens             = "output_tokens"
+        case cacheReadInputTokens     = "cache_read_input_tokens"
+        case cacheCreationInputTokens = "cache_creation_input_tokens"
+        case costUsd                  = "cost_usd"
+    }
 }
 
 // MARK: - API Response

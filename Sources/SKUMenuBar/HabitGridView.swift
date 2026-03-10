@@ -7,6 +7,7 @@ struct HabitGridView: View {
     @State private var hoveredId: String?
 
     private var maxAmount: Double { days.map(\.amount).max() ?? 0 }
+    private var total28: Double { days.reduce(0) { $0 + $1.amount } }
 
     // Cell size tuned for 308 px available width inside the glass card
     // (360 window – 24 outer padding – 28 card padding = 308)
@@ -23,9 +24,12 @@ struct HabitGridView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer()
-                if maxAmount > 0 {
-                    Text("Max \(fmt(maxAmount))")
-                        .font(.system(size: 10))
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(fmt(total28))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    Text("Gesamt")
+                        .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
                 }
             }

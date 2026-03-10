@@ -80,8 +80,8 @@ struct ContentView: View {
                     ))
             }
         }
-        .frame(width: 360)
-        .frame(minHeight: 220, maxHeight: 740)
+        .frame(width: 380)
+        .frame(minHeight: 220, maxHeight: 880)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: state.showStats)
         .clipped()
     }
@@ -95,8 +95,19 @@ struct ContentView: View {
                 // ── Header ──────────────────────────────────────────────
                 headerCard
 
-                // ── Budget ──────────────────────────────────────────────
+                // ── Budget summary (heute + monat + verfügbar) ──────────
                 BudgetBarsView()
+
+                // ── Source breakdown by GitHub product (Copilot etc.) ────
+                SourceBreakdownCard(period: .month)
+
+                // ── Claude / Anthropic usage ──────────────────────────────
+                if !state.settings.anthropicAdminKey.isEmpty {
+                    ClaudeUsageCard()
+                }
+
+                // ── Usage Overview (session / weekly / day-month-year) ───
+                UsageOverviewCard()
 
                 // ── Error ───────────────────────────────────────────────
                 if let err = state.errorMsg {
@@ -126,8 +137,8 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.showSettings)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.errorMsg != nil)
         }
-        .frame(width: 360)
-        .frame(minHeight: 220, maxHeight: 740)
+        .frame(width: 380)
+        .frame(minHeight: 220, maxHeight: 880)
         .background(VisualEffectBackground())
     }
 

@@ -6,6 +6,7 @@ struct SettingsFormView: View {
     @State private var draft = GitHubSettings()
 
     var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: 16) {
 
             // ── Section header ──────────────────────────────────────
@@ -84,6 +85,34 @@ struct SettingsFormView: View {
                 }
             }
 
+            // ── Claude / Anthropic ──────────────────────────────────
+            settingsSection(title: "Claude (Anthropic Admin API)") {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.purple)
+                        .font(.system(size: 11))
+                    Text("Admin Key von console.anthropic.com → Admin keys\nOrg-ID aus den Organization-Einstellungen")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.purple.opacity(0.25), lineWidth: 0.5))
+
+                inputField("Anthropic Admin Key (sk-ant-admin01-…)") {
+                    SecureField("sk-ant-admin01-…", text: $draft.anthropicAdminKey)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                inputField("Organisation ID") {
+                    TextField("936e48e3-…", text: $draft.anthropicOrgId)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
             // ── Save ────────────────────────────────────────────────
             Button {
                 state.settings = draft
@@ -102,6 +131,7 @@ struct SettingsFormView: View {
         }
         .font(.system(size: 12))
         .onAppear { draft = state.settings }
+        } // ScrollView
     }
 
     // MARK: - Helpers

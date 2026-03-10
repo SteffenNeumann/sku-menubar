@@ -117,8 +117,8 @@ struct StatisticsView: View {
             .padding(12)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.isLoadingHistory)
         }
-        .frame(width: 360)
-        .frame(minHeight: 220, maxHeight: 740)
+        .frame(width: 380)
+        .frame(minHeight: 220, maxHeight: 880)
         .background(VisualEffectBackground())
         .task(id: selectedYear) {
             drillLevel   = .year
@@ -621,7 +621,11 @@ struct StatisticsView: View {
                 Label("Top Produkte", systemImage: "square.3.layers.3d.top.filled")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
-                Text("Jahrestotal").font(.system(size: 9)).foregroundStyle(.tertiary)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(fmt(yearTotal))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                    Text("Jahrestotal").font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
             }
             VStack(spacing: 9) {
                 ForEach(Array(top.enumerated()), id: \.offset) { i, pair in
@@ -640,7 +644,14 @@ struct StatisticsView: View {
 
         return VStack(spacing: 4) {
             HStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3, height: 14)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(color.opacity(0.18))
+                        .frame(width: 22, height: 22)
+                    Image(systemName: productIcon(for: name))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(color)
+                }
                 Text(name).font(.system(size: 10, weight: .medium)).lineLimit(1).foregroundStyle(.primary)
                 Spacer()
                 Text(fmt(amount))
@@ -704,6 +715,17 @@ struct StatisticsView: View {
     }
 
     // MARK: - Helpers
+
+    private func productIcon(for product: String) -> String {
+        switch product.lowercased() {
+        case let p where p.contains("copilot"):   return "sparkles"
+        case let p where p.contains("action"):    return "bolt.fill"
+        case let p where p.contains("package"):   return "shippingbox.fill"
+        case let p where p.contains("codespace"): return "desktopcomputer"
+        case let p where p.contains("storage"):   return "internaldrive.fill"
+        default:                                  return "square.grid.2x2.fill"
+        }
+    }
 
     private func fmt(_ v: Double) -> String { String(format: "$%.2f", v) }
     private func fmtShort(_ v: Double) -> String {
