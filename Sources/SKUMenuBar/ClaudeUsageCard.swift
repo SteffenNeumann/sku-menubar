@@ -58,6 +58,11 @@ struct ClaudeUsageCard: View {
                     Text("Tokens").font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
             }
+
+            // ── Plan Limits ──────────────────────────────────────────
+            if state.settings.claudeWeeklyTokenLimit > 0 {
+                planLimitsSection
+            }
         }
     }
 
@@ -161,5 +166,107 @@ struct ClaudeUsageCard: View {
         n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1_000_000)
         : n >= 1_000   ? String(format: "%.1fK", Double(n) / 1_000)
         : "\(n)"
+    }
+
+    // MARK: - Plan Limits Section
+
+    @ViewBuilder
+    private var planLimitsSection: some View {
+        let dailyLimit = state.settings.claudeWeeklyTokenLimit / 7
+        let weeklyLimit = state.settings.claudeWeeklyTokenLimit
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(height: 0.5)
+            .padding(.vertical, 10)
+        HStack(spacing: 6) {
+            Image(systemName: "gauge.medium")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text("Plan Limits")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.bottom, 8)
+        limitRow(label: "Aktuelle Sitzung (Heute)", icon: "sun.max.fill",
+                 tint: Color.orange, tokens: state.claudeTodayTokens,
+                 limit: dailyLimit, resetLabel: nil)
+        limitRow(label: "Diese Woche", icon: "calendar.badge.clock",
+                 tint: Color.blue, tokens: state.claudeWeekTokens,
+                 limit: weeklyLimit, resetLabel: nextMondayLabel())
+            .padding(.top, 8)
+    }
+
+    // MARK: - Limit Row
+
+    @ViewBuilder
+    private func limitRow(label: String, icon: String, tint: Color,
+                          tokens: Int, limit: Int, resetLabel: String?) -> some View {
+        let pct = limit > 0 ? Double(tokens) / Double(limit) : 0
+        let clampedPct = max(0, min(1, pct))
+        let remaining = max(0, limit - tokens)
+        let barColor: Color = pct >= 0.9 ? .red : pct >= 0.75 ? .orange : tint
+
+        VStack(alignment: .leading, spacing: 5) {
+            // Label + token count
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(barColor)
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(fmtTokens(tokens))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(barColor)
+            }
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                    Capsule()
+                        .fill(barColor)
+                        .frame(width: geo.size.width * clampedPct)
+                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: clampedPct)
+                }
+            }
+            .frame(height: 5)
+
+            // Footer: limit info + percentage
+            HStack(spacing: 0) {
+                Text("Limit \(fmtTokens(limit)) · verbleibend \(fmtTokens(remaining))")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                if let reset = resetLabel {
+                    Text(" · \(reset)")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Text(String(format: "%.0f%%", clampedPct * 100))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(barColor)
+            }
+        }
+    }
+
+    // MARK: - Next Monday
+
+    private func nextMondayLabel() -> String {
+        let cal = Calendar(identifier: .gregorian)
+        let today = Date()
+        // Find next Monday
+        var next = today
+        repeat {
+            next = cal.date(byAdding: .day, value: 1, to: next)!
+        } while cal.component(.weekday, from: next) != 2 // 2 = Monday
+
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "de_DE")
+        df.dateFormat = "EEE d. MMM"
+        return "Resets \(df.string(from: next))"
     }
 }

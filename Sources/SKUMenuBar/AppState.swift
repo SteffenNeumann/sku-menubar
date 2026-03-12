@@ -26,6 +26,7 @@ final class AppState: ObservableObject {
     @Published var claudeMonthCost:  Double = 0
     @Published var claudeYearCost:   Double = 0
     @Published var claudeTodayTokens:  Int = 0
+    @Published var claudeWeekTokens:   Int = 0
     @Published var claudeMonthTokens:  Int = 0
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
@@ -345,6 +346,7 @@ final class AppState: ObservableObject {
             claudeMonthCost   = cost(month)
             claudeYearCost    = cost(year)
             claudeTodayTokens = tokens(today)
+            claudeWeekTokens  = tokens(week)
             claudeMonthTokens = tokens(month)
 
         } catch {

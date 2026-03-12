@@ -15,6 +15,8 @@ struct GitHubSettings: Codable {
     // Currency
     var currency: String = "USD"       // "USD" | "EUR"
     var eurRate:  Double = 0.92        // USD → EUR exchange rate
+    // Plan limits
+    var claudeWeeklyTokenLimit: Int = 0  // 0 = deaktiviert
 
     init() {}
 
@@ -32,6 +34,7 @@ struct GitHubSettings: Codable {
         anthropicOrgId    = (try? c.decodeIfPresent(String.self, forKey: .anthropicOrgId))   ?? ""
         currency          = (try? c.decodeIfPresent(String.self, forKey: .currency))         ?? "USD"
         eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
+        claudeWeeklyTokenLimit = (try? c.decodeIfPresent(Int.self, forKey: .claudeWeeklyTokenLimit)) ?? 0
     }
 }
 

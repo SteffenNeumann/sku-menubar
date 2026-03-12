@@ -129,6 +129,11 @@ struct SettingsFormView: View {
                     TextField("936e48e3-…", text: $draft.anthropicOrgId)
                         .textFieldStyle(.roundedBorder)
                 }
+
+                inputField("Plan-Limit (Tokens/Woche, 0 = deaktiviert)") {
+                    TextField("5000000", value: $draft.claudeWeeklyTokenLimit, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             // ── Save ────────────────────────────────────────────────
