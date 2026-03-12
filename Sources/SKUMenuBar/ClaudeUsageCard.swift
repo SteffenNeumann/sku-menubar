@@ -59,10 +59,6 @@ struct ClaudeUsageCard: View {
                 }
             }
 
-            // ── Plan Limits ──────────────────────────────────────────
-            if state.settings.claudeWeeklyCostLimit > 0 {
-                planLimitsSection
-            }
         }
     }
 
@@ -168,101 +164,4 @@ struct ClaudeUsageCard: View {
         : "\(n)"
     }
 
-    // MARK: - Plan Limits Section
-
-    @ViewBuilder
-    private var planLimitsSection: some View {
-        let dailyLimit  = state.settings.claudeWeeklyCostLimit / 7
-        let weeklyLimit = state.settings.claudeWeeklyCostLimit
-        Rectangle()
-            .fill(Color.primary.opacity(0.08))
-            .frame(height: 0.5)
-            .padding(.vertical, 10)
-        HStack(spacing: 6) {
-            Image(systemName: "gauge.medium")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            Text("Plan Limits")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.bottom, 8)
-        limitRow(label: "Aktuelle Sitzung (Heute)", icon: "sun.max.fill",
-                 tint: Color.orange, amount: state.claudeTodayCost,
-                 limit: dailyLimit, resetLabel: nil)
-        limitRow(label: "Diese Woche", icon: "calendar.badge.clock",
-                 tint: Color.blue, amount: state.claudeWeekCost,
-                 limit: weeklyLimit, resetLabel: nextMondayLabel())
-            .padding(.top, 8)
-    }
-
-    // MARK: - Limit Row
-
-    @ViewBuilder
-    private func limitRow(label: String, icon: String, tint: Color,
-                          amount: Double, limit: Double, resetLabel: String?) -> some View {
-        let pct        = limit > 0 ? amount / limit : 0
-        let clampedPct = max(0, min(1, pct))
-        let remaining  = max(0, limit - amount)
-        let barColor: Color = pct >= 0.9 ? .red : pct >= 0.75 ? .orange : tint
-
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                    .foregroundStyle(barColor)
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text(fmt(amount))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(barColor)
-            }
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.08))
-                    Capsule()
-                        .fill(barColor)
-                        .frame(width: geo.size.width * clampedPct)
-                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: clampedPct)
-                }
-            }
-            .frame(height: 5)
-
-            HStack(spacing: 0) {
-                Text("Limit \(fmt(limit)) · verbleibend \(fmt(remaining))")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                if let reset = resetLabel {
-                    Text(" · \(reset)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Text(String(format: "%.0f%%", clampedPct * 100))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(barColor)
-            }
-        }
-    }
-
-    // MARK: - Next Monday
-
-    private func nextMondayLabel() -> String {
-        let cal = Calendar(identifier: .gregorian)
-        let today = Date()
-        // Find next Monday
-        var next = today
-        repeat {
-            next = cal.date(byAdding: .day, value: 1, to: next)!
-        } while cal.component(.weekday, from: next) != 2 // 2 = Monday
-
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "de_DE")
-        df.dateFormat = "EEE d. MMM"
-        return "Resets \(df.string(from: next))"
-    }
 }

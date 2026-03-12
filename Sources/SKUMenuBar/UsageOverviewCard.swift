@@ -7,15 +7,25 @@ struct UsageOverviewCard: View {
 
     // MARK: - Derived
 
+    private var claudeMode: Bool {
+        state.settings.claudeWeeklyCostLimit > 0
+    }
+
+    // GitHub mode
     private var dailyBudget: Double {
         guard state.settings.budget > 0 else { return 0 }
         let days = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
         return state.settings.budget / Double(days)
     }
-
-    private var todayPct:  Double { dailyBudget > 0 ? min(1, state.todayCost / dailyBudget) : 0 }
-    private var weekPct:   Double { state.weekPct }
+    private var todayPct:   Double { dailyBudget > 0 ? min(1, state.todayCost / dailyBudget) : 0 }
+    private var weekPct:    Double { state.weekPct }
     private var weekBudget: Double { state.weekBudget }
+
+    // Claude mode
+    private var claudeDailyLimit:  Double { state.settings.claudeWeeklyCostLimit / 7 }
+    private var claudeWeeklyLimit: Double { state.settings.claudeWeeklyCostLimit }
+    private var claudeTodayPct:    Double { claudeDailyLimit  > 0 ? min(1, state.claudeTodayCost / claudeDailyLimit)  : 0 }
+    private var claudeWeekPct:     Double { claudeWeeklyLimit > 0 ? min(1, state.claudeWeekCost  / claudeWeeklyLimit) : 0 }
 
     // MARK: - Body
 
@@ -30,6 +40,13 @@ struct UsageOverviewCard: View {
                 Text("Verbrauchsübersicht")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
+                if claudeMode {
+                    Text("Claude")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.purple.opacity(0.8))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.purple.opacity(0.12), in: Capsule())
+                }
             }
 
             // ── Current Session (Today) ───────────────────────────────
@@ -37,9 +54,9 @@ struct UsageOverviewCard: View {
                 label:  "Aktuelle Sitzung (Heute)",
                 icon:   "sun.max.fill",
                 tint:   .orange,
-                amount: state.todayCost,
-                limit:  dailyBudget,
-                pct:    todayPct
+                amount: claudeMode ? state.claudeTodayCost : state.todayCost,
+                limit:  claudeMode ? claudeDailyLimit      : dailyBudget,
+                pct:    claudeMode ? claudeTodayPct        : todayPct
             )
 
             // ── Weekly Limits ─────────────────────────────────────────
@@ -47,9 +64,9 @@ struct UsageOverviewCard: View {
                 label:  "Wöchentliches Limit",
                 icon:   "calendar.badge.clock",
                 tint:   .blue,
-                amount: state.weekCost,
-                limit:  weekBudget,
-                pct:    weekPct
+                amount: claudeMode ? state.claudeWeekCost : state.weekCost,
+                limit:  claudeMode ? claudeWeeklyLimit    : weekBudget,
+                pct:    claudeMode ? claudeWeekPct        : weekPct
             )
 
             // ── Divider ───────────────────────────────────────────────
