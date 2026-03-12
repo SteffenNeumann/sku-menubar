@@ -60,7 +60,7 @@ struct ClaudeUsageCard: View {
             }
 
             // ── Plan Limits ──────────────────────────────────────────
-            if state.settings.claudeWeeklyTokenLimit > 0 {
+            if state.settings.claudeWeeklyCostLimit > 0 {
                 planLimitsSection
             }
         }
@@ -172,8 +172,8 @@ struct ClaudeUsageCard: View {
 
     @ViewBuilder
     private var planLimitsSection: some View {
-        let dailyLimit = state.settings.claudeWeeklyTokenLimit / 7
-        let weeklyLimit = state.settings.claudeWeeklyTokenLimit
+        let dailyLimit  = state.settings.claudeWeeklyCostLimit / 7
+        let weeklyLimit = state.settings.claudeWeeklyCostLimit
         Rectangle()
             .fill(Color.primary.opacity(0.08))
             .frame(height: 0.5)
@@ -189,10 +189,10 @@ struct ClaudeUsageCard: View {
         }
         .padding(.bottom, 8)
         limitRow(label: "Aktuelle Sitzung (Heute)", icon: "sun.max.fill",
-                 tint: Color.orange, tokens: state.claudeTodayTokens,
+                 tint: Color.orange, amount: state.claudeTodayCost,
                  limit: dailyLimit, resetLabel: nil)
         limitRow(label: "Diese Woche", icon: "calendar.badge.clock",
-                 tint: Color.blue, tokens: state.claudeWeekTokens,
+                 tint: Color.blue, amount: state.claudeWeekCost,
                  limit: weeklyLimit, resetLabel: nextMondayLabel())
             .padding(.top, 8)
     }
@@ -201,14 +201,13 @@ struct ClaudeUsageCard: View {
 
     @ViewBuilder
     private func limitRow(label: String, icon: String, tint: Color,
-                          tokens: Int, limit: Int, resetLabel: String?) -> some View {
-        let pct = limit > 0 ? Double(tokens) / Double(limit) : 0
+                          amount: Double, limit: Double, resetLabel: String?) -> some View {
+        let pct        = limit > 0 ? amount / limit : 0
         let clampedPct = max(0, min(1, pct))
-        let remaining = max(0, limit - tokens)
+        let remaining  = max(0, limit - amount)
         let barColor: Color = pct >= 0.9 ? .red : pct >= 0.75 ? .orange : tint
 
         VStack(alignment: .leading, spacing: 5) {
-            // Label + token count
             HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 9))
@@ -217,16 +216,14 @@ struct ClaudeUsageCard: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.primary)
                 Spacer()
-                Text(fmtTokens(tokens))
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Text(fmt(amount))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(barColor)
             }
 
-            // Progress bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.primary.opacity(0.08))
+                    Capsule().fill(Color.primary.opacity(0.08))
                     Capsule()
                         .fill(barColor)
                         .frame(width: geo.size.width * clampedPct)
@@ -235,9 +232,8 @@ struct ClaudeUsageCard: View {
             }
             .frame(height: 5)
 
-            // Footer: limit info + percentage
             HStack(spacing: 0) {
-                Text("Limit \(fmtTokens(limit)) · verbleibend \(fmtTokens(remaining))")
+                Text("Limit \(fmt(limit)) · verbleibend \(fmt(remaining))")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                 if let reset = resetLabel {

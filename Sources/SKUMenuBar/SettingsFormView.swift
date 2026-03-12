@@ -130,8 +130,8 @@ struct SettingsFormView: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                inputField("Plan-Limit (Tokens/Woche, 0 = deaktiviert)") {
-                    TextField("5000000", value: $draft.claudeWeeklyTokenLimit, format: .number)
+                inputField("Claude Wochenbudget in $ (0 = deaktiviert)") {
+                    TextField("10", value: $draft.claudeWeeklyCostLimit, format: .number)
                         .textFieldStyle(.roundedBorder)
                 }
             }
