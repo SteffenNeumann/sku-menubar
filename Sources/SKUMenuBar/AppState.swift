@@ -320,7 +320,10 @@ final class AppState: ObservableObject {
 
         let startOfDay   = utcCal.startOfDay(for: now)
         let endNow       = now   // API only accepts past timestamps as ending_at
-        let startOfWeek  = utcCal.date(from: utcCal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? startOfDay
+        // Claude weekly limits reset on Tuesdays – find the most recent Tuesday (UTC)
+        let weekday = utcCal.component(.weekday, from: now) // 1=Sun 2=Mon 3=Tue...
+        let daysFromTuesday = (weekday - 3 + 7) % 7
+        let startOfWeek  = utcCal.date(byAdding: .day, value: -daysFromTuesday, to: startOfDay) ?? startOfDay
         let startOfMonth = utcCal.date(from: utcCal.dateComponents([.year, .month], from: now)) ?? startOfDay
         let startOfYear  = utcCal.date(from: utcCal.dateComponents([.year], from: now)) ?? startOfDay
 

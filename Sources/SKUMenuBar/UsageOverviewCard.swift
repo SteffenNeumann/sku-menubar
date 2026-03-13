@@ -51,7 +51,7 @@ struct UsageOverviewCard: View {
 
             // ── Current Session (Today) ───────────────────────────────
             usageRow(
-                label:  "Aktuelle Sitzung (Heute)",
+                label:  "Heute",
                 icon:   "sun.max.fill",
                 tint:   .orange,
                 amount: claudeMode ? state.claudeTodayCost : state.todayCost,
@@ -61,7 +61,7 @@ struct UsageOverviewCard: View {
 
             // ── Weekly Limits ─────────────────────────────────────────
             usageRow(
-                label:  "Wöchentliches Limit",
+                label:  "Diese Woche (Di–Mo)",
                 icon:   "calendar.badge.clock",
                 tint:   .blue,
                 amount: claudeMode ? state.claudeWeekCost : state.weekCost,
