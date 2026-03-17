@@ -11,8 +11,7 @@ struct BudgetBarsView: View {
         return budget / Double(days)
     }
 
-    private var todayPct:  Double { dailyRef > 0 ? min(1, state.todayCost / dailyRef) : 0 }
-    private var todayFree: Double { max(0, dailyRef - state.todayCost) }
+    private var todayPct: Double { dailyRef > 0 ? min(1, state.todayCost / dailyRef) : 0 }
 
     var body: some View {
         VStack(spacing: 10) {
