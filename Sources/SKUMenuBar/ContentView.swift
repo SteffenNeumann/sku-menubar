@@ -80,17 +80,14 @@ struct ContentView: View {
                     ))
             }
         }
-        .frame(width: 380)
-        .frame(minHeight: 220, maxHeight: 880)
+        .frame(width: 360)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: state.showStats)
-        .clipped()
     }
 
     // MARK: - Dashboard Page
 
     private var dashboardPage: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 10) {
+        VStack(spacing: 10) {
 
                 // ── Header ──────────────────────────────────────────────
                 headerCard
@@ -133,12 +130,10 @@ struct ContentView: View {
                 // ── Footer ──────────────────────────────────────────────
                 footerRow
             }
-            .padding(12)
-            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.showSettings)
-            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.errorMsg != nil)
-        }
-        .frame(width: 380)
-        .frame(minHeight: 220, maxHeight: 880)
+        .padding(12)
+        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.showSettings)
+        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.errorMsg != nil)
+        .frame(width: 360)
         .background(VisualEffectBackground())
     }
 
