@@ -7,7 +7,9 @@ struct SKUMenuBarApp: App {
     @StateObject private var themeManager = ThemeManager()
 
     init() {
-        NSApp.applicationIconImage = makeAppIcon()
+        DispatchQueue.main.async {
+            NSApp?.applicationIconImage = makeAppIcon()
+        }
     }
 
     var body: some Scene {
@@ -36,16 +38,19 @@ struct SKUMenuBarApp: App {
 
 private func makeAppIcon(size: Int = 512) -> NSImage {
     let s = CGFloat(size)
-    let bitmapRep = NSBitmapImageRep(
+    guard let bitmapRep = NSBitmapImageRep(
         bitmapDataPlanes: nil,
         pixelsWide: size, pixelsHigh: size,
         bitsPerSample: 8, samplesPerPixel: 4,
         hasAlpha: true, isPlanar: false,
-        colorSpaceName: .deviceRGB,
+        colorSpaceName: .calibratedRGB,
         bytesPerRow: 0, bitsPerPixel: 0
-    )!
+    ) else { return NSImage() }
     NSGraphicsContext.saveGraphicsState()
-    let ctx = NSGraphicsContext(bitmapImageRep: bitmapRep)!
+    guard let ctx = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
+        NSGraphicsContext.restoreGraphicsState()
+        return NSImage()
+    }
     NSGraphicsContext.current = ctx
     let cg = ctx.cgContext
 
