@@ -3,11 +3,20 @@ import PackageDescription
 
 let package = Package(
     name: "SKUMenuBar",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(url: "https://github.com/raspu/Highlightr", from: "2.1.2")
+    ],
     targets: [
         .executableTarget(
-            name: "SKUMenuBar",
-            path: "Sources/SKUMenuBar"
+            name: "myClaude",
+            dependencies: [
+                .product(name: "Highlightr", package: "Highlightr")
+            ],
+            path: "Sources/SKUMenuBar",
+            resources: [
+                .process("Assets.xcassets")
+            ]
         )
     ]
 )

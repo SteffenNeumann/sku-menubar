@@ -5,20 +5,20 @@
       "request": "launch",
       "args": [],
       "cwd": "${workspaceFolder:sku-menubar}",
-      "name": "Debug SKUMenuBar",
-      "target": "SKUMenuBar",
+      "name": "Debug myClaude",
+      "target": "myClaude",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug SKUMenuBar"
+      "preLaunchTask": "swift: Build Debug myClaude"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
       "cwd": "${workspaceFolder:sku-menubar}",
-      "name": "Release SKUMenuBar",
-      "target": "SKUMenuBar",
+      "name": "Release myClaude",
+      "target": "myClaude",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release SKUMenuBar"
+      "preLaunchTask": "swift: Build Release myClaude"
     }
   ]
 }

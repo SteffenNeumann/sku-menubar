@@ -4,6 +4,7 @@ import SwiftUI
 /// Current Session (Today) · Weekly Limits · Day / Month / Year totals
 struct UsageOverviewCard: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
     // MARK: - Derived
 
@@ -69,14 +70,9 @@ struct UsageOverviewCard: View {
                 pct:    claudeMode ? claudeWeekPct        : weekPct
             )
 
-            // ── Divider ───────────────────────────────────────────────
-            Divider().opacity(0.35)
-
-            // ── Day / Month / Year totals ─────────────────────────────
-            totalsRow
         }
         .padding(14)
-        .glassCard()
+        .mirrorCard()
     }
 
     // MARK: - Usage Row (label + amount + bar + limit)
@@ -92,11 +88,11 @@ struct UsageOverviewCard: View {
                     .foregroundStyle(tint)
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.secondaryText)
                 Spacer()
                 Text(fmt(amount))
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(theme.primaryText)
             }
 
             // Progress bar
@@ -119,11 +115,11 @@ struct UsageOverviewCard: View {
                 if limit > 0 {
                     Text("Limit \(fmt(limit))  ·  verbleibend \(fmt(max(0, limit - amount)))")
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(theme.tertiaryText)
                 } else {
                     Text("Kein Limit konfiguriert")
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
                 Text("\(Int(pct * 100))%")
@@ -131,41 +127,6 @@ struct UsageOverviewCard: View {
                     .foregroundStyle(barTint(pct, tint).opacity(0.85))
             }
         }
-    }
-
-    // MARK: - Day / Month / Year totals row
-
-    private var totalsRow: some View {
-        HStack(spacing: 0) {
-            totalCell(icon: "sun.min.fill",    color: .orange, label: "Heute",  value: state.todayCost)
-            Divider().frame(height: 36).opacity(0.25)
-            totalCell(icon: "calendar",        color: .blue,   label: "Monat",  value: state.monthCost)
-            Divider().frame(height: 36).opacity(0.25)
-            totalCell(icon: "chart.line.uptrend.xyaxis", color: .purple, label: "Jahr",
-                      value: state.yearCost, loading: state.yearCost == 0 && state.isLoading)
-        }
-    }
-
-    private func totalCell(icon: String, color: Color, label: String,
-                           value: Double, loading: Bool = false) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundStyle(color)
-            if loading {
-                ProgressView().scaleEffect(0.55)
-            } else {
-                Text(fmt(value))
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-            }
-            Text(label)
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Helpers

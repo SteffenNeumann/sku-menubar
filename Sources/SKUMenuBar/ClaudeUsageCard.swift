@@ -4,6 +4,7 @@ import SwiftUI
 /// (cost per day / week / month / year + token counts)
 struct ClaudeUsageCard: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
     var body: some View {
         Group {
@@ -14,7 +15,7 @@ struct ClaudeUsageCard: View {
             }
         }
         .padding(14)
-        .glassCard()
+        .mirrorCard()
         .onAppear {
             if state.claudeTodayCost == 0 && !state.claudeIsLoading
                 && !state.settings.anthropicAdminKey.isEmpty {
@@ -55,7 +56,7 @@ struct ClaudeUsageCard: View {
                     tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: .orange)
                     tokenPill(label: "Monat", tokens: state.claudeMonthTokens, color: .indigo)
                     Spacer()
-                    Text("Tokens").font(.system(size: 9)).foregroundStyle(.tertiary)
+                    Text("Tokens").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
                 }
             }
 
@@ -83,7 +84,7 @@ struct ClaudeUsageCard: View {
                     .font(.system(size: 11, weight: .semibold))
                 Text("Anthropic Admin API")
                     .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(theme.tertiaryText)
             }
             Spacer()
             if state.claudeIsLoading {
@@ -92,7 +93,7 @@ struct ClaudeUsageCard: View {
                 Button { Task { await state.refreshClaude(force: true) } } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.secondaryText)
                         .frame(width: 24, height: 24)
                         .background(.primary.opacity(0.06), in: Circle())
                 }
@@ -110,7 +111,7 @@ struct ClaudeUsageCard: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange).font(.system(size: 11))
                 Text(msg)
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)
@@ -128,12 +129,12 @@ struct ClaudeUsageCard: View {
                 .foregroundStyle(color)
             Text(fmt(value))
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(label)
                 .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(theme.tertiaryText)
         }
         .frame(maxWidth: .infinity)
     }
@@ -144,7 +145,7 @@ struct ClaudeUsageCard: View {
         HStack(spacing: 4) {
             Text(label)
                 .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(theme.tertiaryText)
             Text(fmtTokens(tokens))
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)

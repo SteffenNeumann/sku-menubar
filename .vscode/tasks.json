@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "swift: Build Debug myClaude",
+      "type": "shell",
+      "command": "swift build --target myClaude",
+      "options": {
+        "cwd": "${workspaceFolder:sku-menubar}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$swiftc"]
+    },
+    {
+      "label": "swift: Build Release myClaude",
+      "type": "shell",
+      "command": "swift build -c release --target myClaude",
+      "options": {
+        "cwd": "${workspaceFolder:sku-menubar}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": ["$swiftc"]
+    }
+  ]
+}

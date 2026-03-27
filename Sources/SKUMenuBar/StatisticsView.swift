@@ -1,24 +1,16 @@
 import SwiftUI
 import Charts
 
-// MARK: - Drill navigation state
+// MARK: - Statistics Dashboard Section
 
-private enum DrillLevel: Equatable, Hashable {
-    case year
-    case month(String)       // monthId "yyyy-MM"
-    case week(String, Int)   // monthId + weekOfYear
-}
-
-// MARK: - StatisticsView
-
-struct StatisticsView: View {
+struct StatisticsDashboardSection: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
-    @State private var selectedYear: Int  = Calendar.current.component(.year, from: Date())
-    @State private var drillLevel: DrillLevel = .year
+    @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var hoveredValue: (label: String, amount: Double)?
 
-    // MARK: Convenience accessors
+    // MARK: Computed data
 
     private var availableYears: [Int] {
         let y = Calendar.current.component(.year, from: Date())
@@ -26,11 +18,10 @@ struct StatisticsView: View {
     }
 
     private var months: [MonthlyUsage] { state.historicalMonths }
-
-    private var yearTotal:     Double { months.reduce(0) { $0 + $1.total } + state.claudeYearCost }
-    private var activeMonths:  [MonthlyUsage] { months.filter { $0.total > 0 } }
-    private var avgMonthly:    Double { activeMonths.isEmpty ? 0 : yearTotal / Double(activeMonths.count) }
-    private var peakMonth:     MonthlyUsage? { months.max(by: { $0.total < $1.total }) }
+    private var activeMonths: [MonthlyUsage] { months.filter { $0.total > 0 } }
+    private var yearTotal: Double { months.reduce(0) { $0 + $1.total } + state.claudeYearCost }
+    private var avgMonthly: Double { activeMonths.isEmpty ? 0 : yearTotal / Double(activeMonths.count) }
+    private var peakMonth: MonthlyUsage? { months.max(by: { $0.total < $1.total }) }
     private var cheapestMonth: MonthlyUsage? { activeMonths.min(by: { $0.total < $1.total }) }
 
     private var overBudgetCount: Int {
@@ -41,7 +32,6 @@ struct StatisticsView: View {
     private var allProducts: [(name: String, amount: Double)] {
         var combined: [String: Double] = [:]
         for m in months { for (p, v) in m.byProduct { combined[p, default: 0] += v } }
-        // Add Claude year cost as virtual product
         if state.claudeYearCost > 0 { combined["Claude (Anthropic API)"] = state.claudeYearCost }
         return combined.map { (name: $0.key, amount: $0.value) }
             .filter { $0.amount > 0 }
@@ -62,499 +52,332 @@ struct StatisticsView: View {
         return (under, activeMonths.count, Double(under) / Double(activeMonths.count))
     }
 
-    // MARK: Drill helpers
-
-    private var drillMonthId: String? {
-        if case .month(let id)    = drillLevel { return id }
-        if case .week(let id, _)  = drillLevel { return id }
-        return nil
-    }
-    private var drillWeek: Int? {
-        if case .week(_, let w) = drillLevel { return w }
-        return nil
-    }
-    private var isYearLevel:  Bool { drillLevel == .year }
-    private var isMonthLevel: Bool { if case .month = drillLevel { return true }; return false }
-    private var isWeekLevel:  Bool { if case .week  = drillLevel { return true }; return false }
-
-    private func weeklyBreakdown(for m: MonthlyUsage) -> [WeeklyUsage] {
-        let df  = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
-        let cal = Calendar.current
-        var buckets: [Int: Double] = [:]
-        for (dateStr, amount) in m.byDay {
-            guard let date = df.date(from: dateStr) else { continue }
-            buckets[cal.component(.weekOfYear, from: date), default: 0] += amount
-        }
-        return buckets.sorted { $0.key < $1.key }
-                      .map { WeeklyUsage(id: $0.key, weekOfYear: $0.key, total: $0.value) }
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
-    private func dailyBreakdown(for m: MonthlyUsage, weekOfYear: Int) -> [DayUsage] {
-        let df  = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
-        let cal = Calendar.current
-        return m.byDay.compactMap { (dateStr, amount) -> DayUsage? in
-            guard let date = df.date(from: dateStr) else { return nil }
-            guard cal.component(.weekOfYear, from: date) == weekOfYear else { return nil }
-            return DayUsage(id: dateStr, date: date, amount: amount)
-        }.sorted { $0.date < $1.date }
-    }
-
-    // MARK: - Body
+    // MARK: Body
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 10) {
-                statsHeader
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader
 
-                if state.isLoadingHistory {
-                    loadingView
-                } else if activeMonths.isEmpty {
-                    emptyView
-                } else {
-                    yearSummaryCard
-                    drillableChartCard
-                    if let td = trendData, isYearLevel { trendCard(td) }
-                    if !allProducts.isEmpty, isYearLevel { productBreakdownCard }
-                    if let ad = adherenceData, isYearLevel { budgetAdherenceCard(ad) }
+            if state.isLoadingHistory {
+                ProgressView().scaleEffect(0.85).tint(accentColor)
+                    .frame(maxWidth: .infinity).padding(24).mirrorCard()
+            } else if activeMonths.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis").font(.system(size: 28)).foregroundStyle(theme.tertiaryText)
+                    Text("Keine Verlaufsdaten für \(String(selectedYear))")
+                        .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                }
+                .frame(maxWidth: .infinity).padding(24).mirrorCard()
+            } else {
+                HStack(alignment: .top, spacing: 14) {
+                    // Linke Spalte: Summary + Chart
+                    VStack(alignment: .leading, spacing: 14) {
+                        financialSummaryCard
+                        yearChartCard
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    // Rechte Spalte: Trend + Adherence + Products
+                    VStack(spacing: 12) {
+                        if let td = trendData { trendPanelCard(td) }
+                        if let ad = adherenceData { adherencePanelCard(ad) }
+                        if !allProducts.isEmpty { productsPanelCard }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .padding(12)
-            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: state.isLoadingHistory)
         }
-        .frame(width: 380)
-        .frame(minHeight: 220, maxHeight: 880)
-        .background(VisualEffectBackground())
         .task(id: selectedYear) {
-            drillLevel   = .year
-            hoveredValue = nil
             await state.loadHistory(year: selectedYear)
         }
     }
 
-    // MARK: - Header
+    // MARK: Section Header
 
-    private var statsHeader: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Button {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        state.showStats = false
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                        .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-                .help("Zurück zum Dashboard")
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9)
-                        .fill(LinearGradient(colors: [.purple, .indigo],
-                                             startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .frame(width: 34, height: 34)
-                        .shadow(color: .purple.opacity(0.45), radius: 6, y: 3)
-                    Image(systemName: "chart.bar.xaxis")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Statistiken")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Verbrauchsanalyse")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
-
-                Spacer()
+    private var sectionHeader: some View {
+        HStack(alignment: .center) {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(accentColor)
+                Text("Statistiken")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(theme.primaryText)
             }
-
-            yearSegmentedControl
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .glassCard()
-    }
-
-    private var yearSegmentedControl: some View {
-        HStack(spacing: 0) {
-            ForEach(availableYears, id: \.self) { y in
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                        selectedYear = y
+            Spacer()
+            HStack(spacing: 6) {
+                ForEach(availableYears, id: \.self) { y in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { selectedYear = y }
+                    } label: {
+                        Text(String(y))
+                            .font(.system(size: 11, weight: selectedYear == y ? .semibold : .regular))
+                            .foregroundStyle(selectedYear == y ? .white : theme.secondaryText)
+                            .padding(.horizontal, 12).padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(selectedYear == y ? accentColor : theme.cardSurface)
+                                    .overlay(RoundedRectangle(cornerRadius: 7)
+                                        .strokeBorder(selectedYear == y ? accentColor : theme.cardBorder, lineWidth: 1))
+                            )
                     }
-                } label: {
-                    Text(String(y))
-                        .font(.system(size: 11, weight: selectedYear == y ? .semibold : .regular))
-                        .foregroundStyle(selectedYear == y ? .white : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(selectedYear == y
-                                      ? AnyShapeStyle(Color.purple.opacity(0.75))
-                                      : AnyShapeStyle(Color.clear))
-                        )
-                }
-                .buttonStyle(.plain)
-
-                if y != availableYears.last {
-                    Text("·")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 2)
+                    .buttonStyle(.plain)
                 }
             }
         }
-        .padding(3)
-        .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    // MARK: - Loading / Empty
+    // MARK: Financial Summary Card
 
-    private var loadingView: some View {
-        VStack(spacing: 14) {
-            ProgressView().scaleEffect(0.9).tint(.purple)
-            Text("Lade \(String(selectedYear))…").font(.system(size: 11)).foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity).padding(32).glassCard()
-    }
-
-    private var emptyView: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "chart.bar.xaxis").font(.system(size: 32)).foregroundStyle(.tertiary)
-            Text("Keine Daten für \(String(selectedYear))")
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-            Text("Stelle sicher, dass Token und Account korrekt konfiguriert sind.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity).padding(28).glassCard()
-    }
-
-    // MARK: - Year Summary
-
-    private var yearSummaryCard: some View {
-        VStack(spacing: 12) {
+    private var financialSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Jahresübersicht \(String(selectedYear))", systemImage: "calendar.badge.checkmark")
-                    .font(.system(size: 11, weight: .semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("JAHRESÜBERSICHT")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText).kerning(0.8)
+                    Text("Überblick \(String(selectedYear))")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(theme.primaryText)
+                }
                 Spacer()
                 if overBudgetCount > 0 {
                     Label("\(overBudgetCount)× über Budget", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 9)).foregroundStyle(.orange)
+                        .font(.system(size: 10)).foregroundStyle(.orange)
                 }
             }
-            HStack(spacing: 6) {
-                kpiTile(icon: "dollarsign.circle.fill",      color: .purple, label: "Gesamt",  value: fmt(yearTotal))
-                kpiTile(icon: "chart.line.flattrend.xyaxis", color: .indigo, label: "Ø/Monat", value: fmt(avgMonthly))
-                kpiTile(icon: "flame.fill",  color: .orange, label: "Spitze",  value: peakMonth.map(\.shortName) ?? "–")
-                kpiTile(icon: "leaf.fill",   color: .green,  label: "Günstig", value: cheapestMonth.map(\.shortName) ?? "–")
+
+            HStack(spacing: 0) {
+                summaryMetric(label: "GESAMT", value: fmt(yearTotal), valueColor: accentColor, icon: nil)
+                Divider().frame(height: 36).opacity(0.25)
+                summaryMetric(label: "Ø/MONAT", value: fmt(avgMonthly), valueColor: theme.secondaryText, icon: nil)
+                Divider().frame(height: 36).opacity(0.25)
+                summaryMetric(label: "HÖCHSTER MONAT", value: peakMonth.map(\.shortName) ?? "–",
+                              valueColor: .orange, icon: "arrow.up.right")
+                Divider().frame(height: 36).opacity(0.25)
+                summaryMetric(label: "GÜNSTIGSTER", value: cheapestMonth.map(\.shortName) ?? "–",
+                              valueColor: .green, icon: "arrow.down.right")
             }
         }
-        .padding(14).glassCard()
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardSurface)
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
     }
 
-    private func kpiTile(icon: String, color: Color, label: String, value: String) -> some View {
-        VStack(spacing: 5) {
-            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(color)
-            Text(value)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.55)
-            Text(label).font(.system(size: 8)).foregroundStyle(.tertiary)
+    private func summaryMetric(label: String, value: String, valueColor: Color, icon: String?) -> some View {
+        VStack(alignment: .center, spacing: 4) {
+            Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+            HStack(spacing: 3) {
+                Text(value).font(.system(size: 17, weight: .bold, design: .rounded)).foregroundStyle(valueColor).lineLimit(1).minimumScaleFactor(0.6)
+                if let icon { Image(systemName: icon).font(.system(size: 9, weight: .bold)).foregroundStyle(valueColor) }
+            }
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.07), lineWidth: 0.5))
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Drillable Chart Card
+    // MARK: Year Chart Card
 
-    private var drillableChartCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            drillHeader
+    private var yearChartCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label("Monatsvergleich", systemImage: "chart.bar.fill")
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                Spacer()
+                if let hov = hoveredValue {
+                    HStack(spacing: 4) {
+                        Text(hov.label).font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                        Text(fmt(hov.amount)).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(accentColor)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else if state.settings.budget > 0 {
+                    HStack(spacing: 4) {
+                        Rectangle().fill(Color.red.opacity(0.55)).frame(width: 12, height: 2)
+                        Text("Budget \(fmt(state.settings.budget))").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                    }
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: hoveredValue?.label)
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
-            Group {
-                if isYearLevel {
-                    yearBarChart
-                } else if isMonthLevel, let mid = drillMonthId,
-                          let m = months.first(where: { $0.id == mid }) {
-                    let weeks = weeklyBreakdown(for: m)
-                    monthBarChart(weeks: weeks, monthData: m)
-                } else if isWeekLevel, let mid = drillMonthId, let wk = drillWeek,
-                          let m = months.first(where: { $0.id == mid }) {
-                    let days = dailyBreakdown(for: m, weekOfYear: wk)
-                    weekBarChart(days: days)
+            Chart {
+                ForEach(months) { m in
+                    BarMark(x: .value("Monat", m.shortName), y: .value("Kosten", m.total))
+                        .foregroundStyle(hoveredValue?.label == m.shortName
+                                         ? AnyShapeStyle(accentColor.opacity(0.95))
+                                         : AnyShapeStyle(barGradient(for: m)))
+                        .cornerRadius(5)
+                }
+                if avgMonthly > 0 {
+                    RuleMark(y: .value("Ø", avgMonthly))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .foregroundStyle(accentColor.opacity(0.4))
+                        .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                            Text("Ø \(fmtShort(avgMonthly))").font(.system(size: 9, weight: .medium)).foregroundStyle(accentColor.opacity(0.65))
+                        }
+                }
+                if state.settings.budget > 0 {
+                    RuleMark(y: .value("Budget", state.settings.budget))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                        .foregroundStyle(Color.red.opacity(0.5))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { val in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Color.primary.opacity(0.08))
+                    AxisValueLabel {
+                        if let d = val.as(Double.self) { Text(fmtShort(d)).font(.system(size: 10)).foregroundStyle(theme.secondaryText) }
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks { val in
+                    AxisValueLabel {
+                        if let s = val.as(String.self) { Text(s).font(.system(size: 9, weight: .medium)).foregroundStyle(theme.secondaryText) }
+                    }
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let loc):
+                                let x = loc.x - (proxy.plotFrame.map { geo[$0].origin.x } ?? 0)
+                                if let name: String = proxy.value(atX: x, as: String.self),
+                                   let m = months.first(where: { $0.shortName == name }) {
+                                    hoveredValue = (name, m.total)
+                                }
+                            case .ended: hoveredValue = nil
+                            }
+                        }
                 }
             }
             .frame(height: 180)
-            .id(drillLevel)
-            .transition(.asymmetric(
-                insertion: .move(edge: .trailing).combined(with: .opacity),
-                removal:   .move(edge: .leading).combined(with: .opacity)
-            ))
-            .animation(.spring(response: 0.38, dampingFraction: 0.86), value: drillLevel)
+            .padding(.horizontal, 16).padding(.bottom, 14)
+        }
+        .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardSurface)
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
+    }
+
+    // MARK: Trend Panel
+
+    private func trendPanelCard(_ td: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)) -> some View {
+        let isUp = td.diff > 0
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("MONATS-TREND").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+            Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? .red : .green).lineLimit(1).minimumScaleFactor(0.6)
+                Spacer()
+                let recent = Array(activeMonths.sorted { $0.month < $1.month }.suffix(4))
+                let maxV = recent.map(\.total).max() ?? 1
+                HStack(alignment: .bottom, spacing: 3) {
+                    ForEach(recent) { m in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(m.id == td.last.id ? accentColor : accentColor.opacity(0.3))
+                            .frame(width: 6, height: max(4, CGFloat(m.total/maxV) * 28))
+                    }
+                }.frame(height: 28, alignment: .bottom)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(isUp ? .red : .green)
+                Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 10, weight: .medium)).foregroundStyle(isUp ? .red : .green)
+            }
         }
         .padding(14)
-        .glassCard()
+        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardSurface)
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardBorder, lineWidth: 1)))
     }
 
-    // MARK: Drill header (breadcrumb + hover value)
+    // MARK: Adherence Panel
 
-    private var drillHeader: some View {
-        HStack(alignment: .center, spacing: 6) {
-            // Breadcrumb navigation
-            if isYearLevel {
-                Label("Monatsvergleich", systemImage: "chart.bar.fill")
-                    .font(.system(size: 11, weight: .semibold))
-            } else if isMonthLevel, let mid = drillMonthId {
-                let mName = months.first(where: { $0.id == mid })?.monthName ?? ""
-                backChip(label: String(selectedYear)) { drillLevel = .year }
-                Text("›").font(.system(size: 10)).foregroundStyle(.tertiary)
-                Text(mName).font(.system(size: 11, weight: .semibold))
-            } else if isWeekLevel, let mid = drillMonthId, let wk = drillWeek {
-                let mName = months.first(where: { $0.id == mid })?.monthName ?? ""
-                backChip(label: mName) { drillLevel = .month(mid) }
-                Text("›").font(.system(size: 10)).foregroundStyle(.tertiary)
-                Text("KW \(wk)").font(.system(size: 11, weight: .semibold))
-            }
-
-            Spacer()
-
-            // Live hover value
-            if let hov = hoveredValue {
-                HStack(spacing: 4) {
-                    Text(hov.label).font(.system(size: 10)).foregroundStyle(.secondary)
-                    Text(fmt(hov.amount))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.purple)
+    private func adherencePanelCard(_ ad: (under: Int, total: Int, rate: Double)) -> some View {
+        let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("BUDGET-EINHALTUNG").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle().stroke(theme.cardBorder, lineWidth: 8)
+                    Circle().trim(from: 0, to: ad.rate)
+                        .stroke(AngularGradient(
+                            colors: ad.rate >= 0.8 ? [.green, .teal] : ad.rate >= 0.5 ? [.orange, .yellow] : [.red, .orange],
+                            center: .center), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.spring(response: 0.7, dampingFraction: 0.8), value: ad.rate)
+                    Text("\(Int(ad.rate * 100))%").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(rateColor)
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            } else if isYearLevel, state.settings.budget > 0 {
-                HStack(spacing: 4) {
-                    Rectangle().fill(Color.red.opacity(0.55)).frame(width: 12, height: 2)
-                    Text("Budget \(fmt(state.settings.budget))")
-                        .font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.15), value: hoveredValue?.label)
-    }
-
-    private func backChip(label: String, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                action()
-                hoveredValue = nil
-            }
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold))
-                Text(label).font(.system(size: 11))
-            }
-            .foregroundStyle(Color.purple.opacity(0.85))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: Year Bar Chart (12 months, click → month)
-
-    private var yearBarChart: some View {
-        Chart {
-            ForEach(months) { m in
-                BarMark(x: .value("Monat", m.shortName), y: .value("Kosten", m.total))
-                    .foregroundStyle(hoveredValue?.label == m.shortName
-                                     ? AnyShapeStyle(Color.purple.opacity(0.95))
-                                     : AnyShapeStyle(barGradient(for: m)))
-                    .cornerRadius(5)
-            }
-            if avgMonthly > 0 {
-                RuleMark(y: .value("Ø", avgMonthly))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(Color.purple.opacity(0.4))
-                    .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                        Text("Ø \(fmtShort(avgMonthly))")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.purple.opacity(0.65))
+                .frame(width: 56, height: 56)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(ad.under) von \(ad.total) Monaten im Budget").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                    if state.settings.budget > 0 {
+                        Text("Limit: \(fmt(state.settings.budget))/Monat").font(.system(size: 10)).foregroundStyle(theme.secondaryText)
                     }
+                }
             }
-            if state.settings.budget > 0 {
-                RuleMark(y: .value("Budget", state.settings.budget))
-                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                    .foregroundStyle(Color.red.opacity(0.5))
-            }
-        }
-        .chartYAxis { standardYAxis }
-        .chartXAxis { standardXAxis }
-        .chartOverlay { proxy in
             GeometryReader { geo in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let loc):
-                            let x = loc.x - geo[proxy.plotAreaFrame].origin.x
-                            if let name: String = proxy.value(atX: x, as: String.self),
-                               let m = months.first(where: { $0.shortName == name }) {
-                                hoveredValue = (name, m.total)
-                            }
-                        case .ended: hoveredValue = nil
-                        }
-                    }
-                    .onTapGesture { loc in
-                        let x = loc.x - geo[proxy.plotAreaFrame].origin.x
-                        if let name: String = proxy.value(atX: x, as: String.self),
-                           let m = months.first(where: { $0.shortName == name }), m.total > 0 {
-                            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                                drillLevel   = .month(m.id)
-                                hoveredValue = nil
-                            }
-                        }
-                    }
-            }
+                ZStack(alignment: .leading) {
+                    Capsule().fill(theme.cardBorder)
+                    Capsule().fill(rateColor).frame(width: geo.size.width * ad.rate)
+                        .animation(.spring(response: 0.5), value: ad.rate)
+                }
+            }.frame(height: 3)
         }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardSurface)
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardBorder, lineWidth: 1)))
     }
 
-    // MARK: Month Bar Chart (weekly, click → week)
+    // MARK: Products Panel
 
-    private func monthBarChart(weeks: [WeeklyUsage], monthData: MonthlyUsage) -> some View {
-        let maxVal = weeks.map(\.total).max() ?? 0
-        return Chart {
-            ForEach(weeks) { w in
-                BarMark(x: .value("Woche", w.label), y: .value("Kosten", w.total))
-                    .foregroundStyle(hoveredValue?.label == w.label
-                                     ? AnyShapeStyle(Color.indigo.opacity(0.95))
-                                     : AnyShapeStyle(LinearGradient(
-                                            colors: [.indigo.opacity(0.45), .purple.opacity(0.9)],
-                                            startPoint: .bottom, endPoint: .top)))
-                    .cornerRadius(5)
-                    .annotation(position: .top, spacing: 3) {
-                        if w.total > 0 {
-                            Text(fmtShort(w.total))
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+    private var productsPanelCard: some View {
+        let top = Array(allProducts.prefix(5))
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("TOP PRODUKTE").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+            HStack(spacing: 10) {
+                ForEach(Array(top.enumerated()), id: \.offset) { i, pair in
+                    productChip(name: pair.name, amount: pair.amount, total: yearTotal, colorIndex: i)
+                }
             }
         }
-        .chartYAxis { standardYAxis }
-        .chartXAxis { standardXAxis }
-        .chartOverlay { proxy in
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardSurface)
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
+    }
+
+    private let productColors: [Color] = [.purple, .blue, .cyan, .indigo, .teal, .mint]
+
+    private func productChip(name: String, amount: Double, total: Double, colorIndex: Int) -> some View {
+        let pct   = total > 0 ? amount / total : 0
+        let color = productColors[colorIndex % productColors.count]
+        return VStack(spacing: 4) {
+            HStack(spacing: 5) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.18)).frame(width: 20, height: 20)
+                    Image(systemName: productIcon(for: name)).font(.system(size: 9, weight: .medium)).foregroundStyle(color)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).font(.system(size: 9, weight: .medium)).lineLimit(1).foregroundStyle(theme.primaryText)
+                    Text(fmt(amount)).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(theme.secondaryText)
+                }
+            }
             GeometryReader { geo in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let loc):
-                            let x = loc.x - geo[proxy.plotAreaFrame].origin.x
-                            if let lbl: String = proxy.value(atX: x, as: String.self),
-                               let w = weeks.first(where: { $0.label == lbl }) {
-                                hoveredValue = (lbl, w.total)
-                            }
-                        case .ended: hoveredValue = nil
-                        }
-                    }
-                    .onTapGesture { loc in
-                        let x = loc.x - geo[proxy.plotAreaFrame].origin.x
-                        if let lbl: String = proxy.value(atX: x, as: String.self),
-                           let w = weeks.first(where: { $0.label == lbl }), w.total > 0 {
-                            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
-                                drillLevel   = .week(monthData.id, w.weekOfYear)
-                                hoveredValue = nil
-                            }
-                        }
-                    }
-            }
-        }
-        // suppress unused warning
-        .onChange(of: maxVal) { _ in }
-    }
-
-    // MARK: Week Bar Chart (daily, no further drill)
-
-    private func weekBarChart(days: [DayUsage]) -> some View {
-        Chart {
-            ForEach(days) { d in
-                BarMark(x: .value("Tag", d.id), y: .value("Kosten", d.amount))
-                    .foregroundStyle(hoveredValue?.label == d.weekdayShort
-                                     ? AnyShapeStyle(Color.cyan.opacity(0.95))
-                                     : AnyShapeStyle(LinearGradient(
-                                            colors: [.teal.opacity(0.45), .cyan.opacity(0.9)],
-                                            startPoint: .bottom, endPoint: .top)))
-                    .cornerRadius(5)
-                    .annotation(position: .top, spacing: 3) {
-                        if d.amount > 0 {
-                            Text(fmtShort(d.amount))
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-            }
-        }
-        .chartYAxis { standardYAxis }
-        .chartXAxis {
-            AxisMarks(values: days.map(\.id)) { val in
-                AxisValueLabel {
-                    if let dateStr = val.as(String.self),
-                       let day = days.first(where: { $0.id == dateStr }) {
-                        VStack(spacing: 1) {
-                            Text(day.weekdayShort)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Text(day.dateShort)
-                                .font(.system(size: 8))
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.06))
+                    Capsule().fill(color)
+                        .frame(width: geo.size.width * pct)
+                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: pct)
                 }
-            }
+            }.frame(height: 3)
+            Text("\(Int(pct * 100))%").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
         }
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let loc):
-                            let x = loc.x - geo[proxy.plotAreaFrame].origin.x
-                            if let dateStr: String = proxy.value(atX: x, as: String.self),
-                               let d = days.first(where: { $0.id == dateStr }) {
-                                hoveredValue = (d.weekdayShort, d.amount)
-                            }
-                        case .ended: hoveredValue = nil
-                        }
-                    }
-            }
-        }
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: Shared axis styles
-
-    @AxisContentBuilder
-    private var standardYAxis: some AxisContent {
-        AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { val in
-            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                .foregroundStyle(Color.primary.opacity(0.08))
-            AxisValueLabel {
-                if let d = val.as(Double.self) {
-                    Text(fmtShort(d)).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    @AxisContentBuilder
-    private var standardXAxis: some AxisContent {
-        AxisMarks { val in
-            AxisValueLabel {
-                if let s = val.as(String.self) {
-                    Text(s).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    // MARK: Bar colour (year chart)
+    // MARK: Helpers
 
     private func barGradient(for month: MonthlyUsage) -> LinearGradient {
         let over = state.settings.budget > 0 && month.total > state.settings.budget
@@ -562,163 +385,6 @@ struct StatisticsView: View {
             ? LinearGradient(colors: [.red.opacity(0.45), .orange.opacity(0.85)],   startPoint: .bottom, endPoint: .top)
             : LinearGradient(colors: [.purple.opacity(0.45), .indigo.opacity(0.9)], startPoint: .bottom, endPoint: .top)
     }
-
-    // MARK: - Trend Card
-
-    private func trendCard(_ td: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)) -> some View {
-        let isUp = td.diff > 0
-        let recentSorted = activeMonths.sorted { $0.month < $1.month }
-
-        return HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(isUp ? Color.red.opacity(0.12) : Color.green.opacity(0.12))
-                    .frame(width: 46, height: 46)
-                Image(systemName: isUp ? "arrow.up.forward" : "arrow.down.forward")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(isUp ? .red : .green)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Monat-zu-Monat Trend")
-                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("\(isUp ? "+" : "")\(fmt(td.diff))")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(isUp ? .red : .green)
-                    Text("(\(String(format: "%.0f", td.pct))%)")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
-                }
-                Text("\(td.prev.monthName) → \(td.last.monthName)")
-                    .font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
-
-            Spacer()
-
-            if recentSorted.count >= 2 {
-                let recent = Array(recentSorted.suffix(5))
-                let maxVal = recent.map(\.total).max() ?? 1
-                HStack(alignment: .bottom, spacing: 3) {
-                    ForEach(recent) { m in
-                        let h = CGFloat(m.total / maxVal) * 30
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(m.id == td.last.id
-                                  ? AnyShapeStyle(Color.purple)
-                                  : AnyShapeStyle(Color.purple.opacity(0.3)))
-                            .frame(width: 6, height: max(3, h))
-                    }
-                }
-                .frame(height: 30, alignment: .bottom)
-            }
-        }
-        .padding(14).glassCard()
-    }
-
-    // MARK: - Product Breakdown
-
-    private var productBreakdownCard: some View {
-        let top = Array(allProducts.prefix(6))
-        let topTotal = top.reduce(0) { $0 + $1.amount }
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Top Produkte", systemImage: "square.3.layers.3d.top.filled")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(fmt(yearTotal))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                    Text("Jahrestotal").font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
-            }
-            VStack(spacing: 9) {
-                ForEach(Array(top.enumerated()), id: \.offset) { i, pair in
-                    productRow(name: pair.name, amount: pair.amount, total: topTotal, colorIndex: i)
-                }
-            }
-        }
-        .padding(14).glassCard()
-    }
-
-    private let productColors: [Color] = [.purple, .blue, .cyan, .indigo, .teal, .mint]
-
-    private func productRow(name: String, amount: Double, total: Double, colorIndex: Int) -> some View {
-        let pct   = total > 0 ? amount / total : 0
-        let color = productColors[colorIndex % productColors.count]
-
-        return VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(color.opacity(0.18))
-                        .frame(width: 22, height: 22)
-                    Image(systemName: productIcon(for: name))
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(color)
-                }
-                Text(name).font(.system(size: 10, weight: .medium)).lineLimit(1).foregroundStyle(.primary)
-                Spacer()
-                Text(fmt(amount))
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
-                Text("\(Int(pct * 100))%")
-                    .font(.system(size: 9)).foregroundStyle(.tertiary).frame(width: 28, alignment: .trailing)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.06))
-                    Capsule()
-                        .fill(LinearGradient(colors: [color.opacity(0.5), color.opacity(0.9)],
-                                             startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width * pct)
-                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: pct)
-                }
-            }
-            .frame(height: 4)
-        }
-    }
-
-    // MARK: - Budget Adherence
-
-    private func budgetAdherenceCard(_ ad: (under: Int, total: Int, rate: Double)) -> some View {
-        let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
-
-        return HStack(spacing: 16) {
-            ZStack {
-                Circle().stroke(Color.primary.opacity(0.08), lineWidth: 7)
-                Circle()
-                    .trim(from: 0, to: ad.rate)
-                    .stroke(
-                        AngularGradient(
-                            colors: ad.rate >= 0.8 ? [.green, .teal]
-                                  : ad.rate >= 0.5 ? [.orange, .yellow] : [.red, .orange],
-                            center: .center
-                        ),
-                        style: StrokeStyle(lineWidth: 7, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(.spring(response: 0.7, dampingFraction: 0.8), value: ad.rate)
-                Text("\(Int(ad.rate * 100))%")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(rateColor)
-            }
-            .frame(width: 52, height: 52)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.seal.fill").font(.system(size: 10)).foregroundStyle(rateColor)
-                    Text("Budget-Einhaltung").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                }
-                Text("\(ad.under) von \(ad.total) Monaten im Budget")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary)
-                Text("Limit: \(fmt(state.settings.budget)) / Monat")
-                    .font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
-            Spacer()
-        }
-        .padding(14).glassCard()
-    }
-
-    // MARK: - Helpers
 
     private func productIcon(for product: String) -> String {
         switch product.lowercased() {

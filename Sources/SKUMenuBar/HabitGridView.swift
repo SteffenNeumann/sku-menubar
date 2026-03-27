@@ -4,58 +4,81 @@ import SwiftUI
 struct HabitGridView: View {
     let days: [DailyUsage]
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
     @State private var hoveredId: String?
 
     private var maxAmount: Double { days.map(\.amount).max() ?? 0 }
     private var total28: Double { days.reduce(0) { $0 + $1.amount } }
 
-    // Cell size tuned for 308 px available width inside the glass card
-    // (360 window – 24 outer padding – 28 card padding = 308)
-    // 7 × 40 + 6 × 4 = 304  ✓
-    private let cellSize: CGFloat = 40
-    private let cols = Array(repeating: GridItem(.fixed(40), spacing: 4), count: 7)
+    // Fixed layout constants
+    private let rows = 4
+    private let cols = 7
+    private let cellSpacing: CGFloat = 4
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        GeometryReader { geo in
+            let headerH:  CGFloat = 28
+            let legendH:  CGFloat = 16
+            let vGaps:    CGFloat = CGFloat(rows - 1) * cellSpacing
+            let hGaps:    CGFloat = CGFloat(cols - 1) * cellSpacing
+            let gridH     = geo.size.height - headerH - legendH - 16 // 8+8 spacing
+            let cellH     = max(10, (gridH - vGaps) / CGFloat(rows))
+            let cellW     = (geo.size.width - hGaps) / CGFloat(cols)
+            let cellSize  = min(cellH, cellW)
 
-            // ── Header ─────────────────────────────────────────────
-            HStack {
-                Label("Letzte 28 Tage", systemImage: "chart.bar.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(fmt(total28))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                    Text("Gesamt")
+            VStack(alignment: .leading, spacing: 8) {
+                // ── Header ──────────────────────────────────────────
+                HStack {
+                    Label("Letzte 28 Tage", systemImage: "chart.bar.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(fmt(total28))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        Text("Gesamt")
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                }
+                .frame(height: headerH)
+
+                // ── Grid ────────────────────────────────────────────
+                VStack(spacing: cellSpacing) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(spacing: cellSpacing) {
+                            ForEach(0..<cols, id: \.self) { col in
+                                let idx = row * cols + col
+                                if idx < days.count {
+                                    cell(days[idx])
+                                        .frame(width: cellSize, height: cellSize)
+                                } else {
+                                    Color.clear
+                                        .frame(width: cellSize, height: cellSize)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Legend ──────────────────────────────────────────
+                HStack(spacing: 5) {
+                    Text("weniger")
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(theme.tertiaryText)
+                    ForEach([0.07, 0.25, 0.5, 0.75, 1.0], id: \.self) { v in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(cellColor(v))
+                            .frame(width: 8, height: 8)
+                    }
+                    Text("mehr")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.tertiaryText)
+                    Spacer()
                 }
-            }
-
-            // ── Grid ───────────────────────────────────────────────
-            LazyVGrid(columns: cols, spacing: 4) {
-                ForEach(days) { day in
-                    cell(day)
-                }
-            }
-
-            // ── Legend ─────────────────────────────────────────────
-            HStack(spacing: 5) {
-                Text("weniger")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                ForEach([0.07, 0.25, 0.5, 0.75, 1.0], id: \.self) { v in
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(cellColor(v))
-                        .frame(width: 10, height: 10)
-                }
-                Text("mehr")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                Spacer()
+                .frame(height: legendH)
             }
         }
     }
@@ -102,7 +125,7 @@ struct HabitGridView: View {
                 .shadow(color: .black.opacity(0.5), radius: 2)
             }
         }
-        .frame(width: cellSize, height: cellSize)
+        .frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit)
         .scaleEffect(isHovered ? 1.12 : 1.0)
         .zIndex(isHovered ? 1 : 0)
         .animation(.spring(response: 0.2, dampingFraction: 0.68), value: isHovered)

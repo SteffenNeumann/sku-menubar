@@ -4,6 +4,7 @@ import SwiftUI
 /// with individual subtotals, a progress bar and a grand total.
 struct SourceBreakdownCard: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
     enum Period { case today, month }
     var period: Period = .month
@@ -84,7 +85,7 @@ struct SourceBreakdownCard: View {
             HStack(spacing: 6) {
                 Image(systemName: "tag.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.secondaryText)
                 Text(period == .today ? "Quellen \u{2013} Heute" : "Quellen \u{2013} Dieser Monat")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
@@ -97,7 +98,7 @@ struct SourceBreakdownCard: View {
             if sorted.isEmpty {
                 Text(state.isLoading ? "Wird geladen\u{2026}" : "Keine Daten")
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(theme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 12)
             } else {
@@ -117,20 +118,20 @@ struct SourceBreakdownCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "sum")
                             .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.secondaryText)
                         Text("Gesamt")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
                     Text(fmt(total))
                         .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(theme.primaryText)
                 }
             }
         }
         .padding(14)
-        .glassCard()
+        .mirrorCard()
     }
 
     // MARK: - Product Row
@@ -153,10 +154,10 @@ struct SourceBreakdownCard: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(displayName(for: product))
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(theme.primaryText)
                     Text(subtitle(for: product))
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                 }
 
@@ -165,7 +166,7 @@ struct SourceBreakdownCard: View {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(fmt(amount))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(theme.primaryText)
                     if sorted.count > 1 {
                         Text("\(Int(pct * 100))%")
                             .font(.system(size: 9, weight: .medium))

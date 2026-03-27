@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BudgetBarsView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
 
     private var budget: Double { state.settings.budget }
 
@@ -58,12 +59,12 @@ struct BudgetBarsView: View {
                     .foregroundStyle(iconColor)
                 Text(title)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.secondaryText)
             }
 
             Text(fmt(amount))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
 
@@ -73,7 +74,7 @@ struct BudgetBarsView: View {
                 HStack {
                     Text(subtitle)
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                     Spacer()
                     Text("\(Int(pct * 100))%")
@@ -84,7 +85,7 @@ struct BudgetBarsView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .mirrorCard()
     }
 
     // MARK: - Remain Card (full-width)
@@ -117,10 +118,10 @@ struct BudgetBarsView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "gauge.with.dots.needle.33percent")
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.secondaryText)
                     Text("Noch verfügbar")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.secondaryText)
                 }
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -131,7 +132,7 @@ struct BudgetBarsView: View {
                     if budget > 0 {
                         Text("im Budget")
                             .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(theme.tertiaryText)
                     }
                 }
             }
@@ -146,12 +147,12 @@ struct BudgetBarsView: View {
                         .foregroundStyle(todayPct < 0.75 ? .green : .orange)
                     Text(todayPct < 0.75 ? "unter Limit" : "über Limit")
                         .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(theme.tertiaryText)
                 }
             }
         }
         .padding(14)
-        .glassCard()
+        .mirrorCard()
     }
 
     // MARK: - Progress Bar
@@ -173,7 +174,7 @@ struct BudgetBarsView: View {
                     .animation(.spring(response: 0.5, dampingFraction: 0.8), value: pct)
             }
         }
-        .frame(height: 6)
+        .frame(height: 5)
     }
 
     // MARK: - Color helpers

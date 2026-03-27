@@ -20,6 +20,12 @@ final class AppState: ObservableObject {
     @Published var monthByProduct:  [String: Double] = [:]
     @Published var isLoadingHistory: Bool = false
 
+    // MARK: - Local CLI usage (read from ~/.claude/projects/**/*.jsonl)
+    @Published var localTodayTokens: Int    = 0
+    @Published var localWeekTokens:  Int    = 0
+    @Published var localTodayCost:   Double = 0
+    @Published var localWeekCost:    Double = 0
+
     // MARK: - Claude / Anthropic state
     @Published var claudeTodayCost:  Double = 0
     @Published var claudeWeekCost:   Double = 0
@@ -31,6 +37,10 @@ final class AppState: ObservableObject {
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
     @Published var claudeLastUpdate: Date?
+
+    // Set this to open a specific session in Chat tab
+    @Published var pendingChatSession: String? = nil
+    @Published var pendingChatSessionTitle: String? = nil
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
@@ -55,12 +65,21 @@ final class AppState: ObservableObject {
     var weekBudget: Double { settings.budget > 0 ? settings.budget / 4.33 : 0 }
     var weekPct:    Double { weekBudget > 0 ? min(1.0, weekCost / weekBudget) : 0 }
 
+    // MARK: - CLI Services
+    let cliService     = ClaudeCLIService()
+    let historyService = ChatHistoryService()
+    let agentService   = AgentService()
+    lazy var mcpService: MCPService = MCPService(cliService: cliService)
+
+    @Published var activeSessions: [ActiveCLISession] = []
+
     // MARK: - Private
     private let service = GitHubService()
     // Use named suite so settings persist across binary vs .app bundle changes
     private let ud      = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let key     = "gh_sku_settings_v2"
-    private var timer:  Timer?
+    private var timer:      Timer?
+    private var usageTimer: Timer?
 
     // MARK: - Init
     init() {
@@ -71,6 +90,12 @@ final class AppState: ObservableObject {
         }
         if !settings.anthropicAdminKey.isEmpty && !settings.anthropicOrgId.isEmpty {
             Task { await refreshClaude() }
+        }
+        Task {
+            await agentService.loadAgents()
+            await historyService.loadProjects()
+            activeSessions = cliService.loadActiveSessions()
+            await loadLocalCLIUsage()
         }
     }
 
@@ -97,6 +122,12 @@ final class AppState: ObservableObject {
             repeats: true
         ) { [weak self] _ in
             Task { await self?.refresh() }
+        }
+
+        // Local CLI usage: refresh every 60 seconds
+        usageTimer?.invalidate()
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { await self?.loadLocalCLIUsage() }
         }
     }
 
@@ -295,6 +326,63 @@ final class AppState: ObservableObject {
         yearCost = total
     }
 
+    // MARK: - Local CLI usage (reads ~/.claude/projects/**/*.jsonl)
+
+    func loadLocalCLIUsage() async {
+        let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".claude/projects")
+
+        // Sonnet 4.6 pricing per token
+        let inputPrice:  Double = 3.0  / 1_000_000
+        let outputPrice: Double = 15.0 / 1_000_000
+
+        let cal  = Calendar.current
+        let now  = Date()
+        let startOfToday = cal.startOfDay(for: now)
+        // Weekly reset on Tuesday (like Claude's plan)
+        let weekday = cal.component(.weekday, from: now) // 1=Sun 2=Mon 3=Tue
+        let daysFromTue = (weekday - 3 + 7) % 7
+        let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
+
+        var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
+
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: projectsDir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]) else { return }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "jsonl" else { continue }
+            guard let data = try? Data(contentsOf: fileURL),
+                  let text = String(data: data, encoding: .utf8) else { continue }
+            for line in text.components(separatedBy: "\n") where !line.isEmpty {
+                guard let lineData = line.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      let tsStr = obj["timestamp"] as? String,
+                      let dt = iso.date(from: tsStr) else { continue }
+                let msg    = obj["message"] as? [String: Any]
+                let usage  = msg?["usage"] as? [String: Any]
+                let inp    = usage?["input_tokens"]  as? Int ?? 0
+                let out    = usage?["output_tokens"] as? Int ?? 0
+                if dt >= startOfToday { inToday += inp; outToday += out }
+                if dt >= startOfWeek  { inWeek  += inp; outWeek  += out }
+            }
+        }
+
+        let costToday = Double(inToday) * inputPrice + Double(outToday) * outputPrice
+        let costWeek  = Double(inWeek)  * inputPrice + Double(outWeek)  * outputPrice
+
+        await MainActor.run {
+            localTodayTokens = inToday + outToday
+            localWeekTokens  = inWeek  + outWeek
+            localTodayCost   = costToday
+            localWeekCost    = costWeek
+        }
+    }
+
     // MARK: - Claude usage fetch
 
     func refreshClaude(force: Bool = false) async {
@@ -352,6 +440,8 @@ final class AppState: ObservableObject {
             claudeWeekTokens  = tokens(week)
             claudeMonthTokens = tokens(month)
 
+        } catch APIError.http(429, _) {
+            // Rate limited — keep existing data, don't show error
         } catch {
             claudeError = "Anthropic: \(error.localizedDescription)"
         }
