@@ -189,13 +189,18 @@ struct SettingsFormView: View {
                                 // DARK subsection
                                 VStack(alignment: .leading, spacing: 10) {
                                     themeGroupHeader(label: "DARK", icon: "moon.fill")
+                                    let darkThemes = AppTheme.all.filter { !$0.isLight }
                                     LazyVGrid(
                                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                                        spacing: 10
+                                        alignment: .leading, spacing: 10
                                     ) {
-                                        ForEach(AppTheme.all.filter { !$0.isLight }) { t in
-                                            themeSwatchButton(t)
-                                        }
+                                        ForEach(darkThemes.prefix(3)) { t in themeSwatchButton(t) }
+                                    }
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading, spacing: 10
+                                    ) {
+                                        ForEach(darkThemes.dropFirst(3)) { t in themeSwatchButton(t) }
                                     }
                                 }
 

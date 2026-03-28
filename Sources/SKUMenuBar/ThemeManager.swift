@@ -72,15 +72,8 @@ private extension Color {
 
 extension AppTheme {
 
-    static let all: [AppTheme] = [fuchsia, cyan, emerald, violet, coffeeDark, bitterDark, coffeeLight, bitterLight, monoDark, monoLight]
+    static let all: [AppTheme] = [cyan, emerald, violet, coffeeDark, bitterDark, monoDark, coffeeLight, bitterLight, monoLight]
 
-    static let fuchsia = AppTheme(
-        id: "fuchsia", name: "Fuchsia",
-        bgTopR: 217, bgTopG: 70,  bgTopB: 239, bgTopA: 0.15,
-        bgBotR: 34,  bgBotG: 211, bgBotB: 238, bgBotA: 0.10,
-        glowEnabled: true,
-        acR: 217, acG: 70, acB: 239, isLight: false
-    )
     static let cyan = AppTheme(
         id: "cyan", name: "Cyan",
         bgTopR: 14,  bgTopG: 165, bgTopB: 233, bgTopA: 0.20,
@@ -150,7 +143,7 @@ extension AppTheme {
 
 @MainActor
 final class ThemeManager: ObservableObject {
-    @Published var current: AppTheme = .fuchsia {
+    @Published var current: AppTheme = .cyan {
         didSet { persist() }
     }
 
@@ -171,7 +164,7 @@ final class ThemeManager: ObservableObject {
 // MARK: - Environment Key
 
 private struct ThemeKey: EnvironmentKey {
-    static let defaultValue: AppTheme = .fuchsia
+    static let defaultValue: AppTheme = .cyan
 }
 
 extension EnvironmentValues {
