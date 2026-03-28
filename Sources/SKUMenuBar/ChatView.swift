@@ -76,7 +76,7 @@ struct ChatView: View {
             .padding(.horizontal, 8)
         }
         .frame(height: 36)
-        .background(theme.cardSurface)
+        .background(theme.windowBg)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .bottom)
     }
 
@@ -148,9 +148,24 @@ struct SingleChatSessionView: View {
     @State private var isDragOver: Bool = false
     @State private var sessionTitle: String = ""
     @State private var workingDirectory: String?
-    @State private var orchestratorMode: Bool = false
     @State private var selectedOrchestrators: Set<String> = []
+    @State private var showModelPicker    = false
+    @State private var showAgentPicker    = false
+    @State private var showOrchPicker     = false
+    @State private var showSnippetPicker  = false
+    @State private var showSnippetSheet   = false
+    @State private var newSnippetTitle    = ""
+    @State private var newSnippetText     = ""
+
+    private func closeAllPickers() {
+        showModelPicker   = false
+        showAgentPicker   = false
+        showOrchPicker    = false
+        showSnippetPicker = false
+    }
     @FocusState private var inputFocused: Bool
+
+    private var orchestratorMode: Bool { !selectedOrchestrators.isEmpty }
 
     private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
 
@@ -168,9 +183,9 @@ struct SingleChatSessionView: View {
         ZStack {
             VStack(spacing: 0) {
                 if messages.isEmpty {
-                    emptyState
+                    emptyState.onTapGesture { closeAllPickers() }
                 } else {
-                    messagesArea
+                    messagesArea.onTapGesture { closeAllPickers() }
                 }
                 inputBar
             }
@@ -183,6 +198,7 @@ struct SingleChatSessionView: View {
         .onDrop(of: [UTType.fileURL], isTargeted: $isDragOver) { providers in
             handleDrop(providers: providers)
         }
+        .sheet(isPresented: $showSnippetSheet) { snippetSheet }
         .onAppear {
             inputFocused = true
             // Restore state from tab if resuming a session
@@ -366,44 +382,11 @@ struct SingleChatSessionView: View {
 
     private var canSend: Bool {
         let hasContent = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedFiles.isEmpty
-        let orchValid = !orchestratorMode || !selectedOrchestrators.isEmpty
-        return hasContent && !isStreaming && orchValid
+        return hasContent && !isStreaming
     }
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            // Orchestrator agent chips (inside card, above input)
-            if orchestratorMode && !state.agentService.agents.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 5) {
-                        ForEach(state.agentService.agents) { agent in
-                            let on = selectedOrchestrators.contains(agent.id)
-                            Button {
-                                if on { selectedOrchestrators.remove(agent.id) }
-                                else  { selectedOrchestrators.insert(agent.id) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(on ? accentColor : theme.tertiaryText)
-                                    Text(agent.name)
-                                        .font(.system(size: 10, weight: on ? .semibold : .regular))
-                                        .foregroundStyle(on ? theme.primaryText : theme.secondaryText)
-                                }
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(on ? accentColor.opacity(0.1) : theme.cardBg.opacity(0.5),
-                                            in: RoundedRectangle(cornerRadius: 5))
-                                .overlay(RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(on ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
-                }
-                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
-            }
-
             // File attachment chips
             if !attachedFiles.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -419,15 +402,16 @@ struct SingleChatSessionView: View {
                 ZStack(alignment: .topLeading) {
                     if inputText.isEmpty {
                         Text("Ask Claude…")
-                            .font(.system(size: 13))
+                            .font(.system(size: 12.5, design: .monospaced))
                             .foregroundStyle(theme.tertiaryText.opacity(0.6))
-                            .padding(.vertical, 6)
+                            .padding(.leading, 5).padding(.top, 4)
                             .allowsHitTesting(false)
                     }
                     TextEditor(text: $inputText)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12.5, design: .monospaced))
                         .foregroundStyle(theme.primaryText)
-                        .frame(minHeight: 24, maxHeight: 120)
+                        .tint(accentColor)
+                        .frame(minHeight: 16, maxHeight: 60)
                         .scrollContentBackground(.hidden)
                         .background(.clear)
                         .focused($inputFocused)
@@ -438,15 +422,33 @@ struct SingleChatSessionView: View {
                         }
                 }
 
-                Button {
-                    isStreaming ? stopStreaming() : sendMessage()
-                } label: {
-                    Image(systemName: isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(isStreaming ? Color.red : (canSend ? accentColor : theme.tertiaryText.opacity(0.4)))
+                VStack(spacing: 10) {
+                    Button {
+                        withAnimation(.spring(response: 0.3)) {
+                            messages = []
+                            inputText = ""
+                            attachedFiles = []
+                        }
+                    } label: {
+                        let hasContent = !messages.isEmpty || !inputText.isEmpty
+                        Image(systemName: "trash")
+                            .font(.system(size: 13))
+                            .foregroundStyle(hasContent ? .red.opacity(0.75) : theme.tertiaryText.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(messages.isEmpty && inputText.isEmpty)
+                    .help("Chat leeren")
+
+                    Button {
+                        isStreaming ? stopStreaming() : sendMessage()
+                    } label: {
+                        Image(systemName: isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(isStreaming ? Color.red : (canSend ? accentColor : theme.tertiaryText.opacity(0.4)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend && !isStreaming)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend && !isStreaming)
             }
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
 
@@ -460,6 +462,59 @@ struct SingleChatSessionView: View {
                               lineWidth: isDragOver ? 1.5 : 0.5)
         )
         .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
+    // Generic upward-opening themed picker button (custom overlay, no system popover)
+    private func pickerButton<Content: View>(
+        icon: String,
+        label: String,
+        active: Bool,
+        isPresented: Binding<Bool>,
+        measuredHeight: Binding<CGFloat> = .constant(0),
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        Button {
+            let wasOpen = isPresented.wrappedValue
+            closeAllPickers()
+            if !wasOpen { isPresented.wrappedValue = true }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(active ? accentColor : theme.tertiaryText)
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(active ? accentColor : theme.tertiaryText)
+                Image(systemName: isPresented.wrappedValue ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 7, weight: .medium))
+                    .foregroundStyle(theme.tertiaryText.opacity(0.5))
+            }
+            .padding(.horizontal, 6).padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottomLeading) {
+            if isPresented.wrappedValue {
+                VStack(alignment: .leading, spacing: 0) { content() }
+                    .padding(4)
+                    .frame(minWidth: 180)
+                    .fixedSize()
+                    .background(theme.windowBg)
+                    .overlay(Rectangle().strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: -3)
+                    .offset(y: -28)
+            }
+        }
+        .zIndex(isPresented.wrappedValue ? 100 : 0)
+    }
+
+    // Single row for single-select pickers (hover-capable)
+    private func pickerRow(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        PickerRowView(label: label, selected: selected, accent: accentColor, fg: theme.primaryText, action: action)
+    }
+
+    // Multi-select row for orchestrator (hover-capable)
+    private func orchRow(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        OrchRowView(label: label, selected: selected, accent: accentColor, fg: theme.primaryText, secondary: theme.tertiaryText, action: action)
     }
 
     // Minimal icon row at the very bottom of the input card
@@ -477,73 +532,114 @@ struct SingleChatSessionView: View {
 
             stripSep
 
-            // Model
-            Menu {
-                ForEach(models, id: \.self) { m in Button(m) { selectedModel = m } }
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "cpu")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.tertiaryText)
-                    Text(shortModelName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.tertiaryText)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7, weight: .medium))
-                        .foregroundStyle(theme.tertiaryText.opacity(0.5))
+            // Model picker
+            pickerButton(
+                icon: "cpu",
+                label: shortModelName,
+                active: false,
+                isPresented: $showModelPicker
+            ) {
+                ForEach(models, id: \.self) { m in
+                    pickerRow(label: m, selected: m == selectedModel) {
+                        selectedModel = m
+                        showModelPicker = false
+                    }
                 }
-                .padding(.horizontal, 6).padding(.vertical, 4)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
             .disabled(orchestratorMode)
 
-            // Agent (single mode)
+            // Agent picker (single mode only)
             if !orchestratorMode && !state.agentService.agents.isEmpty {
                 stripSep
-                Menu {
-                    Button("Kein Agent") { selectedAgent = "" }
-                    Divider()
+                pickerButton(
+                    icon: "person.crop.circle",
+                    label: selectedAgent.isEmpty ? "Agent" :
+                           (state.agentService.agents.first { $0.id == selectedAgent }?.name ?? "Agent"),
+                    active: !selectedAgent.isEmpty,
+                    isPresented: $showAgentPicker
+                ) {
+                    pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty) {
+                        selectedAgent = ""
+                        showAgentPicker = false
+                    }
                     ForEach(state.agentService.agents) { a in
-                        Button(a.name) { selectedAgent = a.id }
+                        pickerRow(label: a.name, selected: selectedAgent == a.id) {
+                            selectedAgent = a.id
+                            showAgentPicker = false
+                        }
                     }
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 10))
-                            .foregroundStyle(selectedAgent.isEmpty ? theme.tertiaryText : accentColor)
-                        Text(selectedAgent.isEmpty ? "Agent" :
-                             (state.agentService.agents.first { $0.id == selectedAgent }?.name ?? "Agent"))
-                            .font(.system(size: 10))
-                            .foregroundStyle(selectedAgent.isEmpty ? theme.tertiaryText : accentColor)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .medium))
-                            .foregroundStyle(theme.tertiaryText.opacity(0.5))
-                    }
-                    .padding(.horizontal, 6).padding(.vertical, 4)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
             }
 
-            // Orchestrator toggle
+            // Orchestrator multi-select picker
             if !state.agentService.agents.isEmpty {
                 stripSep
-                stripButton(
+                let orchLabel = selectedOrchestrators.isEmpty
+                    ? "Orchestrator"
+                    : "\(selectedOrchestrators.count) Agents"
+                pickerButton(
                     icon: "square.stack.3d.up.fill",
+                    label: orchLabel,
                     active: orchestratorMode,
-                    help: "Mehrere Agents parallel"
+                    isPresented: $showOrchPicker
                 ) {
-                    orchestratorMode.toggle()
-                    if orchestratorMode && selectedOrchestrators.isEmpty {
-                        selectedOrchestrators = Set(state.agentService.agents.prefix(2).map { $0.id })
+                    ForEach(state.agentService.agents) { a in
+                        orchRow(label: a.name, selected: selectedOrchestrators.contains(a.id)) {
+                            if selectedOrchestrators.contains(a.id) {
+                                selectedOrchestrators.remove(a.id)
+                            } else {
+                                selectedOrchestrators.insert(a.id)
+                            }
+                        }
+                    }
+                    if !selectedOrchestrators.isEmpty {
+                        orchRow(label: "Auswahl aufheben", selected: false, action: {
+                            selectedOrchestrators.removeAll()
+                            showOrchPicker = false
+                        })
                     }
                 }
-                if orchestratorMode {
-                    Text("Orchestrator")
-                        .font(.system(size: 9))
-                        .foregroundStyle(accentColor.opacity(0.7))
-                        .padding(.leading, 2)
+            }
+
+            stripSep
+
+            // Snippets
+            pickerButton(
+                icon: "bolt.fill",
+                label: "Snippets",
+                active: false,
+                isPresented: $showSnippetPicker
+            ) {
+                if state.snippets.isEmpty {
+                    Text("Keine Snippets")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                } else {
+                    ForEach(state.snippets) { snippet in
+                        SnippetRowView(
+                            snippet: snippet,
+                            accent: accentColor,
+                            fg: theme.primaryText,
+                            secondary: theme.tertiaryText
+                        ) {
+                            inputText = snippet.text
+                            showSnippetPicker = false
+                            inputFocused = true
+                        } onDelete: {
+                            state.snippets.removeAll { $0.id == snippet.id }
+                        }
+                    }
+                    Rectangle()
+                        .fill(theme.cardBorder)
+                        .frame(height: 0.5)
+                        .padding(.horizontal, 6)
+                }
+                pickerRow(label: "+ Snippet hinzufügen", selected: false) {
+                    showSnippetPicker = false
+                    newSnippetTitle = ""
+                    newSnippetText  = ""
+                    showSnippetSheet = true
                 }
             }
 
@@ -714,9 +810,17 @@ struct SingleChatSessionView: View {
                     for try await event in stream {
                         if event.type == "assistant",
                            let content = event.message?.content {
-                            for block in content where block.type == "text" {
-                                if let t = block.text, !t.isEmpty {
-                                    messages[idx].content += t
+                            for block in content {
+                                switch block.type {
+                                case "text":
+                                    if let t = block.text, !t.isEmpty {
+                                        messages[idx].content += t
+                                    }
+                                case "tool_use":
+                                    let name = block.name ?? "tool"
+                                    let tool = ToolCall(name: name, input: "")
+                                    messages[idx].toolCalls.append(tool)
+                                default: break
                                 }
                             }
                         }
@@ -927,7 +1031,7 @@ struct MessageBubbleView: View {
             }
             if !message.content.isEmpty {
                 Text(message.content)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12.5, design: .monospaced))
                     .foregroundStyle(theme.primaryText)
                     .textSelection(.enabled)
             }
@@ -1184,6 +1288,185 @@ struct MessageBubbleView: View {
 
     // Helper to suppress compile warning about unused parameter
     private func files(from file: DiffFile) -> [DiffFile] { [] }
+}
+
+// MARK: - Picker Row Views (hover-capable)
+
+private struct PickerRowView: View {
+    let label: String
+    let selected: Bool
+    let accent: Color
+    let fg: Color
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: selected ? "checkmark" : "")
+                    .font(.system(size: 10))
+                    .foregroundStyle(accent)
+                    .frame(width: 12)
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(selected || hovered ? accent : fg)
+                Spacer()
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovered in
+            hovered = isHovered
+            if isHovered { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+private struct OrchRowView: View {
+    let label: String
+    let selected: Bool
+    let accent: Color
+    let fg: Color
+    let secondary: Color
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: selected ? "checkmark.square.fill" : (label == "Auswahl aufheben" ? "xmark.circle" : "square"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : secondary))
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : fg))
+                Spacer()
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovered in
+            hovered = isHovered
+            if isHovered { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+// MARK: - Snippet Sheet (in SingleChatSessionView)
+
+extension SingleChatSessionView {
+    var snippetSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Snippet hinzufügen")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Titel")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+                TextField("z.B. Commit & Push", text: $newSnippetTitle)
+                    .font(.system(size: 13))
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Befehl / Prompt")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+                TextEditor(text: $newSnippetText)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 90, maxHeight: 180)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            }
+
+            HStack {
+                Spacer()
+                Button("Abbrechen") { showSnippetSheet = false }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                Button("Speichern") {
+                    let title = newSnippetTitle.trimmingCharacters(in: .whitespaces)
+                    let text  = newSnippetText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !title.isEmpty, !text.isEmpty else { return }
+                    state.snippets.append(CommandSnippet(title: title, text: text))
+                    showSnippetSheet = false
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(accentColor, in: RoundedRectangle(cornerRadius: 6))
+                .disabled(newSnippetTitle.trimmingCharacters(in: .whitespaces).isEmpty ||
+                          newSnippetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+        .background(theme.windowBg)
+        .environment(\.appTheme, theme)
+    }
+}
+
+// MARK: - Snippet Row
+
+private struct SnippetRowView: View {
+    let snippet:  CommandSnippet
+    let accent:   Color
+    let fg:       Color
+    let secondary: Color
+    let onInsert: () -> Void
+    let onDelete: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(hovered ? accent : secondary.opacity(0.5))
+            Text(snippet.title)
+                .font(.system(size: 12))
+                .foregroundStyle(hovered ? accent : fg)
+                .lineLimit(1)
+            Spacer()
+            if hovered {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(secondary)
+                }
+                .buttonStyle(.plain)
+                .onHover { if $0 { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { onInsert() }
+        .onHover { isHovered in
+            hovered = isHovered
+            if isHovered { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
 }
 
 // MARK: - Markdown Text Renderer

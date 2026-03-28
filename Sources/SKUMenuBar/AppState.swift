@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var localWeekTokens:  Int    = 0
     @Published var localTodayCost:   Double = 0
     @Published var localWeekCost:    Double = 0
+    @Published var localDailyByDate: [String: Double] = [:]  // "yyyy-MM-dd" -> estimated cost USD
 
     // MARK: - Claude / Anthropic state
     @Published var claudeTodayCost:  Double = 0
@@ -34,6 +35,7 @@ final class AppState: ObservableObject {
     @Published var claudeTodayTokens:  Int = 0
     @Published var claudeWeekTokens:   Int = 0
     @Published var claudeMonthTokens:  Int = 0
+    @Published var claudeYearDailyByDate: [String: Double] = [:]  // "yyyy-MM-dd" -> cost USD
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
     @Published var claudeLastUpdate: Date?
@@ -73,17 +75,23 @@ final class AppState: ObservableObject {
 
     @Published var activeSessions: [ActiveCLISession] = []
 
+    @Published var snippets: [CommandSnippet] = [] {
+        didSet { persistSnippets() }
+    }
+
     // MARK: - Private
     private let service = GitHubService()
     // Use named suite so settings persist across binary vs .app bundle changes
     private let ud      = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let key     = "gh_sku_settings_v2"
+    private let snippetsKey = "cli_snippets_v1"
     private var timer:      Timer?
     private var usageTimer: Timer?
 
     // MARK: - Init
     init() {
         load()
+        loadSnippets()
         reschedule()
         if !settings.token.isEmpty && !settings.name.isEmpty {
             Task { await refresh() }
@@ -91,11 +99,12 @@ final class AppState: ObservableObject {
         if !settings.anthropicAdminKey.isEmpty && !settings.anthropicOrgId.isEmpty {
             Task { await refreshClaude() }
         }
+        activeSessions = cliService.loadActiveSessions()
         Task {
-            await agentService.loadAgents()
-            await historyService.loadProjects()
-            activeSessions = cliService.loadActiveSessions()
-            await loadLocalCLIUsage()
+            async let agents: () = agentService.loadAgents()
+            async let projects: () = historyService.loadProjects()
+            async let usage: () = loadLocalCLIUsage()
+            _ = await (agents, projects, usage)
         }
     }
 
@@ -111,6 +120,19 @@ final class AppState: ObservableObject {
     private func persist() {
         if let d = try? JSONEncoder().encode(settings) {
             ud.set(d, forKey: key)
+        }
+    }
+
+    private func loadSnippets() {
+        guard let d = ud.data(forKey: snippetsKey),
+              let s = try? JSONDecoder().decode([CommandSnippet].self, from: d)
+        else { return }
+        snippets = s
+    }
+
+    private func persistSnippets() {
+        if let d = try? JSONEncoder().encode(snippets) {
+            ud.set(d, forKey: snippetsKey)
         }
     }
 
@@ -345,6 +367,7 @@ final class AppState: ObservableObject {
         let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
 
         var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
+        var dailyByDate: [String: Double] = [:]
 
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: projectsDir,
@@ -353,6 +376,8 @@ final class AppState: ObservableObject {
 
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "yyyy-MM-dd"
 
         for case let fileURL as URL in enumerator {
             guard fileURL.pathExtension == "jsonl" else { continue }
@@ -369,6 +394,11 @@ final class AppState: ObservableObject {
                 let out    = usage?["output_tokens"] as? Int ?? 0
                 if dt >= startOfToday { inToday += inp; outToday += out }
                 if dt >= startOfWeek  { inWeek  += inp; outWeek  += out }
+                let lineCost = Double(inp) * inputPrice + Double(out) * outputPrice
+                if lineCost > 0 {
+                    let dateKey = dayFmt.string(from: dt)
+                    dailyByDate[dateKey, default: 0] += lineCost
+                }
             }
         }
 
@@ -380,6 +410,7 @@ final class AppState: ObservableObject {
             localWeekTokens  = inWeek  + outWeek
             localTodayCost   = costToday
             localWeekCost    = costWeek
+            localDailyByDate = dailyByDate
         }
     }
 
@@ -424,6 +455,16 @@ final class AppState: ObservableObject {
             async let uYear  = svc.fetchUsage(adminKey: key, start: startOfYear,  end: endNow, bucketWidth: "1d")
 
             let (today, week, month, year) = try await (uToday, uWeek, uMonth, uYear)
+
+            // Extract daily Claude costs for the entire year (for drill-down charts)
+            var dailyByDate: [String: Double] = [:]
+            for bucket in year {
+                guard let dateStr = bucket.startingAt else { continue }
+                let dateKey = String(dateStr.prefix(10))
+                let bucketCost = (bucket.results ?? []).map(\.estimatedCostUsd).reduce(0, +)
+                dailyByDate[dateKey, default: 0] += bucketCost
+            }
+            claudeYearDailyByDate = dailyByDate
 
             func cost(_ buckets: [AnthropicUsageBucket]) -> Double {
                 buckets.flatMap { $0.results ?? [] }.map(\.estimatedCostUsd).reduce(0, +)

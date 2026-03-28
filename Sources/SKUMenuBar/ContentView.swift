@@ -56,48 +56,127 @@ extension View {
 
 // MARK: - Dashboard View
 
-private struct UsageCardHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 300
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 struct DashboardView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
     @State private var refreshRotation: Double = 0
-    @State private var usageCardHeight: CGFloat = 300
 
-    /// Width that makes all 28 HabitGrid cells perfectly square (no wasted space).
-    /// Derived from the measured UsageOverviewCard height.
-    private var idealHabitGridCardWidth: CGFloat {
-        let contentH   = usageCardHeight - 32          // minus .padding(16) top+bottom
-        let gridH      = contentH - 28 - 16 - 16       // minus header(28) + legend(16) + spacing(16)
-        let cellH      = max(16, (gridH - 12) / 4)     // vGaps = 3 × 4 = 12, rows = 4
-        let gridWidth  = cellH * 7 + 24                // 7 cells + 6 × 4pt gaps
-        return max(185, gridWidth + 32)                // minimum 185pt so card never collapses
+    // MARK: - Derived costs
+
+    private var copilotMonthCost: Double {
+        state.monthByProduct
+            .filter { $0.key.lowercased().contains("copilot") }
+            .values.reduce(0, +)
     }
-
-    // MARK: - Accent / KPI helpers
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    private var claudeConfigured: Bool { !state.settings.anthropicAdminKey.isEmpty }
+
+    // Budget helpers
     private var dailyRef: Double {
         guard state.settings.budget > 0 else { return 0 }
         let days = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
         return state.settings.budget / Double(days)
     }
-    private var todayPct: Double { dailyRef > 0 ? min(1, state.todayCost / dailyRef) : 0 }
+    private var copilotPct: Double {
+        state.settings.budget > 0 ? min(1, copilotMonthCost / state.settings.budget) : 0
+    }
+    private var claudePct: Double {
+        if state.settings.claudeWeeklyCostLimit > 0 {
+            let monthly = state.settings.claudeWeeklyCostLimit * 4.33
+            return min(1, state.claudeMonthCost / monthly)
+        }
+        return state.settings.budget > 0 ? min(1, state.claudeMonthCost / state.settings.budget) : 0
+    }
+    private var remainPct: Double { state.settings.budget > 0 ? state.remain / state.settings.budget : 1 }
     private func consumedColor(_ p: Double) -> Color { p > 0.9 ? .red : p > 0.75 ? .orange : accentColor }
-    private func remainColor(_ p: Double) -> Color { p < 0.2 ? .red : p < 0.4 ? .orange : .green }
+    private func remainColor(_ p: Double) -> Color   { p < 0.2 ? .red : p < 0.4 ? .orange : .green }
+
+    // MARK: - Copilot chart data (from historicalMonths)
+
+    private var copilotMonthlyData: [(id: String, label: String, value: Double)] {
+        state.historicalMonths
+            .filter { $0.total > 0 }
+            .map { m in
+                (id: m.id, label: m.shortName, value: m.total)
+            }
+    }
+
+    private var copilotDailyData: [String: Double] {
+        var result: [String: Double] = [:]
+        for m in state.historicalMonths {
+            for (dateStr, amount) in m.byDay {
+                result[dateStr, default: 0] += amount
+            }
+        }
+        return result
+    }
+
+    // MARK: - Combined (Copilot + Claude) chart data
+
+    private var combinedMonthlyData: [(id: String, label: String, value: Double)] {
+        var totals: [String: Double] = [:]
+        for item in copilotMonthlyData { totals[item.id, default: 0] += item.value }
+        for item in claudeMonthlyData  { totals[item.id, default: 0] += item.value }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM"
+        df.locale     = Locale(identifier: "de_DE")
+        return totals.compactMap { (monthId, value) -> (id: String, label: String, value: Double)? in
+            guard let date = df.date(from: monthId) else { return nil }
+            let label = DateFormatter().shortMonthSymbols[Calendar.current.component(.month, from: date) - 1]
+            return (id: monthId, label: label, value: value)
+        }
+        .filter { $0.value > 0 }
+        .sorted { $0.id < $1.id }
+    }
+
+    private var combinedDailyData: [String: Double] {
+        var result: [String: Double] = [:]
+        for (k, v) in copilotDailyData   { result[k, default: 0] += v }
+        for (k, v) in claudeDailySource  { result[k, default: 0] += v }
+        return result
+    }
+
+    // MARK: - Claude chart data (from claudeYearDailyByDate)
+
+    /// Prefers Anthropic Admin API daily data; falls back to local CLI JSONL data.
+    private var claudeDailySource: [String: Double] {
+        state.claudeYearDailyByDate.isEmpty ? state.localDailyByDate : state.claudeYearDailyByDate
+    }
+
+    private var claudeIsLocalSource: Bool { state.claudeYearDailyByDate.isEmpty }
+
+    private var claudeMonthlyData: [(id: String, label: String, value: Double)] {
+        var monthTotals: [String: Double] = [:]
+        for (dateStr, cost) in claudeDailySource {
+            let monthId = String(dateStr.prefix(7))
+            monthTotals[monthId, default: 0] += cost
+        }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM"
+        df.locale     = Locale(identifier: "de_DE")
+        let shortDf   = DateFormatter()
+        shortDf.locale = Locale(identifier: "de_DE")
+        return monthTotals.compactMap { (monthId, value) -> (id: String, label: String, value: Double)? in
+            guard let date = df.date(from: monthId) else { return nil }
+            let label = shortDf.shortMonthSymbols[Calendar.current.component(.month, from: date) - 1]
+            return (id: monthId, label: label, value: value)
+        }
+        .filter { $0.value > 0 }
+        .sorted { $0.id < $1.id }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
 
-                // ── Page title row ─────────────────────────────────────
-                HStack(alignment: .bottom, spacing: 0) {
+                // -- Page title row --
+                HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Dashboard")
                             .font(.system(size: 22, weight: .bold))
@@ -108,7 +187,6 @@ struct DashboardView: View {
                     }
                     Spacer()
                     HStack(spacing: 10) {
-                        // System status badge
                         HStack(spacing: 4) {
                             Circle().fill(state.errorMsg != nil ? Color.red : Color.green)
                                 .frame(width: 6, height: 6)
@@ -124,8 +202,6 @@ struct DashboardView: View {
                                 .overlay(RoundedRectangle(cornerRadius: 8)
                                     .strokeBorder(state.errorMsg != nil ? Color.red.opacity(0.4) : Color.green.opacity(0.4), lineWidth: 1))
                         )
-
-                        // Refresh
                         Button {
                             withAnimation(.linear(duration: 0.6)) { refreshRotation += 360 }
                             Task {
@@ -158,72 +234,136 @@ struct DashboardView: View {
                         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)))
                 }
 
-                // ── 3 KPI Cards ────────────────────────────────────────
-                HStack(spacing: 12) {
-                    kpiCard(label: "HEUTE", icon: "calendar.badge.clock", iconColor: accentColor,
-                            value: state.fmt(state.todayCost),
-                            badge: "+\(Int(todayPct * 100))%",
-                            badgeColor: consumedColor(todayPct),
-                            pct: todayPct, barColor: accentColor,
-                            sub: dailyRef > 0 ? "Limit: \(state.fmt(dailyRef))" : "Kein Limit")
-
-                    kpiCard(label: "DIESEN MONAT", icon: "calendar", iconColor: .green,
+                // -- KPI Cards --
+                if claudeConfigured {
+                    HStack(spacing: 12) {
+                        kpiCard(
+                            label: "COPILOT",
+                            icon: "person.fill.checkmark",
+                            iconColor: .blue,
+                            value: state.fmt(copilotMonthCost),
+                            badge: "+\(Int(copilotPct * 100))%",
+                            badgeColor: consumedColor(copilotPct),
+                            pct: copilotPct, barColor: .blue,
+                            sub: state.settings.budget > 0 ? "von \(state.fmt(state.settings.budget))" : "Kein Limit"
+                        )
+                        kpiCard(
+                            label: "CLAUDE API",
+                            icon: "sparkles",
+                            iconColor: .purple,
+                            value: state.fmt(state.claudeMonthCost),
+                            badge: "+\(Int(claudePct * 100))%",
+                            badgeColor: consumedColor(claudePct),
+                            pct: claudePct, barColor: .purple,
+                            sub: state.settings.claudeWeeklyCostLimit > 0
+                                ? "Limit: \(state.fmt(state.settings.claudeWeeklyCostLimit))/Wo."
+                                : "Kein Limit"
+                        )
+                        kpiCard(
+                            label: "VERBLEIBEND",
+                            icon: "building.columns.fill",
+                            iconColor: remainColor(remainPct),
+                            value: state.settings.budget > 0 ? state.fmt(state.remain) : "\u{2013}",
+                            badge: "\(Int(remainPct * 100))%",
+                            badgeColor: remainColor(remainPct),
+                            pct: remainPct, barColor: remainColor(remainPct),
+                            sub: state.settings.budget > 0 ? "Ziel: \(state.fmt(state.settings.budget))/Mo." : "Kein Budget"
+                        )
+                    }
+                } else {
+                    HStack(spacing: 12) {
+                        kpiCard(
+                            label: "DIESEN MONAT",
+                            icon: "calendar",
+                            iconColor: .blue,
                             value: state.fmt(state.monthCost),
                             badge: "+\(Int(state.monthPct * 100))%",
                             badgeColor: consumedColor(state.monthPct),
-                            pct: state.monthPct, barColor: .green,
-                            sub: state.settings.budget > 0 ? "von \(state.fmt(state.settings.budget))" : "Kein Limit")
-
-                    kpiCard(label: "VERBLEIBEND", icon: "building.columns.fill", iconColor: .blue,
-                            value: state.settings.budget > 0 ? state.fmt(state.remain) : "–",
-                            badge: "\(Int(state.remainPct * 100))%",
-                            badgeColor: remainColor(state.remainPct),
-                            pct: state.remainPct, barColor: remainColor(state.remainPct),
-                            sub: state.settings.budget > 0 ? "Ziel: \(state.fmt(state.settings.budget))/Mo." : "Kein Budget")
-                }
-
-                // ── Middle row: Habit grid + Usage overview ─────────────
-                HStack(alignment: .top, spacing: 12) {
-                    // Left: grid sized so cells are exactly square (no wasted space)
-                    HabitGridView(days: state.dailyUsage)
-                        .padding(16)
-                        .frame(width: idealHabitGridCardWidth, height: usageCardHeight)
-                        .clipped()
-                        .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardSurface)
-                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
-
-                    // Right: natural height is measured, then both cards are pinned to it
-                    ZStack(alignment: .top) {
-                        UsageOverviewCard()
-                            .overlay(
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: UsageCardHeightKey.self,
-                                        value: geo.size.height
-                                    )
-                                }
-                            )
+                            pct: state.monthPct, barColor: .blue,
+                            sub: state.settings.budget > 0 ? "von \(state.fmt(state.settings.budget))" : "Kein Limit"
+                        )
+                        kpiCard(
+                            label: "HEUTE",
+                            icon: "calendar.badge.clock",
+                            iconColor: accentColor,
+                            value: state.fmt(state.todayCost),
+                            badge: dailyRef > 0 ? "+\(Int(min(1, state.todayCost / dailyRef) * 100))%" : "\u{2013}",
+                            badgeColor: accentColor,
+                            pct: dailyRef > 0 ? min(1, state.todayCost / dailyRef) : 0,
+                            barColor: accentColor,
+                            sub: dailyRef > 0 ? "Limit: \(state.fmt(dailyRef))" : "Kein Limit"
+                        )
+                        kpiCard(
+                            label: "VERBLEIBEND",
+                            icon: "building.columns.fill",
+                            iconColor: remainColor(remainPct),
+                            value: state.settings.budget > 0 ? state.fmt(state.remain) : "\u{2013}",
+                            badge: "\(Int(remainPct * 100))%",
+                            badgeColor: remainColor(remainPct),
+                            pct: remainPct, barColor: remainColor(remainPct),
+                            sub: state.settings.budget > 0 ? "Ziel: \(state.fmt(state.settings.budget))/Mo." : "Kein Budget"
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: usageCardHeight)
                 }
-                .onPreferenceChange(UsageCardHeightKey.self) { usageCardHeight = $0 }
 
-                // ── Bottom row: Sources + Claude ────────────────────────
-                HStack(alignment: .top, spacing: 12) {
-                    SourceBreakdownCard(period: .month)
+                // -- Drill-down Charts --
+                if claudeConfigured {
+                    // Source charts side-by-side
+                    HStack(alignment: .top, spacing: 12) {
+                        DrilldownChartCard(
+                            title:       "GitHub Copilot",
+                            subtitle:    "Nur Copilot · GitHub Billing API",
+                            icon:        "person.fill.checkmark",
+                            accentColor: .blue,
+                            monthlyData: copilotMonthlyData,
+                            dailyData:   copilotDailyData,
+                            fmtFn:       { state.fmt($0) },
+                            isLoading:   state.isLoadingHistory
+                        )
                         .frame(maxWidth: .infinity)
-                    if !state.settings.anthropicAdminKey.isEmpty {
-                        ClaudeUsageCard()
-                            .frame(maxWidth: .infinity)
+
+                        DrilldownChartCard(
+                            title:       "Claude Code",
+                            subtitle:    claudeIsLocalSource ? "Nur Claude · CLI (lokal)" : "Nur Claude · Anthropic API",
+                            icon:        "sparkles",
+                            accentColor: .purple,
+                            monthlyData: claudeMonthlyData,
+                            dailyData:   claudeDailySource,
+                            fmtFn:       { state.fmt($0) },
+                            isLoading:   state.claudeIsLoading,
+                            errorMsg:    claudeMonthlyData.isEmpty ? state.claudeError : nil
+                        )
+                        .frame(maxWidth: .infinity)
                     }
+
+                    // Combined total chart (full width)
+                    DrilldownChartCard(
+                        title:       "Gesamt",
+                        subtitle:    "Copilot + Claude kombiniert",
+                        icon:        "chart.bar.fill",
+                        accentColor: accentColor,
+                        monthlyData: combinedMonthlyData,
+                        dailyData:   combinedDailyData,
+                        fmtFn:       { state.fmt($0) },
+                        isLoading:   state.isLoadingHistory || state.claudeIsLoading
+                    )
+                    .frame(maxWidth: .infinity)
+                } else {
+                    DrilldownChartCard(
+                        title:       "GitHub Copilot",
+                        subtitle:    "Nur Copilot · GitHub Billing API",
+                        icon:        "person.fill.checkmark",
+                        accentColor: accentColor,
+                        monthlyData: copilotMonthlyData,
+                        dailyData:   copilotDailyData,
+                        fmtFn:       { state.fmt($0) },
+                        isLoading:   state.isLoadingHistory
+                    )
+                    .frame(maxWidth: .infinity)
                 }
 
-                // ── Statistics Section ──────────────────────────────────
-                Divider()
-                    .opacity(0.2)
-                    .padding(.vertical, 4)
-
+                // -- Statistics Section --
+                Divider().opacity(0.2).padding(.vertical, 4)
                 StatisticsDashboardSection()
 
                 // Footer
@@ -239,15 +379,30 @@ struct DashboardView: View {
             .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            let year = Calendar.current.component(.year, from: Date())
+            async let history: () = {
+                if state.historicalMonths.isEmpty && !state.isLoadingHistory {
+                    await state.loadHistory(year: year)
+                }
+            }()
+            async let claude: () = {
+                // Force-refresh Claude year data if not yet available
+                if state.claudeYearDailyByDate.isEmpty && !state.claudeIsLoading
+                    && !state.settings.anthropicAdminKey.isEmpty {
+                    await state.refreshClaude(force: true)
+                }
+            }()
+            _ = await (history, claude)
+        }
     }
 
-    // MARK: - KPI Card
+    // MARK: - KPI Card (uniform size)
 
     private func kpiCard(label: String, icon: String, iconColor: Color,
-                          value: String, badge: String, badgeColor: Color,
-                          pct: Double, barColor: Color, sub: String) -> some View {
+                         value: String, badge: String, badgeColor: Color,
+                         pct: Double, barColor: Color, sub: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header: icon + label + badge pill in one row
             HStack(alignment: .center, spacing: 6) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 7)
@@ -268,15 +423,10 @@ struct DashboardView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(badgeColor.opacity(0.12), in: Capsule())
             }
-
-            // Value
             Text(value)
                 .font(.system(size: 24, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.primaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-
-            // Progress bar + subtitle
+                .lineLimit(1).minimumScaleFactor(0.5)
             VStack(alignment: .leading, spacing: 4) {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {

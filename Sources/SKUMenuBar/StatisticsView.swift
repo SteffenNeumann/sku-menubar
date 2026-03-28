@@ -3,6 +3,30 @@ import Charts
 
 // MARK: - Statistics Dashboard Section
 
+/// Two-column layout that proposes the same height (max of both columns) to every child.
+private struct EqualHeightHStack: Layout {
+    var spacing: CGFloat = 14
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let n = CGFloat(subviews.count)
+        let colWidth = max(0, ((proposal.width ?? 0) - spacing * (n - 1)) / n)
+        let maxH = subviews.map { $0.sizeThatFits(.init(width: colWidth, height: nil)).height }.max() ?? 0
+        return CGSize(width: proposal.width ?? 0, height: maxH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let n = CGFloat(subviews.count)
+        let colWidth = max(0, (bounds.width - spacing * (n - 1)) / n)
+        let colProposal = ProposedViewSize(width: colWidth, height: bounds.height)
+        for (i, sub) in subviews.enumerated() {
+            sub.place(at: CGPoint(x: bounds.minX + CGFloat(i) * (colWidth + spacing), y: bounds.minY),
+                      anchor: .topLeading, proposal: colProposal)
+        }
+    }
+}
+
 struct StatisticsDashboardSection: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
@@ -19,31 +43,43 @@ struct StatisticsDashboardSection: View {
 
     private var months: [MonthlyUsage] { state.historicalMonths }
     private var activeMonths: [MonthlyUsage] { months.filter { $0.total > 0 } }
-    private var yearTotal: Double { months.reduce(0) { $0 + $1.total } + state.claudeYearCost }
+
+    /// Daily Claude costs — prefers Anthropic API, falls back to local CLI.
+    private var claudeDailyForStats: [String: Double] {
+        state.claudeYearDailyByDate.isEmpty ? state.localDailyByDate : state.claudeYearDailyByDate
+    }
+
+    /// Extra Claude cost for a given Copilot month (keyed "yyyy-MM").
+    private func claudeCostForMonth(_ monthId: String) -> Double {
+        claudeDailyForStats
+            .filter { $0.key.hasPrefix(monthId) }
+            .values.reduce(0, +)
+    }
+
+    /// Combined (Copilot + Claude) total for the year.
+    private var yearTotal: Double {
+        months.reduce(0) { $0 + $1.total + claudeCostForMonth($1.id) }
+    }
+
     private var avgMonthly: Double { activeMonths.isEmpty ? 0 : yearTotal / Double(activeMonths.count) }
-    private var peakMonth: MonthlyUsage? { months.max(by: { $0.total < $1.total }) }
-    private var cheapestMonth: MonthlyUsage? { activeMonths.min(by: { $0.total < $1.total }) }
+    private var peakMonth: MonthlyUsage? { months.max(by: { $0.total + claudeCostForMonth($0.id) < $1.total + claudeCostForMonth($1.id) }) }
+    private var cheapestMonth: MonthlyUsage? { activeMonths.min(by: { $0.total + claudeCostForMonth($0.id) < $1.total + claudeCostForMonth($1.id) }) }
+
+    private var claudeConfigured: Bool { !state.settings.anthropicAdminKey.isEmpty || !claudeDailyForStats.isEmpty }
 
     private var overBudgetCount: Int {
         guard state.settings.budget > 0 else { return 0 }
-        return activeMonths.filter { $0.total > state.settings.budget }.count
-    }
-
-    private var allProducts: [(name: String, amount: Double)] {
-        var combined: [String: Double] = [:]
-        for m in months { for (p, v) in m.byProduct { combined[p, default: 0] += v } }
-        if state.claudeYearCost > 0 { combined["Claude (Anthropic API)"] = state.claudeYearCost }
-        return combined.map { (name: $0.key, amount: $0.value) }
-            .filter { $0.amount > 0 }
-            .sorted { $0.amount > $1.amount }
+        return activeMonths.filter { $0.total + claudeCostForMonth($0.id) > state.settings.budget }.count
     }
 
     private var trendData: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)? {
         let sorted = activeMonths.sorted { $0.month < $1.month }
         guard sorted.count >= 2 else { return nil }
         let last = sorted[sorted.count - 1], prev = sorted[sorted.count - 2]
-        let diff = last.total - prev.total
-        return (last, prev, diff, prev.total > 0 ? abs(diff) / prev.total * 100 : 0)
+        let lastCombined = last.total + claudeCostForMonth(last.id)
+        let prevCombined = prev.total + claudeCostForMonth(prev.id)
+        let diff = lastCombined - prevCombined
+        return (last, prev, diff, prevCombined > 0 ? abs(diff) / prevCombined * 100 : 0)
     }
 
     private var adherenceData: (under: Int, total: Int, rate: Double)? {
@@ -62,6 +98,7 @@ struct StatisticsDashboardSection: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeader
 
+
             if state.isLoadingHistory {
                 ProgressView().scaleEffect(0.85).tint(accentColor)
                     .frame(maxWidth: .infinity).padding(24).mirrorCard()
@@ -73,21 +110,15 @@ struct StatisticsDashboardSection: View {
                 }
                 .frame(maxWidth: .infinity).padding(24).mirrorCard()
             } else {
-                HStack(alignment: .top, spacing: 14) {
-                    // Linke Spalte: Summary + Chart
+                EqualHeightHStack(spacing: 14) {
+                    // Linke Spalte: Summary + Chart (taller — sets the shared height)
                     VStack(alignment: .leading, spacing: 14) {
                         financialSummaryCard
                         yearChartCard
                     }
-                    .frame(maxWidth: .infinity)
 
-                    // Rechte Spalte: Trend + Adherence + Products
-                    VStack(spacing: 12) {
-                        if let td = trendData { trendPanelCard(td) }
-                        if let ad = adherenceData { adherencePanelCard(ad) }
-                        if !allProducts.isEmpty { productsPanelCard }
-                    }
-                    .frame(maxWidth: .infinity)
+                    // Rechte Spalte: single combined card spanning full height
+                    combinedRightCard
                 }
             }
         }
@@ -145,6 +176,19 @@ struct StatisticsDashboardSection: View {
                         .foregroundStyle(theme.primaryText)
                 }
                 Spacer()
+                if claudeConfigured {
+                    Text("Copilot + Claude")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(.secondary.opacity(0.12), in: Capsule())
+                } else {
+                    Text("Nur Copilot")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.blue.opacity(0.8))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(.blue.opacity(0.1), in: Capsule())
+                }
                 if overBudgetCount > 0 {
                     Label("\(overBudgetCount)× über Budget", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 10)).foregroundStyle(.orange)
@@ -184,8 +228,12 @@ struct StatisticsDashboardSection: View {
     private var yearChartCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Label("Monatsvergleich", systemImage: "chart.bar.fill")
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                VStack(alignment: .leading, spacing: 1) {
+                    Label("Monatsvergleich", systemImage: "chart.bar.fill")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                    Text(claudeConfigured ? "Copilot + Claude kombiniert" : "Nur GitHub Copilot")
+                        .font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                }
                 Spacer()
                 if let hov = hoveredValue {
                     HStack(spacing: 4) {
@@ -205,10 +253,11 @@ struct StatisticsDashboardSection: View {
 
             Chart {
                 ForEach(months) { m in
-                    BarMark(x: .value("Monat", m.shortName), y: .value("Kosten", m.total))
+                    let combined = m.total + claudeCostForMonth(m.id)
+                    BarMark(x: .value("Monat", m.shortName), y: .value("Kosten", combined))
                         .foregroundStyle(hoveredValue?.label == m.shortName
                                          ? AnyShapeStyle(accentColor.opacity(0.95))
-                                         : AnyShapeStyle(barGradient(for: m)))
+                                         : AnyShapeStyle(barGradient(for: m, combined: combined)))
                         .cornerRadius(5)
                 }
                 if avgMonthly > 0 {
@@ -249,7 +298,7 @@ struct StatisticsDashboardSection: View {
                                 let x = loc.x - (proxy.plotFrame.map { geo[$0].origin.x } ?? 0)
                                 if let name: String = proxy.value(atX: x, as: String.self),
                                    let m = months.first(where: { $0.shortName == name }) {
-                                    hoveredValue = (name, m.total)
+                                    hoveredValue = (name, m.total + claudeCostForMonth(m.id))
                                 }
                             case .ended: hoveredValue = nil
                             }
@@ -263,139 +312,103 @@ struct StatisticsDashboardSection: View {
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
     }
 
-    // MARK: Trend Panel
+    // MARK: Combined Right Card (Trend + Budget-Einhaltung in one card)
 
-    private func trendPanelCard(_ td: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)) -> some View {
-        let isUp = td.diff > 0
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("MONATS-TREND").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
-            Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? .red : .green).lineLimit(1).minimumScaleFactor(0.6)
-                Spacer()
-                let recent = Array(activeMonths.sorted { $0.month < $1.month }.suffix(4))
-                let maxV = recent.map(\.total).max() ?? 1
-                HStack(alignment: .bottom, spacing: 3) {
-                    ForEach(recent) { m in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(m.id == td.last.id ? accentColor : accentColor.opacity(0.3))
-                            .frame(width: 6, height: max(4, CGFloat(m.total/maxV) * 28))
+    @ViewBuilder
+    private var combinedRightCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Trend section
+            if let td = trendData {
+                let isUp = td.diff > 0
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Text("MONATS-TREND").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+                        if claudeConfigured {
+                            Text("Copilot + Claude")
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(.secondary.opacity(0.12), in: Capsule())
+                        }
                     }
-                }.frame(height: 28, alignment: .bottom)
-            }
-            HStack(spacing: 4) {
-                Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(isUp ? .red : .green)
-                Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 10, weight: .medium)).foregroundStyle(isUp ? .red : .green)
-            }
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardSurface)
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardBorder, lineWidth: 1)))
-    }
-
-    // MARK: Adherence Panel
-
-    private func adherencePanelCard(_ ad: (under: Int, total: Int, rate: Double)) -> some View {
-        let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("BUDGET-EINHALTUNG").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().stroke(theme.cardBorder, lineWidth: 8)
-                    Circle().trim(from: 0, to: ad.rate)
-                        .stroke(AngularGradient(
-                            colors: ad.rate >= 0.8 ? [.green, .teal] : ad.rate >= 0.5 ? [.orange, .yellow] : [.red, .orange],
-                            center: .center), style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.spring(response: 0.7, dampingFraction: 0.8), value: ad.rate)
-                    Text("\(Int(ad.rate * 100))%").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(rateColor)
-                }
-                .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(ad.under) von \(ad.total) Monaten im Budget").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
-                    if state.settings.budget > 0 {
-                        Text("Limit: \(fmt(state.settings.budget))/Monat").font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                    Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? .red : .green).lineLimit(1).minimumScaleFactor(0.6)
+                        Spacer()
+                        let recent = Array(activeMonths.sorted { $0.month < $1.month }.suffix(4))
+                        let maxV = recent.map { $0.total + claudeCostForMonth($0.id) }.max() ?? 1
+                        HStack(alignment: .bottom, spacing: 3) {
+                            ForEach(recent) { m in
+                                let combinedM = m.total + claudeCostForMonth(m.id)
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(m.id == td.last.id ? accentColor : accentColor.opacity(0.3))
+                                    .frame(width: 6, height: max(4, CGFloat(combinedM/maxV) * 28))
+                            }
+                        }.frame(height: 28, alignment: .bottom)
+                    }
+                    HStack(spacing: 4) {
+                        Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(isUp ? .red : .green)
+                        Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 10, weight: .medium)).foregroundStyle(isUp ? .red : .green)
                     }
                 }
+                .padding(14)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(theme.cardBorder)
-                    Capsule().fill(rateColor).frame(width: geo.size.width * ad.rate)
-                        .animation(.spring(response: 0.5), value: ad.rate)
-                }
-            }.frame(height: 3)
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardSurface)
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardBorder, lineWidth: 1)))
-    }
 
-    // MARK: Products Panel
-
-    private var productsPanelCard: some View {
-        let top = Array(allProducts.prefix(5))
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("TOP PRODUKTE").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
-            HStack(spacing: 10) {
-                ForEach(Array(top.enumerated()), id: \.offset) { i, pair in
-                    productChip(name: pair.name, amount: pair.amount, total: yearTotal, colorIndex: i)
-                }
+            // Divider between sections
+            if trendData != nil && adherenceData != nil {
+                Divider().opacity(0.25).padding(.horizontal, 14)
             }
+
+            // Adherence section
+            if let ad = adherenceData {
+                let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("BUDGET-EINHALTUNG").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Circle().stroke(theme.cardBorder, lineWidth: 8)
+                            Circle().trim(from: 0, to: ad.rate)
+                                .stroke(AngularGradient(
+                                    colors: ad.rate >= 0.8 ? [.green, .teal] : ad.rate >= 0.5 ? [.orange, .yellow] : [.red, .orange],
+                                    center: .center), style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                                .animation(.spring(response: 0.7, dampingFraction: 0.8), value: ad.rate)
+                            Text("\(Int(ad.rate * 100))%").font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(rateColor)
+                        }
+                        .frame(width: 56, height: 56)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(ad.under) von \(ad.total) Monaten im Budget").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                            if state.settings.budget > 0 {
+                                Text("Limit: \(fmt(state.settings.budget))/Monat").font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                            }
+                        }
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(theme.cardBorder)
+                            Capsule().fill(rateColor).frame(width: geo.size.width * ad.rate)
+                                .animation(.spring(response: 0.5), value: ad.rate)
+                        }
+                    }.frame(height: 3)
+                }
+                .padding(14)
+            }
+
+            // Spacer fills the remaining height so card stretches to match left column
+            Spacer(minLength: 0)
         }
-        .padding(14)
+        .frame(maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardSurface)
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 1)))
     }
 
-    private let productColors: [Color] = [.purple, .blue, .cyan, .indigo, .teal, .mint]
-
-    private func productChip(name: String, amount: Double, total: Double, colorIndex: Int) -> some View {
-        let pct   = total > 0 ? amount / total : 0
-        let color = productColors[colorIndex % productColors.count]
-        return VStack(spacing: 4) {
-            HStack(spacing: 5) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.18)).frame(width: 20, height: 20)
-                    Image(systemName: productIcon(for: name)).font(.system(size: 9, weight: .medium)).foregroundStyle(color)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.system(size: 9, weight: .medium)).lineLimit(1).foregroundStyle(theme.primaryText)
-                    Text(fmt(amount)).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(theme.secondaryText)
-                }
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.06))
-                    Capsule().fill(color)
-                        .frame(width: geo.size.width * pct)
-                        .animation(.spring(response: 0.55, dampingFraction: 0.8), value: pct)
-                }
-            }.frame(height: 3)
-            Text("\(Int(pct * 100))%").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     // MARK: Helpers
 
-    private func barGradient(for month: MonthlyUsage) -> LinearGradient {
-        let over = state.settings.budget > 0 && month.total > state.settings.budget
+    private func barGradient(for month: MonthlyUsage, combined: Double) -> LinearGradient {
+        let over = state.settings.budget > 0 && combined > state.settings.budget
         return over
             ? LinearGradient(colors: [.red.opacity(0.45), .orange.opacity(0.85)],   startPoint: .bottom, endPoint: .top)
             : LinearGradient(colors: [.purple.opacity(0.45), .indigo.opacity(0.9)], startPoint: .bottom, endPoint: .top)
-    }
-
-    private func productIcon(for product: String) -> String {
-        switch product.lowercased() {
-        case let p where p.contains("claude"):    return "sparkles"
-        case let p where p.contains("copilot"):   return "person.fill.checkmark"
-        case let p where p.contains("action"):    return "bolt.fill"
-        case let p where p.contains("package"):   return "shippingbox.fill"
-        case let p where p.contains("codespace"): return "desktopcomputer"
-        case let p where p.contains("storage"):   return "internaldrive.fill"
-        default:                                  return "square.grid.2x2.fill"
-        }
     }
 
     private func fmt(_ v: Double) -> String { state.fmt(v) }

@@ -46,10 +46,10 @@ struct SettingsFormView: View {
 
             // ── Scrollable Content ────────────────────────────────────────
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 24) {
 
                     // ── 2-column Grid (rows stay aligned) ─────────────────
-                    Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 20) {
+                    Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 24) {
 
                         // Row 1: GitHub Access | Currency
                         GridRow(alignment: .top) {
@@ -63,7 +63,7 @@ struct SettingsFormView: View {
                                             .styledInput(theme: theme)
                                     }
                                     Divider().foregroundStyle(theme.cardBorder).padding(.vertical, 2)
-                                    HStack(alignment: .top, spacing: 12) {
+                                    HStack(alignment: .bottom, spacing: 12) {
                                         VStack(alignment: .leading, spacing: 6) {
                                             fieldLabel("Account Type")
                                             Picker("", selection: $draft.accountType) {
@@ -73,6 +73,7 @@ struct SettingsFormView: View {
                                             .pickerStyle(.segmented)
                                             .labelsHidden()
                                             .frame(width: 120)
+                                            .frame(height: 28)
                                         }
                                         VStack(alignment: .leading, spacing: 6) {
                                             fieldLabel("Username / Org")
@@ -84,9 +85,10 @@ struct SettingsFormView: View {
                                 }
                             }
 
-                            configSection(title: "Currency", icon: "creditcard") {
+                            configSection(title: "Currency", icon: "creditcard",
+                                          hint: "Anzeigewährung und EUR/USD Wechselkurs für die Kostenumrechnung") {
                                 configCard {
-                                    HStack(alignment: .top, spacing: 12) {
+                                    HStack(alignment: .bottom, spacing: 12) {
                                         VStack(alignment: .leading, spacing: 6) {
                                             fieldLabel("Primary Currency")
                                             Picker("", selection: $draft.currency) {
@@ -96,6 +98,7 @@ struct SettingsFormView: View {
                                             .pickerStyle(.segmented)
                                             .labelsHidden()
                                             .frame(width: 130)
+                                            .frame(height: 28)
                                         }
                                         VStack(alignment: .leading, spacing: 6) {
                                             fieldLabel("EUR/USD Kurs")
@@ -110,7 +113,8 @@ struct SettingsFormView: View {
 
                         // Row 2: Budget & Filter | Claude Admin API
                         GridRow(alignment: .top) {
-                            configSection(title: "Budget & Filter", icon: "line.3.horizontal.decrease.circle") {
+                            configSection(title: "Budget & Filter", icon: "line.3.horizontal.decrease.circle",
+                                          hint: "Filtere GitHub-Daten nach Produkt · Monatliches Ausgabenlimit in USD") {
                                 configCard {
                                     VStack(alignment: .leading, spacing: 12) {
                                         VStack(alignment: .leading, spacing: 6) {
@@ -149,7 +153,7 @@ struct SettingsFormView: View {
                             }
 
                             configSection(title: "Claude (Anthropic Admin API)", icon: "cpu",
-                                          hint: "Admin Key von console.anthropic.com → Admin keys · Org-ID aus den Organization-Einstellungen") {
+                                          hint: "Admin Key · Org-ID aus den Anthropic Organization-Einstellungen") {
                                 configCard {
                                     VStack(alignment: .leading, spacing: 12) {
                                         VStack(alignment: .leading, spacing: 6) {
@@ -181,14 +185,33 @@ struct SettingsFormView: View {
                     // ── Appearance — full width ────────────────────────────
                     configSection(title: "Appearance", icon: "paintpalette") {
                         configCard {
-                            VStack(alignment: .leading, spacing: 10) {
-                                fieldLabel("Theme Presets")
-                                LazyVGrid(
-                                    columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5),
-                                    spacing: 10
-                                ) {
-                                    ForEach(AppTheme.all) { t in
-                                        themeSwatchButton(t)
+                            VStack(alignment: .leading, spacing: 16) {
+                                // DARK subsection
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "DARK", icon: "moon.fill")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        spacing: 10
+                                    ) {
+                                        ForEach(AppTheme.all.filter { !$0.isLight }) { t in
+                                            themeSwatchButton(t)
+                                        }
+                                    }
+                                }
+
+                                Divider().foregroundStyle(theme.cardBorder)
+
+                                // LIGHT subsection
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "LIGHT", icon: "sun.max.fill")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading,
+                                        spacing: 10
+                                    ) {
+                                        ForEach(AppTheme.all.filter { $0.isLight }) { t in
+                                            themeSwatchButton(t)
+                                        }
                                     }
                                 }
                             }
@@ -240,7 +263,7 @@ struct SettingsFormView: View {
         VStack(alignment: .leading, spacing: 14) {
             content()
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .mirrorCard()
     }
@@ -255,41 +278,145 @@ struct SettingsFormView: View {
             .kerning(0.5)
     }
 
+    // MARK: - Theme Group Header
+
+    @ViewBuilder
+    private func themeGroupHeader(label: String, icon: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+                .kerning(0.5)
+        }
+    }
+
     // MARK: - Theme Swatch Button
 
     @ViewBuilder
     private func themeSwatchButton(_ t: AppTheme) -> some View {
         let isSelected = themeManager.current.id == t.id
-        let swatchColor = Color(red: t.acR/255, green: t.acG/255, blue: t.acB/255)
+        let ac = Color(red: t.acR/255, green: t.acG/255, blue: t.acB/255)
+        let winBg = t.isLight
+            ? Color(red: 246/255, green: 248/255, blue: 250/255)
+            : Color(red: 2/255, green: 6/255, blue: 23/255)
+        let sidebarBg = t.isLight
+            ? Color(red: 248/255, green: 241/255, blue: 233/255)
+            : Color(red: 8/255, green: 12/255, blue: 30/255)
+        let cardFill = t.isLight
+            ? Color(white: 0, opacity: 0.06)
+            : Color(white: 1, opacity: 0.07)
+        let navItem = t.isLight
+            ? Color(white: 0, opacity: 0.10)
+            : Color(white: 1, opacity: 0.10)
 
         Button {
             themeManager.current = t
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 5) {
+                // ── Mini App Preview ──────────────────────────────
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(swatchColor)
-                        .frame(height: 44)
+                    // Window background
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(winBg)
+
+                    HStack(spacing: 0) {
+                        // Sidebar
+                        VStack(alignment: .leading, spacing: 5) {
+                            // Branding dot
+                            Circle()
+                                .fill(ac)
+                                .frame(width: 6, height: 6)
+                            // Active nav item
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(ac.opacity(0.30))
+                                .frame(height: 6)
+                            // Inactive nav items
+                            ForEach(0..<4, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(navItem)
+                                    .frame(height: 5)
+                            }
+                            Spacer()
+                            // Budget bar
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(ac.opacity(0.6))
+                                .frame(height: 2)
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 8)
+                        .frame(width: 38)
+                        .background(sidebarBg)
+
+                        // Separator
+                        Rectangle()
+                            .fill(t.isLight ? Color(white:0, opacity:0.08) : Color(white:1, opacity:0.08))
+                            .frame(width: 0.5)
+
+                        // Content area
+                        VStack(alignment: .leading, spacing: 5) {
+                            // Header bar
+                            HStack(spacing: 4) {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(navItem)
+                                    .frame(height: 6)
+                                    .frame(maxWidth: .infinity)
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(ac)
+                                    .frame(width: 22, height: 6)
+                            }
+                            // Two-column cards
+                            HStack(spacing: 4) {
+                                ForEach(0..<2, id: \.self) { _ in
+                                    VStack(spacing: 3) {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(cardFill)
+                                            .frame(maxWidth: .infinity)
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(navItem.opacity(0.6))
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 4)
+                                    }
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .padding(7)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                    // Selected overlay + checkmark
                     if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                        RoundedRectangle(cornerRadius: 9)
+                            .fill(ac.opacity(0.10))
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(ac)
+                            .shadow(color: winBg.opacity(0.8), radius: 3)
                     }
                 }
-                Text(t.name)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
-                    .lineLimit(1)
+                .aspectRatio(1.618, contentMode: .fit)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(isSelected ? ac : theme.cardBorder,
+                                      lineWidth: isSelected ? 2 : 1)
+                )
+
+                // Name + dark/light badge
+                HStack(spacing: 3) {
+                    Text(t.name)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(isSelected ? ac : theme.secondaryText)
+                        .lineLimit(1)
+                    Image(systemName: t.isLight ? "sun.max.fill" : "moon.fill")
+                        .font(.system(size: 7))
+                        .foregroundStyle(theme.tertiaryText)
+                }
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        isSelected ? accent : theme.cardBorder,
-                        lineWidth: isSelected ? 2 : 1
-                    )
-                    .padding(-4)
-            )
-            .padding(4)
         }
         .buttonStyle(.plain)
     }

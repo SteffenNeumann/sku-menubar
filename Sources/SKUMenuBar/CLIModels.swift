@@ -340,6 +340,14 @@ enum MCPStatus: Hashable {
     }
 }
 
+// MARK: - Command Snippets
+
+struct CommandSnippet: Identifiable, Codable {
+    var id    = UUID()
+    var title: String
+    var text:  String
+}
+
 // MARK: - CLI Errors
 
 enum CLIError: LocalizedError {

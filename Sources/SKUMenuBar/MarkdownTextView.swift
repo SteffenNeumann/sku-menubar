@@ -18,11 +18,11 @@ struct MarkdownTextView: View {
                         options: AttributedString.MarkdownParsingOptions(
                             interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
                         Text(attributed)
-                            .font(.system(size: 13))
+                            .font(.system(size: 12.5, design: .monospaced))
                             .foregroundStyle(theme.primaryText)
                             .textSelection(.enabled)
                     } else {
-                        Text(t).font(.system(size: 13))
+                        Text(t).font(.system(size: 12.5, design: .monospaced))
                             .foregroundStyle(theme.primaryText)
                             .textSelection(.enabled)
                     }

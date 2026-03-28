@@ -72,7 +72,7 @@ private extension Color {
 
 extension AppTheme {
 
-    static let all: [AppTheme] = [fuchsia, cyan, emerald, violet, coffeeDark, bitterDark, coffeeLight, bitterLight, monoDark]
+    static let all: [AppTheme] = [fuchsia, cyan, emerald, violet, coffeeDark, bitterDark, coffeeLight, bitterLight, monoDark, monoLight]
 
     static let fuchsia = AppTheme(
         id: "fuchsia", name: "Fuchsia",
@@ -136,6 +136,13 @@ extension AppTheme {
         bgBotR: 13, bgBotG: 17, bgBotB: 23, bgBotA: 1.0,
         glowEnabled: false,
         acR: 88, acG: 166, acB: 255, isLight: false
+    )
+    static let monoLight = AppTheme(
+        id: "monoLight", name: "Mono Light",
+        bgTopR: 246, bgTopG: 248, bgTopB: 250, bgTopA: 1.0,
+        bgBotR: 246, bgBotG: 248, bgBotB: 250, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 9, acG: 105, acB: 218, isLight: true
     )
 }
 

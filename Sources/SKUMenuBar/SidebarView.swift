@@ -9,6 +9,11 @@ struct SidebarView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    private var accentDark: Color {
+        let ns = NSColor(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255, alpha: 1)
+        return Color(nsColor: ns.blended(withFraction: 0.3, of: .black) ?? ns)
+    }
+
     var body: some View {
         ZStack {
             theme.windowBg.ignoresSafeArea()
@@ -30,14 +35,18 @@ struct SidebarView: View {
                         sectionDivider
 
                         sectionGroup(title: "Claude CLI", items: [.chat, .history, .agents, .mcp, .codeReview])
-
-                        sectionDivider
-
-                        sectionGroup(title: nil, items: [.settings])
                     }
                     .padding(.vertical, 8)
                     .padding(.horizontal, 10)
                 }
+
+                Spacer(minLength: 0)
+
+                VStack(spacing: 2) {
+                    sectionGroup(title: nil, items: [.settings])
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
 
                 Divider().foregroundStyle(theme.cardBorder)
 
@@ -69,7 +78,7 @@ struct SidebarView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(LinearGradient(
-                        colors: [accentColor, accentColor.opacity(0.7)],
+                        colors: [accentColor, accentDark],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
                     .frame(width: 30, height: 30)
@@ -171,12 +180,8 @@ struct SidebarView: View {
 
     private func badge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(
-                Capsule().fill(accentColor.opacity(0.75))
-            )
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(accentColor)
     }
 
     private var liveDot: some View {
