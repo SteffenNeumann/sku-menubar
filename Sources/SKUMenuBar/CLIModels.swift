@@ -11,6 +11,7 @@ enum AppSection: String, CaseIterable, Hashable {
     case mcp         = "MCP Server"
     case codeReview  = "Code Review"
     case notes       = "Notizen"
+    case tasks       = "Aufgaben"
     case settings    = "Einstellungen"
 
     var icon: String {
@@ -22,6 +23,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .mcp:        return "network"
         case .codeReview: return "checklist"
         case .notes:      return "note.text"
+        case .tasks:      return "checkmark.square.fill"
         case .settings:   return "gearshape.fill"
         }
     }
@@ -35,6 +37,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .mcp:        return .cyan
         case .codeReview: return .mint
         case .notes:      return .yellow
+        case .tasks:      return .green
         case .settings:   return .gray
         }
     }
@@ -66,7 +69,6 @@ struct AttachedFile: Identifiable {
 enum NoteType: String, Codable, CaseIterable {
     case note = "Notiz"
     case task = "Aufgabe"
-    case idea = "Idee"
 }
 
 struct TaskLine: Identifiable, Codable {

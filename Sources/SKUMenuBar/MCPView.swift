@@ -136,6 +136,65 @@ struct MCPCatalogEntry: Identifiable {
     }
 }
 
+// MARK: - Known AI Models
+
+struct KnownModel: Identifiable {
+    let id = UUID()
+    let name: String
+    let apiName: String
+    let provider: String
+    let contextK: Int?     // context window in K tokens, nil = unknown
+
+    static func providerIcon(_ provider: String) -> String {
+        switch provider {
+        case "Anthropic": return "brain"
+        case "OpenAI":    return "sparkles"
+        case "Google":    return "g.circle.fill"
+        case "Meta":      return "person.2.fill"
+        case "Mistral":   return "wind"
+        case "xAI":       return "x.circle.fill"
+        default:          return "cpu"
+        }
+    }
+
+    static let all: [KnownModel] = [
+        // Anthropic
+        .init(name: "Claude Opus 4",            apiName: "claude-opus-4-5",                provider: "Anthropic", contextK: 200),
+        .init(name: "Claude Sonnet 4.5",        apiName: "claude-sonnet-4-5",              provider: "Anthropic", contextK: 200),
+        .init(name: "Claude 3.5 Sonnet",        apiName: "claude-3-5-sonnet-20241022",     provider: "Anthropic", contextK: 200),
+        .init(name: "Claude 3.5 Haiku",         apiName: "claude-3-5-haiku-20241022",      provider: "Anthropic", contextK: 200),
+        .init(name: "Claude 3 Opus",            apiName: "claude-3-opus-20240229",         provider: "Anthropic", contextK: 200),
+        // OpenAI
+        .init(name: "GPT-4o",                   apiName: "gpt-4o",                         provider: "OpenAI",    contextK: 128),
+        .init(name: "GPT-4o mini",              apiName: "gpt-4o-mini",                    provider: "OpenAI",    contextK: 128),
+        .init(name: "GPT-4 Turbo",              apiName: "gpt-4-turbo",                    provider: "OpenAI",    contextK: 128),
+        .init(name: "o1",                       apiName: "o1",                             provider: "OpenAI",    contextK: 200),
+        .init(name: "o3-mini",                  apiName: "o3-mini",                        provider: "OpenAI",    contextK: 200),
+        .init(name: "o4-mini",                  apiName: "o4-mini",                        provider: "OpenAI",    contextK: 200),
+        // Google
+        .init(name: "Gemini 2.5 Pro",           apiName: "gemini-2.5-pro",                 provider: "Google",    contextK: 1000),
+        .init(name: "Gemini 2.0 Flash",         apiName: "gemini-2.0-flash",               provider: "Google",    contextK: 1000),
+        .init(name: "Gemini 1.5 Pro",           apiName: "gemini-1.5-pro",                 provider: "Google",    contextK: 2000),
+        .init(name: "Gemini 1.5 Flash",         apiName: "gemini-1.5-flash",               provider: "Google",    contextK: 1000),
+        // Meta
+        .init(name: "Llama 3.3 70B",            apiName: "meta-llama/llama-3.3-70b-instruct",          provider: "Meta", contextK: 128),
+        .init(name: "Llama 3.2 90B Vision",     apiName: "meta-llama/llama-3.2-90b-vision-instruct",   provider: "Meta", contextK: 128),
+        .init(name: "Llama 4 Maverick",         apiName: "meta-llama/llama-4-maverick",                provider: "Meta", contextK: 1000),
+        // Mistral
+        .init(name: "Mistral Large",            apiName: "mistral-large-latest",           provider: "Mistral",   contextK: 128),
+        .init(name: "Mistral Small",            apiName: "mistral-small-latest",           provider: "Mistral",   contextK: 32),
+        .init(name: "Codestral",                apiName: "codestral-latest",               provider: "Mistral",   contextK: 256),
+        // xAI
+        .init(name: "Grok 3",                   apiName: "grok-3",                         provider: "xAI",       contextK: 131),
+        .init(name: "Grok 3 mini",              apiName: "grok-3-mini",                    provider: "xAI",       contextK: 131),
+    ]
+
+    static var providers: [String] {
+        var seen = Set<String>()
+        return all.compactMap { seen.insert($0.provider).inserted ? $0.provider : nil }
+    }
+}
+
 // MARK: - MCPView
 
 struct MCPView: View {
@@ -406,6 +465,12 @@ struct AddMCPServerSheet: View {
     @State private var isAdding = false
     @State private var errorMsg: String?
     @State private var catalogSourceName: String?   // banner: "Aus Katalog: X"
+
+    // Model picker
+    @State private var selectedModel: String = ""
+    @State private var showModelPicker = false
+    @State private var modelSearch = ""
+    @State private var modelProvider = "Alle"
 
     private let transports = ["stdio", "http", "sse"]
 
@@ -731,6 +796,66 @@ struct AddMCPServerSheet: View {
                     }
                 }
 
+                // Model selection
+                field(label: "Modell (optional)", hint: "Vorausgefülltes Modell für diesen Server") {
+                    HStack(spacing: 6) {
+                        ZStack(alignment: .leading) {
+                            if selectedModel.isEmpty {
+                                Text("Modell wählen oder eingeben…")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .padding(.horizontal, 10).padding(.vertical, 7)
+                            }
+                            TextField("", text: $selectedModel)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(theme.primaryText)
+                                .textFieldStyle(.plain)
+                                .padding(.horizontal, 10).padding(.vertical, 7)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+
+                        Button {
+                            modelSearch = ""; modelProvider = "Alle"
+                            showModelPicker = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "cpu").font(.system(size: 10))
+                                Text("Auswählen").font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 9).padding(.vertical, 6)
+                            .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
+                            ModelPickerPopover(
+                                search: $modelSearch,
+                                provider: $modelProvider,
+                                onSelect: { model in
+                                    selectedModel = model.apiName
+                                    showModelPicker = false
+                                }
+                            )
+                            .environmentObject(state)
+                            .environment(\.appTheme, theme)
+                        }
+
+                        if !selectedModel.isEmpty {
+                            Button {
+                                selectedModel = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
                 if let err = errorMsg {
                     Text(err)
                         .font(.system(size: 11))
@@ -840,7 +965,17 @@ struct AddMCPServerSheet: View {
         let trimmedCmd  = commandOrUrl.trimmingCharacters(in: .whitespaces)
         let argList     = extraArgs.split(separator: " ").map(String.init)
         let headers     = headersText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let envVars     = envVarsText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var envVars     = envVarsText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+
+        // Modell als Env-Var einfügen, wenn gesetzt und nicht bereits vorhanden
+        let trimmedModel = selectedModel.trimmingCharacters(in: .whitespaces)
+        if !trimmedModel.isEmpty {
+            let modelKey = "MODEL"
+            let alreadySet = envVars.contains { $0.hasPrefix("\(modelKey)=") || $0.hasPrefix("CLAUDE_MODEL=") || $0.hasPrefix("OPENAI_MODEL=") }
+            if !alreadySet {
+                envVars.insert("\(modelKey)=\(trimmedModel)", at: 0)
+            }
+        }
 
         let (ok, output) = await state.cliService.addMCPServer(
             name: trimmedName,
@@ -857,5 +992,198 @@ struct AddMCPServerSheet: View {
         } else {
             errorMsg = output.isEmpty ? "Unbekannter Fehler" : output
         }
+    }
+}
+
+// MARK: - Model Picker Popover
+
+private struct ModelPickerPopover: View {
+    @Environment(\.appTheme) var theme
+    @EnvironmentObject var state: AppState
+    @Binding var search: String
+    @Binding var provider: String
+    var onSelect: (KnownModel) -> Void
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    private var filtered: [KnownModel] {
+        KnownModel.all.filter { m in
+            let matchProv = provider == "Alle" || m.provider == provider
+            let matchSearch = search.isEmpty ||
+                m.name.localizedCaseInsensitiveContains(search) ||
+                m.apiName.localizedCaseInsensitiveContains(search) ||
+                m.provider.localizedCaseInsensitiveContains(search)
+            return matchProv && matchSearch
+        }
+    }
+
+    // Group by provider while keeping order
+    private var grouped: [(provider: String, models: [KnownModel])] {
+        var result: [(provider: String, models: [KnownModel])] = []
+        var seen = Set<String>()
+        for m in filtered {
+            if !seen.contains(m.provider) {
+                seen.insert(m.provider)
+                result.append((provider: m.provider, models: filtered.filter { $0.provider == m.provider }))
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 12))
+                    .foregroundStyle(accentColor)
+                Text("Modell auswählen")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Text("\(filtered.count) Modelle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            // Search
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+                TextField("Modell suchen…", text: $search)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.primaryText)
+                    .textFieldStyle(.plain)
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            // Provider filter chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    providerChip("Alle")
+                    ForEach(KnownModel.providers, id: \.self) { p in
+                        providerChip(p)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            // Model list
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if filtered.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 22))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Kein Modell gefunden")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
+                    } else {
+                        ForEach(grouped, id: \.provider) { group in
+                            // Provider section header
+                            HStack(spacing: 5) {
+                                Image(systemName: KnownModel.providerIcon(group.provider))
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText)
+                                Text(group.provider)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.top, 8)
+                            .padding(.bottom, 3)
+
+                            ForEach(group.models) { model in
+                                modelRow(model)
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+            .frame(maxHeight: 260)
+        }
+        .frame(width: 320)
+        .background(theme.windowBg)
+    }
+
+    private func providerChip(_ p: String) -> some View {
+        let active = provider == p
+        let icon = p == "Alle" ? "square.grid.2x2" : KnownModel.providerIcon(p)
+        return Button { provider = p } label: {
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 8))
+                Text(p).font(.system(size: 10, weight: active ? .semibold : .regular))
+            }
+            .foregroundStyle(active ? accentColor : theme.secondaryText)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(active ? accentColor.opacity(0.10) : theme.cardBg, in: Capsule())
+            .overlay(Capsule().strokeBorder(active ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func modelRow(_ model: KnownModel) -> some View {
+        Button { onSelect(model) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: KnownModel.providerIcon(model.provider))
+                    .font(.system(size: 12))
+                    .foregroundStyle(accentColor.opacity(0.7))
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.primaryText)
+                    Text(model.apiName)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.tertiaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if let k = model.contextK {
+                    Text("\(k)K")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(theme.primaryText.opacity(0.06), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .background(Color.clear)
+        }
+        .buttonStyle(.plain)
     }
 }

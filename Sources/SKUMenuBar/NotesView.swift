@@ -3,6 +3,12 @@ import SwiftUI
 // MARK: - Notes & Tasks View
 
 struct NotesView: View {
+    let lockedType: NoteType?
+
+    init(lockedType: NoteType? = nil) {
+        self.lockedType = lockedType
+    }
+
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
 
@@ -17,7 +23,7 @@ struct NotesView: View {
 
     private var filtered: [NoteItem] {
         state.notes.filter { note in
-            let matchesType  = filterType == nil || note.type == filterType
+            let matchesType  = lockedType != nil ? note.type == lockedType : (filterType == nil || note.type == filterType)
             let matchesDone  = showingDone ? note.done : true
             let matchesHide  = !showingDone ? (note.type != .task || !note.done) : true
             let matchesSearch = searchText.isEmpty ||
@@ -61,35 +67,38 @@ struct NotesView: View {
 
     private var headerBar: some View {
         HStack {
-            Text("Notizen & Aufgaben")
+            Text(lockedType == .task ? "Aufgaben" : lockedType == .note ? "Notizen" : "Notizen & Aufgaben")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(theme.primaryText)
             Spacer()
-            Button {
-                addNote(type: .note)
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(accentColor)
-                    .frame(width: 28, height: 28)
-                    .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+            if lockedType == nil || lockedType == .note {
+                Button {
+                    addNote(type: .note)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 28, height: 28)
+                        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Neue Notiz")
             }
-            .buttonStyle(.plain)
-            .help("Neue Notiz")
-
-            Button {
-                addNote(type: .task)
-            } label: {
-                Image(systemName: "checkmark.square")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(accentColor)
-                    .frame(width: 28, height: 28)
-                    .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+            if lockedType == nil || lockedType == .task {
+                Button {
+                    addNote(type: .task)
+                } label: {
+                    Image(systemName: "checkmark.square")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 28, height: 28)
+                        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Neue Aufgabe")
             }
-            .buttonStyle(.plain)
-            .help("Neue Aufgabe")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -122,31 +131,32 @@ struct NotesView: View {
             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
 
-            // Type chips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    typeChip(label: "Alle", icon: "tray.2", type: nil)
-                    typeChip(label: "Notiz", icon: "note.text", type: .note)
-                    typeChip(label: "Aufgabe", icon: "checkmark.square", type: .task)
-                    typeChip(label: "Idee", icon: "lightbulb", type: .idea)
+            // Type chips (nur wenn kein lockedType gesetzt)
+            if lockedType == nil {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        typeChip(label: "Alle", icon: "tray.2", type: nil)
+                        typeChip(label: "Notiz", icon: "note.text", type: .note)
+                        typeChip(label: "Aufgabe", icon: "checkmark.square", type: .task)
 
-                    Divider().frame(height: 14)
+                        Divider().frame(height: 14)
 
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.12)) { showingDone.toggle() }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: showingDone ? "eye.slash" : "eye")
-                                .font(.system(size: 9))
-                            Text(showingDone ? "Erledigte" : "Offen")
-                                .font(.system(size: 10, weight: showingDone ? .semibold : .regular))
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.12)) { showingDone.toggle() }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: showingDone ? "eye.slash" : "eye")
+                                    .font(.system(size: 9))
+                                Text(showingDone ? "Erledigte" : "Offen")
+                                    .font(.system(size: 10, weight: showingDone ? .semibold : .regular))
+                            }
+                            .foregroundStyle(showingDone ? accentColor : theme.tertiaryText)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(showingDone ? accentColor.opacity(0.10) : Color.clear, in: Capsule())
+                            .overlay(Capsule().strokeBorder(showingDone ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5))
                         }
-                        .foregroundStyle(showingDone ? accentColor : theme.tertiaryText)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(showingDone ? accentColor.opacity(0.10) : Color.clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(showingDone ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -304,13 +314,12 @@ struct NotesView: View {
         switch type {
         case .note:  return .blue
         case .task:  return .green
-        case .idea:  return .orange
         }
     }
 
     private func noteTypeIcon(_ note: NoteItem) -> String {
         if note.type == .task { return note.done ? "checkmark.square.fill" : "square" }
-        return note.type == .idea ? "lightbulb.fill" : "note.text"
+        return "note.text"
     }
 }
 
@@ -458,7 +467,6 @@ struct NoteEditorView: View {
         switch type {
         case .note:  return .blue
         case .task:  return .green
-        case .idea:  return .orange
         }
     }
 
@@ -466,7 +474,6 @@ struct NoteEditorView: View {
         switch type {
         case .note:  return "note.text"
         case .task:  return "checkmark.square"
-        case .idea:  return "lightbulb"
         }
     }
 }

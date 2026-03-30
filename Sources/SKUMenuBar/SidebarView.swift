@@ -38,7 +38,7 @@ struct SidebarView: View {
 
                         sectionDivider
 
-                        sectionGroup(title: "Workspace", items: [.notes])
+                        sectionGroup(title: "Workspace", items: [.notes, .tasks])
                     }
                     .padding(.vertical, 8)
                     .padding(.horizontal, 10)
@@ -162,6 +162,10 @@ struct SidebarView: View {
                     badge("\(state.historyService.projects.count)")
                 }
                 if section == .notes {
+                    let noteCount = state.notes.filter { $0.type == .note }.count
+                    if noteCount > 0 { badge("\(noteCount)") }
+                }
+                if section == .tasks {
                     let openTasks = state.notes.filter { note in
                         guard note.type == .task else { return false }
                         if note.taskLines.isEmpty { return !note.done }
