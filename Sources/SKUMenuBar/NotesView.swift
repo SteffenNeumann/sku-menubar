@@ -240,13 +240,7 @@ struct NotesView: View {
                         .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
                         .strikethrough(note.done && note.type == .task)
                         .lineLimit(1)
-                    if note.type == .task && !note.taskLines.isEmpty {
-                        let done = note.taskLines.filter(\.done).count
-                        Text("\(done)/\(note.taskLines.count) erledigt")
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.tertiaryText)
-                            .lineLimit(1)
-                    } else if !note.body.isEmpty {
+                    if !note.body.isEmpty {
                         // Vorschau: erste nicht-leere Zeile nach der Titelzeile
                         let previewLine = note.body
                             .components(separatedBy: .newlines)
@@ -308,8 +302,7 @@ struct NotesView: View {
     // MARK: - Helpers
 
     private func addNote(type: NoteType) {
-        var note = NoteItem(type: type, title: "", body: "")
-        if type == .task { note.taskLines = [TaskLine()] }
+        let note = NoteItem(type: type, title: "", body: "")
         state.notes.insert(note, at: 0)
         selectedId = note.id
     }
@@ -357,21 +350,16 @@ struct NoteEditorView: View {
 
             Divider().foregroundStyle(theme.cardBorder)
 
-            // Body / task lines
-            if note.type == .task {
-                TaskLinesEditorView(lines: $note.taskLines, theme: theme, accent: accentColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                TextEditor(text: $note.body)
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.primaryText)
-                    .scrollContentBackground(.hidden)
-                    .background(.clear)
-                    .tint(accentColor)
-                    .padding(16)
-                    .focused($bodyFocused)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            // Body / notes
+            TextEditor(text: $note.body)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.primaryText)
+                .scrollContentBackground(.hidden)
+                .background(.clear)
+                .tint(accentColor)
+                .padding(16)
+                .focused($bodyFocused)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider().foregroundStyle(theme.cardBorder)
 
@@ -381,7 +369,6 @@ struct NoteEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { bodyFocused = note.title.isEmpty }
         .onChange(of: note.body) { _, newBody in
-            guard note.type == .note else { return }
             let firstLine = newBody
                 .components(separatedBy: .newlines)
                 .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
