@@ -209,6 +209,14 @@ struct NotesView: View {
         }
     }
 
+    private func displayTitle(_ note: NoteItem) -> String {
+        if !note.title.isEmpty { return note.title }
+        let firstLine = note.body
+            .components(separatedBy: .newlines)
+            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+        return firstLine.isEmpty ? "Unbenannt" : firstLine
+    }
+
     private func noteRow(_ note: NoteItem) -> some View {
         let isSelected = selectedId == note.id
         return Button {
@@ -227,7 +235,7 @@ struct NotesView: View {
                 .padding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(note.title.isEmpty ? "Unbenannt" : note.title)
+                    Text(displayTitle(note))
                         .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
                         .strikethrough(note.done && note.type == .task)
@@ -239,10 +247,17 @@ struct NotesView: View {
                             .foregroundStyle(theme.tertiaryText)
                             .lineLimit(1)
                     } else if !note.body.isEmpty {
-                        Text(note.body)
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.tertiaryText)
-                            .lineLimit(1)
+                        // Vorschau: erste nicht-leere Zeile nach der Titelzeile
+                        let previewLine = note.body
+                            .components(separatedBy: .newlines)
+                            .dropFirst()
+                            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+                        if !previewLine.isEmpty {
+                            Text(previewLine)
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                                .lineLimit(1)
+                        }
                     }
                     Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
                         .font(.system(size: 9))
@@ -365,6 +380,13 @@ struct NoteEditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { bodyFocused = note.title.isEmpty }
+        .onChange(of: note.body) { _, newBody in
+            guard note.type == .note else { return }
+            let firstLine = newBody
+                .components(separatedBy: .newlines)
+                .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+            note.title = firstLine
+        }
     }
 
     // MARK: - Header
@@ -522,9 +544,22 @@ struct TaskLinesEditorView: View {
                         Button {
                             line.done.toggle()
                         } label: {
-                            Image(systemName: line.done ? "checkmark.square.fill" : "square")
-                                .font(.system(size: 14))
-                                .foregroundStyle(line.done ? .green : theme.tertiaryText)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(line.done ? accent : Color.clear)
+                                    .frame(width: 18, height: 18)
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(
+                                        line.done ? accent : theme.tertiaryText.opacity(0.5),
+                                        lineWidth: 1.5
+                                    )
+                                    .frame(width: 18, height: 18)
+                                if line.done {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
                         }
                         .buttonStyle(.plain)
 
