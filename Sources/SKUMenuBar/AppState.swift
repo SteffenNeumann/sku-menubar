@@ -75,7 +75,7 @@ final class AppState: ObservableObject {
     // MARK: - CLI Services
     let cliService     = ClaudeCLIService()
     let historyService = ChatHistoryService()
-    let agentService   = AgentService()
+    lazy var agentService: AgentService = AgentService(cliService: cliService)
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
 
     @Published var activeSessions: [ActiveCLISession] = []
@@ -116,6 +116,7 @@ final class AppState: ObservableObject {
             async let projects: () = historyService.loadProjects()
             async let usage: () = loadLocalCLIUsage()
             _ = await (agents, projects, usage)
+            agentService.startScheduler()
         }
     }
 

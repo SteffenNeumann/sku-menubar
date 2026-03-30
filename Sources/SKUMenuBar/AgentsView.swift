@@ -2,103 +2,279 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-// MARK: - Agent Avatar (SVG-style generated portrait)
+// MARK: - Agent Avatar (generated character portrait)
 
 private struct AgentAvatarView: View {
     let agent: AgentDefinition
     let size: CGFloat
 
-    private var initials: String {
-        let words = agent.name.split(separator: " ").map(String.init)
-        if words.count >= 2 {
-            let a = words[0].first.map(String.init) ?? ""
-            let b = words[1].first.map(String.init) ?? ""
-            return (a + b).uppercased()
-        }
-        return String(agent.name.prefix(2)).uppercased()
-    }
-
     var body: some View {
         ZStack {
             // Gradient background
             LinearGradient(
-                colors: [agent.dotColor.opacity(0.9), agent.dotColor.opacity(0.55)],
+                colors: [agent.dotColor.opacity(0.85), agent.dotColor.opacity(0.45)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
-            // Circuit board pattern (deterministic from agent.id)
-            CircuitPatternView(seed: abs(agent.id.hashValue))
-                .opacity(0.18)
-
-            // Inner glow ring
-            Circle()
-                .strokeBorder(.white.opacity(0.15), lineWidth: 1.5)
-                .frame(width: size * 0.72, height: size * 0.72)
-
-            // CPU icon + initials stack
-            VStack(spacing: size * 0.05) {
-                Image(systemName: "cpu.fill")
-                    .font(.system(size: size * 0.18, weight: .light))
-                    .foregroundStyle(.white.opacity(0.55))
-                Text(initials)
-                    .font(.system(size: size * 0.3, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
-            }
+            // Subtle noise dots
+            AvatarNoiseView(seed: abs(agent.id.hashValue))
+                .opacity(0.12)
+            // Character figure
+            AgentCharacterView(seed: abs(agent.id.hashValue), accent: agent.dotColor, size: size)
         }
         .frame(width: size, height: size)
+        .clipShape(Rectangle())
     }
 }
 
-// MARK: - Circuit Pattern Canvas
+// MARK: - Deterministic character canvas
 
-private struct CircuitPatternView: View {
+private struct AgentCharacterView: View {
     let seed: Int
+    let accent: Color
+    let size: CGFloat
+
+    // Derive stable personality traits from seed
+    private var traits: AvatarTraits { AvatarTraits(seed: seed) }
 
     var body: some View {
-        Canvas { context, size in
-            var s = UInt64(bitPattern: Int64(truncatingIfNeeded: seed))
+        Canvas { ctx, sz in
+            let t = traits
+            let cx = sz.width  / 2
+            let cy = sz.height / 2
+
+            // ── Body / torso ────────────────────────────────────
+            let bodyW = sz.width  * 0.46
+            let bodyH = sz.height * 0.30
+            let bodyY = cy + sz.height * 0.14
+            let bodyRect = CGRect(x: cx - bodyW/2, y: bodyY, width: bodyW, height: bodyH)
+            var bodyPath = Path(roundedRect: bodyRect, cornerRadius: bodyW * 0.18)
+            ctx.fill(bodyPath, with: .color(.white.opacity(0.22)))
+
+            // Collar / neckline accent
+            let collarW = bodyW * 0.38
+            let collarRect = CGRect(x: cx - collarW/2, y: bodyY - 2, width: collarW, height: bodyH * 0.28)
+            ctx.fill(Path(roundedRect: collarRect, cornerRadius: 3), with: .color(.white.opacity(0.30)))
+
+            // Badge / icon on torso (personality indicator)
+            let badgeSize: CGFloat = sz.width * 0.11
+            let badgeRect = CGRect(x: cx - badgeSize/2, y: bodyY + bodyH * 0.38, width: badgeSize, height: badgeSize)
+            ctx.fill(Path(roundedRect: badgeRect, cornerRadius: 3), with: .color(.white.opacity(0.18)))
+            ctx.stroke(Path(roundedRect: badgeRect, cornerRadius: 3), with: .color(.white.opacity(0.35)), lineWidth: 0.8)
+
+            // ── Neck ─────────────────────────────────────────────
+            let neckW = sz.width  * 0.13
+            let neckH = sz.height * 0.07
+            let neckRect = CGRect(x: cx - neckW/2, y: bodyY - neckH, width: neckW, height: neckH + 2)
+            ctx.fill(Path(roundedRect: neckRect, cornerRadius: 2), with: .color(.white.opacity(0.25)))
+
+            // ── Head ─────────────────────────────────────────────
+            let headR  = sz.width * t.headRadius          // 0.22 – 0.27
+            let headCY = cy - sz.height * 0.05
+            let headRect = CGRect(x: cx - headR, y: headCY - headR, width: headR*2, height: headR*2)
+
+            // Head shadow
+            ctx.fill(
+                Path(ellipseIn: headRect.offsetBy(dx: 0, dy: 2).insetBy(dx: -1, dy: -1)),
+                with: .color(.black.opacity(0.18))
+            )
+            // Head fill
+            ctx.fill(Path(ellipseIn: headRect), with: .color(.white.opacity(0.92)))
+            // Head stroke
+            ctx.stroke(Path(ellipseIn: headRect), with: .color(.white.opacity(0.5)), lineWidth: 1.2)
+
+            // ── Hair ─────────────────────────────────────────────
+            let hairH = headR * t.hairHeight              // 0.5 – 0.9
+            let hairRect = CGRect(x: cx - headR * 0.95, y: headCY - headR, width: headR * 1.9, height: hairH)
+            var hairPath = Path()
+            hairPath.addRoundedRect(in: hairRect, cornerRadii: .init(
+                topLeading:     headR * 0.85,
+                bottomLeading:  headR * CGFloat(t.hairStyle == 0 ? 0.1 : (t.hairStyle == 1 ? 0.5 : 0.0)),
+                bottomTrailing: headR * CGFloat(t.hairStyle == 0 ? 0.1 : (t.hairStyle == 1 ? 0.5 : 0.0)),
+                topTrailing:    headR * 0.85
+            ))
+            ctx.fill(hairPath, with: .color(.white.opacity(0.55)))
+
+            // ── Eyes ─────────────────────────────────────────────
+            let eyeY  = headCY - headR * 0.08
+            let eyeSpacing = headR * 0.44
+            let eyeR: CGFloat = headR * (t.eyeSize == 0 ? 0.14 : (t.eyeSize == 1 ? 0.105 : 0.125))
+
+            for xOff in [-eyeSpacing, eyeSpacing] {
+                let er = CGRect(x: cx + xOff - eyeR, y: eyeY - eyeR, width: eyeR*2, height: eyeR*2)
+                ctx.fill(Path(ellipseIn: er), with: .color(.black.opacity(0.75)))
+                // Eye shine
+                let shineR: CGFloat = eyeR * 0.38
+                let shineRect = CGRect(x: cx + xOff - eyeR*0.25, y: eyeY - eyeR*0.55, width: shineR*2, height: shineR*2)
+                ctx.fill(Path(ellipseIn: shineRect), with: .color(.white.opacity(0.85)))
+            }
+
+            // Eyebrows
+            let browThick: CGFloat = headR * 0.07
+            let browW = eyeR * (t.eyebrowStyle == 0 ? 2.2 : 1.6)
+            let browY = eyeY - eyeR * 1.5
+            for xOff in [-eyeSpacing, eyeSpacing] {
+                var brow = Path()
+                if t.eyebrowStyle == 2 {
+                    // Arched
+                    brow.move(to: CGPoint(x: cx + xOff - browW/2, y: browY + browThick))
+                    brow.addQuadCurve(
+                        to: CGPoint(x: cx + xOff + browW/2, y: browY + browThick),
+                        control: CGPoint(x: cx + xOff, y: browY - browThick * 0.8)
+                    )
+                } else {
+                    brow.move(to: CGPoint(x: cx + xOff - browW/2, y: browY + (xOff < 0 ? browThick*0.5 : 0)))
+                    brow.addLine(to: CGPoint(x: cx + xOff + browW/2, y: browY + (xOff < 0 ? 0 : browThick*0.5)))
+                }
+                ctx.stroke(brow, with: .color(.black.opacity(0.60)), style: StrokeStyle(lineWidth: browThick, lineCap: .round))
+            }
+
+            // ── Nose ─────────────────────────────────────────────
+            let noseY = headCY + headR * 0.18
+            var nosePath = Path()
+            if t.noseStyle == 0 {
+                nosePath.move(to: CGPoint(x: cx, y: noseY - headR*0.09))
+                nosePath.addCurve(
+                    to: CGPoint(x: cx, y: noseY + headR*0.06),
+                    control1: CGPoint(x: cx + headR*0.09, y: noseY - headR*0.01),
+                    control2: CGPoint(x: cx + headR*0.07, y: noseY + headR*0.06)
+                )
+            } else {
+                nosePath.move(to: CGPoint(x: cx - headR*0.05, y: noseY + headR*0.06))
+                nosePath.addLine(to: CGPoint(x: cx, y: noseY - headR*0.08))
+                nosePath.addLine(to: CGPoint(x: cx + headR*0.05, y: noseY + headR*0.06))
+            }
+            ctx.stroke(nosePath, with: .color(.black.opacity(0.28)), style: StrokeStyle(lineWidth: headR*0.06, lineCap: .round, lineJoin: .round))
+
+            // ── Mouth ─────────────────────────────────────────────
+            let mouthY = headCY + headR * 0.42
+            let mouthW = headR * (t.mouthWidth == 0 ? 0.55 : (t.mouthWidth == 1 ? 0.40 : 0.65))
+            var mouth = Path()
+            switch t.mouthShape {
+            case 0: // smile
+                mouth.move(to: CGPoint(x: cx - mouthW/2, y: mouthY))
+                mouth.addQuadCurve(
+                    to: CGPoint(x: cx + mouthW/2, y: mouthY),
+                    control: CGPoint(x: cx, y: mouthY + headR * 0.20)
+                )
+            case 1: // slight smile
+                mouth.move(to: CGPoint(x: cx - mouthW/2, y: mouthY + headR*0.04))
+                mouth.addQuadCurve(
+                    to: CGPoint(x: cx + mouthW/2, y: mouthY + headR*0.04),
+                    control: CGPoint(x: cx, y: mouthY + headR * 0.14)
+                )
+            default: // straight / serious
+                mouth.move(to: CGPoint(x: cx - mouthW/2, y: mouthY + headR*0.05))
+                mouth.addLine(to: CGPoint(x: cx + mouthW/2, y: mouthY + headR*0.05))
+            }
+            ctx.stroke(mouth, with: .color(.black.opacity(0.55)), style: StrokeStyle(lineWidth: headR*0.085, lineCap: .round))
+
+            // ── Ears ─────────────────────────────────────────────
+            let earR = headR * 0.18
+            let earY = headCY + headR * 0.08
+            for xOff in [-(headR - earR * 0.4), headR - earR * 0.4] {
+                let er = CGRect(x: cx + xOff - earR, y: earY - earR, width: earR*2, height: earR*2)
+                ctx.fill(Path(ellipseIn: er), with: .color(.white.opacity(0.80)))
+                ctx.stroke(Path(ellipseIn: er), with: .color(.white.opacity(0.4)), lineWidth: 0.7)
+            }
+
+            // ── Accessories (glasses / hat) ──────────────────────
+            if t.hasGlasses {
+                let glassR: CGFloat = eyeR * 1.45
+                let glassColor = Color.black.opacity(0.45)
+                for xOff in [-eyeSpacing, eyeSpacing] {
+                    let gr = CGRect(x: cx + xOff - glassR, y: eyeY - glassR * 0.95, width: glassR*2, height: glassR*2)
+                    ctx.stroke(Path(roundedRect: gr, cornerRadius: glassR * 0.3), with: .color(glassColor), lineWidth: headR * 0.07)
+                }
+                // bridge
+                var bridge = Path()
+                bridge.move(to: CGPoint(x: cx - eyeSpacing + glassR, y: eyeY - glassR*0.1))
+                bridge.addLine(to: CGPoint(x: cx + eyeSpacing - glassR, y: eyeY - glassR*0.1))
+                ctx.stroke(bridge, with: .color(glassColor), lineWidth: headR * 0.06)
+            }
+
+            if t.hasHat {
+                let hatBrimW = headR * 2.1
+                let hatBrimH = headR * 0.18
+                let hatTopW  = headR * 1.4
+                let hatTopH  = headR * t.hatHeight
+                let hatBaseY = headCY - headR + hatBrimH * 0.3
+
+                // brim
+                let brimRect = CGRect(x: cx - hatBrimW/2, y: hatBaseY - hatBrimH, width: hatBrimW, height: hatBrimH)
+                ctx.fill(Path(roundedRect: brimRect, cornerRadius: 2), with: .color(.white.opacity(0.70)))
+
+                // crown
+                let crownRect = CGRect(x: cx - hatTopW/2, y: hatBaseY - hatBrimH - hatTopH, width: hatTopW, height: hatTopH)
+                ctx.fill(Path(roundedRect: crownRect, cornerRadius: headR * 0.12), with: .color(.white.opacity(0.80)))
+
+                // hat band
+                let bandH: CGFloat = hatTopH * 0.18
+                let bandRect = CGRect(x: cx - hatTopW/2, y: hatBaseY - hatBrimH - bandH, width: hatTopW, height: bandH)
+                ctx.fill(Path(bandRect), with: .color(.black.opacity(0.20)))
+            }
+        }
+    }
+}
+
+// MARK: - Avatar personality traits (all derived from seed)
+
+private struct AvatarTraits {
+    // head
+    let headRadius: CGFloat      // 0.22 – 0.27
+    // hair
+    let hairHeight: CGFloat      // 0.50 – 0.90
+    let hairStyle: Int           // 0=straight-cut, 1=round, 2=spiky
+    // eyes
+    let eyeSize: Int             // 0=big, 1=small, 2=normal
+    let eyebrowStyle: Int        // 0=flat, 1=tilted, 2=arched
+    // nose
+    let noseStyle: Int           // 0=curve, 1=angular
+    // mouth
+    let mouthShape: Int          // 0=big smile, 1=slight, 2=straight
+    let mouthWidth: Int          // 0=medium, 1=small, 2=wide
+    // accessories
+    let hasGlasses: Bool
+    let hasHat: Bool
+    let hatHeight: CGFloat       // 0.40 – 0.65
+
+    init(seed: Int) {
+        var s = UInt64(bitPattern: Int64(truncatingIfNeeded: seed))
+        func next() -> Int {
+            s = s &* 6364136223846793005 &+ 1442695040888963407
+            return Int((s >> 33) & 0xFFFF)
+        }
+        func frac() -> CGFloat { CGFloat(next() & 0xFFF) / CGFloat(0xFFF) }
+
+        headRadius    = 0.22 + frac() * 0.05
+        hairHeight    = 0.50 + frac() * 0.40
+        hairStyle     = next() % 3
+        eyeSize       = next() % 3
+        eyebrowStyle  = next() % 3
+        noseStyle     = next() % 2
+        mouthShape    = next() % 3
+        mouthWidth    = next() % 3
+        hasGlasses    = (next() % 4) == 0     // ~25 %
+        hasHat        = (next() % 5) == 0     // ~20 %
+        hatHeight     = 0.40 + frac() * 0.25
+    }
+}
+
+// MARK: - Subtle noise background
+
+private struct AvatarNoiseView: View {
+    let seed: Int
+    var body: some View {
+        Canvas { ctx, sz in
+            var s = UInt64(bitPattern: Int64(truncatingIfNeeded: seed &+ 99991))
             func rnd(_ max: CGFloat) -> CGFloat {
                 s = s &* 6364136223846793005 &+ 1442695040888963407
                 return CGFloat(s >> 33) / CGFloat(0x7FFFFFFF) * max
             }
-
-            var path = Path()
-            for _ in 0..<10 {
-                let x = rnd(size.width)
-                let y = rnd(size.height)
-                let len = rnd(size.width * 0.45) + size.width * 0.12
-                path.move(to: CGPoint(x: x, y: y))
-                if rnd(1) > 0.5 {
-                    path.addLine(to: CGPoint(x: x + len, y: y))
-                    path.addLine(to: CGPoint(x: x + len, y: y + rnd(size.height * 0.3)))
-                } else {
-                    path.addLine(to: CGPoint(x: x, y: y + len))
-                    path.addLine(to: CGPoint(x: x + rnd(size.width * 0.3), y: y + len))
-                }
-            }
-            context.stroke(path, with: .color(.white), lineWidth: 1)
-
-            for _ in 0..<14 {
-                let x = rnd(size.width)
-                let y = rnd(size.height)
-                let r: CGFloat = rnd(2) + 1.5
-                context.fill(
-                    Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
-                    with: .color(.white)
-                )
-            }
-
-            for _ in 0..<4 {
-                let x = rnd(size.width - 10) + 4
-                let y = rnd(size.height - 10) + 4
-                let sz: CGFloat = rnd(6) + 4
-                context.stroke(
-                    Path(CGRect(x: x, y: y, width: sz, height: sz)),
-                    with: .color(.white.opacity(0.6)),
-                    lineWidth: 0.8
-                )
+            for _ in 0..<28 {
+                let x = rnd(sz.width); let y = rnd(sz.height)
+                let r: CGFloat = rnd(1.4) + 0.5
+                ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: r*2, height: r*2)), with: .color(.white))
             }
         }
     }
@@ -153,6 +329,20 @@ private struct AgentBaseballCard: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 0)
+
+                    // Schedule indicator (if any)
+                    if let sched = agent.schedule, !sched.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: agent.isActive ? "timer" : "timer.slash")
+                                .font(.system(size: 8))
+                                .foregroundStyle(agent.isActive ? .green : theme.tertiaryText)
+                            Text(sched)
+                                .font(.system(size: 8))
+                                .foregroundStyle(agent.isActive ? .green : theme.tertiaryText)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                    }
 
                     // Bottom row: ID + action icons
                     HStack(alignment: .center, spacing: 0) {
@@ -245,6 +435,9 @@ struct AgentsView: View {
         }
     }
 
+    var activeAgents: [AgentDefinition]   { filteredAgents.filter { $0.isActive } }
+    var inactiveAgents: [AgentDefinition] { filteredAgents.filter { !$0.isActive } }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header bar
@@ -259,29 +452,46 @@ struct AgentsView: View {
                 HStack(spacing: 0) {
                     // Card grid
                     ScrollView {
-                        LazyVGrid(
-                            columns: selectedAgent != nil
-                                ? [GridItem(.flexible(minimum: 180)), GridItem(.flexible(minimum: 180))]
-                                : [GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160))],
-                            spacing: 12
-                        ) {
-                            ForEach(filteredAgents) { agent in
-                                AgentBaseballCard(
-                                    agent: agent,
-                                    isSelected: selectedAgent?.id == agent.id,
-                                    theme: theme,
-                                    accentColor: accentColor,
-                                    onEdit: { startEditingAgent(agent) },
-                                    onDelete: { detailError = nil; pendingDeleteAgent = agent },
-                                    onSelect: {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            selectedAgent = selectedAgent?.id == agent.id ? nil : agent
-                                        }
-                                    }
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Active agents section
+                            if !activeAgents.isEmpty {
+                                agentSectionHeader(
+                                    title: "Aktive Agents",
+                                    count: activeAgents.count,
+                                    color: .green
                                 )
+                                LazyVGrid(
+                                    columns: gridColumns,
+                                    spacing: 12
+                                ) {
+                                    ForEach(activeAgents) { agent in
+                                        agentCard(agent)
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 18)
+                            }
+
+                            // Inactive agents section
+                            if !inactiveAgents.isEmpty {
+                                agentSectionHeader(
+                                    title: "Inaktive Agents",
+                                    count: inactiveAgents.count,
+                                    color: theme.tertiaryText
+                                )
+                                LazyVGrid(
+                                    columns: gridColumns,
+                                    spacing: 12
+                                ) {
+                                    ForEach(inactiveAgents) { agent in
+                                        agentCard(agent)
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 14)
                             }
                         }
-                        .padding(14)
+                        .padding(.top, 14)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -335,6 +545,53 @@ struct AgentsView: View {
         } message: { agent in
             Text("\"\(agent.name)\" wird aus ~/.claude/agents entfernt.")
         }
+    }
+
+    // MARK: - Grid helpers
+
+    private var gridColumns: [GridItem] {
+        selectedAgent != nil
+            ? [GridItem(.flexible(minimum: 180)), GridItem(.flexible(minimum: 180))]
+            : [GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160))]
+    }
+
+    private func agentCard(_ agent: AgentDefinition) -> some View {
+        AgentBaseballCard(
+            agent: agent,
+            isSelected: selectedAgent?.id == agent.id,
+            theme: theme,
+            accentColor: accentColor,
+            onEdit: { startEditingAgent(agent) },
+            onDelete: { detailError = nil; pendingDeleteAgent = agent },
+            onSelect: {
+                withAnimation(.spring(response: 0.3)) {
+                    selectedAgent = selectedAgent?.id == agent.id ? nil : agent
+                }
+            }
+        )
+    }
+
+    private func agentSectionHeader(title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(theme.secondaryText)
+                .kerning(0.3)
+            Text("\(count)")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(theme.tertiaryText)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(theme.cardBg, in: Capsule())
+                .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            Rectangle()
+                .fill(theme.cardBorder)
+                .frame(height: 0.5)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Header
@@ -490,6 +747,12 @@ struct AgentsView: View {
                     }
                     .padding(.top, 2)
 
+                    // Schedule / status row
+                    if let sched = agent.schedule, !sched.isEmpty {
+                        Divider().foregroundStyle(theme.cardBorder)
+                        schedulingInfoPanel(agent: agent, schedule: sched)
+                    }
+
                     Divider().foregroundStyle(theme.cardBorder)
 
                     // System prompt
@@ -521,11 +784,181 @@ struct AgentsView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+
+                    // Logbook
+                    Divider().foregroundStyle(theme.cardBorder)
+                    logbookPanel(agent: agent)
                 }
                 .padding(12)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Scheduling info panel
+
+    private func schedulingInfoPanel(agent: AgentDefinition, schedule: String) -> some View {
+        let isRunning = state.agentService.runningAgents.contains(agent.id)
+        let lastEntry = state.agentService.logs[agent.id]?.last
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("SCHEDULE")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                    .kerning(0.6)
+                Spacer()
+                if isRunning {
+                    Label("Läuft…", systemImage: "clock.badge.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.orange)
+                } else {
+                    Button {
+                        Task { await state.agentService.executeScheduledAgent(agent) }
+                    } label: {
+                        Label("Jetzt ausführen", systemImage: "play.fill")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .tint(accentColor)
+                }
+            }
+
+            HStack(spacing: 10) {
+                scheduleChip(
+                    icon: agent.isActive ? "checkmark.circle.fill" : "pause.circle.fill",
+                    label: agent.isActive ? "Aktiv" : "Inaktiv",
+                    color: agent.isActive ? .green : theme.tertiaryText
+                )
+                scheduleChip(icon: "timer", label: schedule, color: accentColor)
+                if let last = lastEntry {
+                    scheduleChip(
+                        icon: last.status.icon,
+                        label: relativeTime(last.startedAt),
+                        color: last.status.color
+                    )
+                }
+            }
+        }
+    }
+
+    private func scheduleChip(icon: String, label: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundStyle(theme.secondaryText)
+        }
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(color.opacity(0.1), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.25), lineWidth: 0.5))
+    }
+
+    // MARK: - Logbook panel
+
+    private func logbookPanel(agent: AgentDefinition) -> some View {
+        let entries = (state.agentService.logs[agent.id] ?? []).reversed() as [ScheduledTaskLogEntry]
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("LOGBUCH")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                    .kerning(0.6)
+                Text("\(entries.count)")
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.tertiaryText)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(theme.cardBg, in: Capsule())
+                    .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                Spacer()
+                if !entries.isEmpty {
+                    Button {
+                        state.agentService.clearLog(agentId: agent.id)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Logbuch leeren")
+                }
+            }
+
+            if entries.isEmpty {
+                Text("Noch keine Ausführungen aufgezeichnet.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(entries.prefix(20)) { entry in
+                        logbookRow(entry)
+                    }
+                }
+            }
+        }
+    }
+
+    private func logbookRow(_ entry: ScheduledTaskLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Image(systemName: entry.status.icon)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(entry.status.color)
+                Text(entry.status.label)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(entry.status.color)
+                Spacer()
+                Text(shortDateTime(entry.startedAt))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+                if let fin = entry.finishedAt {
+                    Text("(\(durationString(from: entry.startedAt, to: fin)))")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+            }
+            if !entry.output.isEmpty {
+                Text(entry.output.prefix(200) + (entry.output.count > 200 ? "…" : ""))
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+            if !entry.error.isEmpty {
+                Text(entry.error)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.red.opacity(0.8))
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(theme.windowBg.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder.opacity(0.6), lineWidth: 0.4))
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let diff = Date().timeIntervalSince(date)
+        if diff < 60      { return "Gerade eben" }
+        if diff < 3600    { return "vor \(Int(diff/60)) Min." }
+        if diff < 86400   { return "vor \(Int(diff/3600)) Std." }
+        return "vor \(Int(diff/86400)) T."
+    }
+
+    private func shortDateTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd.MM HH:mm"
+        return f.string(from: date)
+    }
+
+    private func durationString(from start: Date, to end: Date) -> String {
+        let sec = Int(end.timeIntervalSince(start))
+        if sec < 60 { return "\(sec)s" }
+        return "\(sec/60)m \(sec%60)s"
     }
 
     private func metaTag(_ key: String, value: String) -> some View {
@@ -793,6 +1226,45 @@ private struct AgentEditorSheet: View {
                                 TextField("user", text: $draft.memory)
                                     .textFieldStyle(.roundedBorder)
                             }
+                        }
+                    }
+                    .padding(16)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                    )
+
+                    // Scheduling section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "timer")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                            Text("Scheduled Task")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                        }
+
+                        HStack(alignment: .top, spacing: 16) {
+                            editorField("Schedule", hint: "hourly · daily · weekly · every:N (Minuten)") {
+                                TextField("daily", text: $draft.schedule)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("AKTIV".uppercased())
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .kerning(0.5)
+                                Toggle("Scheduling aktiv", isOn: $draft.isActive)
+                                    .toggleStyle(.switch)
+                                    .labelsHidden()
+                                Text("Wenn aktiv, wird der Agent automatisch\ngemäß seinem Schedule ausgeführt.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(16)
