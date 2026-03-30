@@ -641,29 +641,28 @@ struct TaskLinesEditorView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(lines.indices, id: \.self) { idx in
                     HStack(spacing: 8) {
-                        Button {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(lines[idx].done ? accent : Color.clear)
+                                .frame(width: 18, height: 18)
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(
+                                    lines[idx].done ? accent : theme.tertiaryText.opacity(0.5),
+                                    lineWidth: 1.5
+                                )
+                                .frame(width: 18, height: 18)
+                            if lines[idx].done {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
                             var updated = lines
                             updated[idx].done.toggle()
                             lines = updated
-                        } label: {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(lines[idx].done ? accent : Color.clear)
-                                    .frame(width: 18, height: 18)
-                                RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(
-                                        lines[idx].done ? accent : theme.tertiaryText.opacity(0.5),
-                                        lineWidth: 1.5
-                                    )
-                                    .frame(width: 18, height: 18)
-                                if lines[idx].done {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(.white)
-                                }
-                            }
                         }
-                        .buttonStyle(.plain)
 
                         TextField("Aufgabe…", text: $lines[idx].text)
                             .font(.system(size: 13))
