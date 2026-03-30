@@ -204,7 +204,8 @@ struct SingleChatSessionView: View {
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
         .onAppear {
             inputFocused = true
-            // Restore state from tab if resuming a session
+            // Restore state from tab
+            if !tab.inputText.isEmpty { inputText = tab.inputText }
             if let sid = tab.sessionId {
                 currentSessionId = sid
                 sessionTitle = tab.title
@@ -215,8 +216,17 @@ struct SingleChatSessionView: View {
                 } else {
                     messages = tab.messages
                 }
+            } else {
+                messages = tab.messages
+                selectedModel = tab.model
+                selectedAgent = tab.agentId
             }
         }
+        .onChange(of: messages) { tab.messages = messages }
+        .onChange(of: inputText) { tab.inputText = inputText }
+        .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
+        .onChange(of: selectedModel) { tab.model = selectedModel }
+        .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
     }
 
     private func resumeSession(_ sessionId: String) {
