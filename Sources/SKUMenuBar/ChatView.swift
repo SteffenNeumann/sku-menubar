@@ -157,6 +157,7 @@ struct SingleChatSessionView: View {
     @State private var showSnippetSheet   = false
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
+    @State private var activeDiff: String?
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
 
     private func closeAllPickers() {
@@ -184,13 +185,25 @@ struct SingleChatSessionView: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                if messages.isEmpty {
-                    emptyState.onTapGesture { closeAllPickers() }
-                } else {
-                    messagesArea.onTapGesture { closeAllPickers() }
+            HStack(spacing: 0) {
+                // Left: Chat area
+                VStack(spacing: 0) {
+                    if messages.isEmpty {
+                        emptyState.onTapGesture { closeAllPickers() }
+                    } else {
+                        messagesArea.onTapGesture { closeAllPickers() }
+                    }
+                    inputBar
                 }
-                inputBar
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Right: Diff side panel
+                if let diff = activeDiff {
+                    Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+                    diffSidePanel(diff)
+                        .frame(minWidth: 320, idealWidth: 400, maxWidth: 500)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -382,8 +395,12 @@ struct SingleChatSessionView: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(messages) { msg in
-                        MessageBubbleView(message: msg)
-                            .id(msg.id)
+                        MessageBubbleView(message: msg) { diff in
+                            withAnimation(.spring(response: 0.3)) {
+                                activeDiff = diff
+                            }
+                        }
+                        .id(msg.id)
                     }
                     if let err = errorMessage {
                         errorBubble(err)
@@ -1053,14 +1070,156 @@ struct SingleChatSessionView: View {
             }
         }
     }
+
+    // MARK: - Diff Side Panel (right column)
+
+    private func diffSidePanel(_ diff: String) -> some View {
+        let files = parseDiffFiles(diff)
+        let added   = diff.components(separatedBy: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
+        let removed = diff.components(separatedBy: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
+
+        return VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.mint)
+                Text("Codeänderungen")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+
+                Spacer()
+
+                Text("+\(added)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.green)
+                Text("-\(removed)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.red)
+
+                // Copy diff
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(diff, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Diff kopieren")
+
+                // Close panel
+                Button {
+                    withAnimation(.spring(response: 0.3)) {
+                        activeDiff = nil
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Panel schließen")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(theme.windowBg)
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            // File list summary
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.tertiaryText)
+                Text("\(files.count) Datei\(files.count == 1 ? "" : "en")")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(theme.cardBg.opacity(0.3))
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            // Scrollable diff content
+            ScrollView([.vertical, .horizontal], showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(files.enumerated()), id: \.offset) { _, file in
+                        diffSideFileSection(file)
+                    }
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color(white: theme.isLight ? 0.96 : 0.06))
+    }
+
+    private func diffSideFileSection(_ file: DiffFile) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // File name header
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 9))
+                    .foregroundStyle(theme.tertiaryText)
+                Text(file.name)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+                Spacer()
+                Text("+\(file.additions) -\(file.deletions)")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color(white: theme.isLight ? 0.88 : 0.12))
+
+            // Diff lines
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(file.lines.enumerated()), id: \.offset) { _, line in
+                    diffSideLine(line)
+                }
+            }
+            .padding(.vertical, 4)
+
+            Divider().opacity(0.2)
+        }
+    }
+
+    private func diffSideLine(_ line: String) -> some View {
+        let isAdd    = line.hasPrefix("+") && !line.hasPrefix("+++")
+        let isRemove = line.hasPrefix("-") && !line.hasPrefix("---")
+        let isHunk   = line.hasPrefix("@@")
+        let isMeta   = line.hasPrefix("diff") || line.hasPrefix("index") || line.hasPrefix("---") || line.hasPrefix("+++")
+
+        let bg: Color = isAdd    ? .green.opacity(0.12)
+                      : isRemove ? .red.opacity(0.12)
+                      : isHunk   ? Color(white: theme.isLight ? 0.82 : 0.15)
+                      : .clear
+        let fg: Color = isAdd    ? .green
+                      : isRemove ? .red
+                      : isHunk   ? .blue.opacity(0.7)
+                      : isMeta   ? theme.tertiaryText
+                      : theme.primaryText
+
+        return Text(line.isEmpty ? " " : line)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(fg)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 1)
+            .background(bg)
+    }
 }
 
 // MARK: - Message Row (VS Code Copilot style: flat, left-aligned, dividers)
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    var onDiffTap: ((String) -> Void)?
     @Environment(\.appTheme) var theme
-    @State private var diffExpanded: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -1072,9 +1231,9 @@ struct MessageBubbleView: View {
                 userRow
             } else {
                 assistantRow
-                // Diff panel – shown when tool calls modified files
+                // Compact badge to open diff in side panel
                 if let diff = message.gitDiff {
-                    diffPanel(diff)
+                    diffBadge(diff)
                 }
             }
             Divider().opacity(0.15)
@@ -1223,165 +1382,76 @@ struct MessageBubbleView: View {
         .padding(.top, 2)
     }
 
-    // MARK: - Git Diff Panel
+    // MARK: - Git Diff Badge (opens side panel)
 
-    private func diffPanel(_ diff: String) -> some View {
+    private func diffBadge(_ diff: String) -> some View {
         let files = parseDiffFiles(diff)
+        let added   = diff.components(separatedBy: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
+        let removed = diff.components(separatedBy: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
 
-        return VStack(alignment: .leading, spacing: 0) {
-            // Header row — toggle to expand/collapse
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    diffExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.mint)
-                    Text("\(files.count) Datei\(files.count == 1 ? "" : "en") geändert")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                    // Summarize additions/deletions
-                    let added   = diff.components(separatedBy: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
-                    let removed = diff.components(separatedBy: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
-                    Text("+\(added)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.green)
-                    Text("-\(removed)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.red)
-                    Spacer()
-                    // Copy full diff
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(diff, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Diff kopieren")
-
-                    Image(systemName: diffExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(Color(white: theme.isLight ? 0.93 : 0.08))
-            }
-            .buttonStyle(.plain)
-
-            // Diff content (collapsible)
-            if diffExpanded {
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(files.enumerated()), id: \.offset) { _, file in
-                            diffFileSection(file)
-                        }
-                    }
-                }
-                .frame(maxHeight: 320)
-            }
-        }
-        .background(Color(white: theme.isLight ? 0.95 : 0.07), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(white: theme.isLight ? 0.85 : 0.18), lineWidth: 0.5))
-        .padding(.horizontal, 16).padding(.bottom, 10)
-        .onAppear { diffExpanded = true }   // auto-expand on first show
-    }
-
-    private func diffFileSection(_ file: DiffFile) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // File name header
+        return Button {
+            onDiffTap?(diff)
+        } label: {
             HStack(spacing: 6) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 9))
-                    .foregroundStyle(theme.tertiaryText)
-                Text(file.name)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(theme.secondaryText)
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.mint)
+                Text("\(files.count) Datei\(files.count == 1 ? "" : "en") geändert")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Text("+\(added)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.green)
+                Text("-\(removed)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.red)
                 Spacer()
-                Text("+\(file.additions) -\(file.deletions)")
-                    .font(.system(size: 9, design: .monospaced))
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 10))
                     .foregroundStyle(theme.tertiaryText)
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Color(white: theme.isLight ? 0.88 : 0.12))
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Color(white: theme.isLight ? 0.95 : 0.07), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(white: theme.isLight ? 0.85 : 0.18), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16).padding(.bottom, 10)
+        .onAppear { onDiffTap?(diff) }   // auto-open side panel
+    }
+}
 
-            // Diff lines
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(file.lines.enumerated()), id: \.offset) { _, line in
-                    diffLine(line)
-                }
-            }
-            .padding(.vertical, 4)
+// MARK: - Diff Parsing Helpers (shared)
 
-            if file.name != files(from: file).last?.name ?? "" {
-                Divider().opacity(0.2)
+struct DiffFile {
+    let name: String
+    let lines: [String]
+    var additions: Int { lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count }
+    var deletions: Int { lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count }
+}
+
+func parseDiffFiles(_ diff: String) -> [DiffFile] {
+    var files: [DiffFile] = []
+    var currentName = ""
+    var currentLines: [String] = []
+
+    for rawLine in diff.components(separatedBy: "\n") {
+        // Trim carriage returns (Windows \r\n endings)
+        let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
+        if line.hasPrefix("diff --git ") {
+            if !currentName.isEmpty {
+                files.append(DiffFile(name: currentName, lines: currentLines))
             }
+            let parts = line.components(separatedBy: " b/")
+            currentName = parts.last ?? line
+            currentLines = []
+        } else {
+            currentLines.append(line)
         }
     }
-
-    private func diffLine(_ line: String) -> some View {
-        let isAdd    = line.hasPrefix("+") && !line.hasPrefix("+++")
-        let isRemove = line.hasPrefix("-") && !line.hasPrefix("---")
-        let isHunk   = line.hasPrefix("@@")
-        let isMeta   = line.hasPrefix("diff") || line.hasPrefix("index") || line.hasPrefix("---") || line.hasPrefix("+++")
-
-        let bg: Color = isAdd    ? .green.opacity(0.12)
-                      : isRemove ? .red.opacity(0.12)
-                      : isHunk   ? Color(white: theme.isLight ? 0.82 : 0.15)
-                      : .clear
-        let fg: Color = isAdd    ? .green
-                      : isRemove ? .red
-                      : isHunk   ? .blue.opacity(0.7)
-                      : isMeta   ? theme.tertiaryText
-                      : theme.primaryText
-
-        return Text(line.isEmpty ? " " : line)
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(fg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10).padding(.vertical, 1)
-            .background(bg)
+    if !currentName.isEmpty {
+        files.append(DiffFile(name: currentName, lines: currentLines))
     }
-
-    // MARK: - Diff parsing helpers
-
-    struct DiffFile {
-        let name: String
-        let lines: [String]
-        var additions: Int { lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count }
-        var deletions: Int { lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count }
-    }
-
-    private func parseDiffFiles(_ diff: String) -> [DiffFile] {
-        var files: [DiffFile] = []
-        var currentName = ""
-        var currentLines: [String] = []
-
-        for line in diff.components(separatedBy: "\n") {
-            if line.hasPrefix("diff --git ") {
-                if !currentName.isEmpty {
-                    files.append(DiffFile(name: currentName, lines: currentLines))
-                }
-                // Extract file name: "diff --git a/path b/path" → "path"
-                let parts = line.components(separatedBy: " b/")
-                currentName = parts.last ?? line
-                currentLines = []
-            } else {
-                currentLines.append(line)
-            }
-        }
-        if !currentName.isEmpty {
-            files.append(DiffFile(name: currentName, lines: currentLines))
-        }
-        return files
-    }
-
-    // Helper to suppress compile warning about unused parameter
-    private func files(from file: DiffFile) -> [DiffFile] { [] }
+    return files
 }
 
 // MARK: - Research Animation (shown while Claude uses tools during streaming)

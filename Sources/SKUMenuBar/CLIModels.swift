@@ -60,7 +60,7 @@ struct AttachedFile: Identifiable {
 
 // MARK: - Chat Messages
 
-struct ChatMessage: Identifiable {
+struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     var role: MessageRole
     var content: String
@@ -73,17 +73,26 @@ struct ChatMessage: Identifiable {
     var timestamp = Date()
     var gitDiff: String?          // populated after tool calls that modify files
     var gitDiffExpanded: Bool = false
+
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming
+            && lhs.gitDiff == rhs.gitDiff && lhs.toolCalls.count == rhs.toolCalls.count
+    }
 }
 
-enum MessageRole {
+enum MessageRole: Equatable {
     case user, assistant, system
 }
 
-struct ToolCall: Identifiable {
+struct ToolCall: Identifiable, Equatable {
     let id = UUID()
     let name: String
     let input: String
     var result: String?
+
+    static func == (lhs: ToolCall, rhs: ToolCall) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 // MARK: - Stream Events (claude --output-format stream-json)
