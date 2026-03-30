@@ -833,60 +833,75 @@ struct AddMCPServerSheet: View {
 
                 // Model selection
                 field(label: "Modell (optional)", hint: "Vorausgefülltes Modell für diesen Server") {
-                    HStack(spacing: 6) {
-                        ZStack(alignment: .leading) {
-                            if selectedModel.isEmpty {
-                                Text("Modell wählen oder eingeben…")
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            ZStack(alignment: .leading) {
+                                if selectedModel.isEmpty {
+                                    Text("Modell wählen oder eingeben…")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundStyle(theme.tertiaryText)
+                                        .padding(.horizontal, 10).padding(.vertical, 7)
+                                }
+                                TextField("", text: $selectedModel)
                                     .font(.system(size: 12, design: .monospaced))
-                                    .foregroundStyle(theme.tertiaryText)
+                                    .foregroundStyle(theme.primaryText)
+                                    .textFieldStyle(.plain)
                                     .padding(.horizontal, 10).padding(.vertical, 7)
                             }
-                            TextField("", text: $selectedModel)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(theme.primaryText)
-                                .textFieldStyle(.plain)
-                                .padding(.horizontal, 10).padding(.vertical, 7)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                            .frame(maxWidth: .infinity)
+                            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
 
-                        Button {
-                            modelSearch = ""; modelProvider = "Alle"
-                            showModelPicker = true
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "cpu").font(.system(size: 10))
-                                Text("Auswählen").font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(accentColor)
-                            .padding(.horizontal, 9).padding(.vertical, 6)
-                            .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
-                            ModelPickerPopover(
-                                search: $modelSearch,
-                                provider: $modelProvider,
-                                onSelect: { model in
-                                    selectedModel = model.apiName
-                                    showModelPicker = false
-                                }
-                            )
-                            .environmentObject(state)
-                            .environment(\.appTheme, theme)
-                        }
-
-                        if !selectedModel.isEmpty {
                             Button {
-                                selectedModel = ""
+                                modelSearch = ""; modelProvider = "Alle"
+                                showModelPicker = true
                             } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(theme.tertiaryText)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "cpu").font(.system(size: 10))
+                                    Text("Auswählen").font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(accentColor)
+                                .padding(.horizontal, 9).padding(.vertical, 6)
+                                .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+                                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
                             }
                             .buttonStyle(.plain)
+                            .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
+                                ModelPickerPopover(
+                                    search: $modelSearch,
+                                    provider: $modelProvider,
+                                    onSelect: { model in
+                                        selectedModel = model.apiName
+                                        showModelPicker = false
+                                    }
+                                )
+                                .environmentObject(state)
+                                .environment(\.appTheme, theme)
+                            }
+
+                            if !selectedModel.isEmpty {
+                                Button {
+                                    selectedModel = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        // HowTo hint
+                        HStack(spacing: 4) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Modell nicht gefunden? Den API-Namen direkt ins Feld tippen, z. B. ")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("my-provider/model-name")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
                         }
                     }
                 }
