@@ -233,6 +233,13 @@ struct SingleChatSessionView: View {
                 messages = tab.messages
                 selectedModel = tab.model
                 selectedAgent = tab.agentId
+
+                // Automatically open project picker for new empty chats
+                if messages.isEmpty, tab.sessionId == nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        openDirectoryPicker()
+                    }
+                }
             }
         }
         // Sync messages back to tab only when NOT streaming to avoid
@@ -764,17 +771,7 @@ struct SingleChatSessionView: View {
 
     private var stripDirButton: some View {
         Button {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "Auswählen"
-            if let cwd = workingDirectory {
-                panel.directoryURL = URL(fileURLWithPath: cwd)
-            }
-            if panel.runModal() == .OK, let url = panel.url {
-                workingDirectory = url.path
-            }
+            openDirectoryPicker()
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "folder")
@@ -790,6 +787,20 @@ struct SingleChatSessionView: View {
         }
         .buttonStyle(.plain)
         .help("Arbeitsverzeichnis")
+    }
+
+    private func openDirectoryPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Auswählen"
+        if let cwd = workingDirectory {
+            panel.directoryURL = URL(fileURLWithPath: cwd)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            workingDirectory = url.path
+        }
     }
 
     private var stripSep: some View {
