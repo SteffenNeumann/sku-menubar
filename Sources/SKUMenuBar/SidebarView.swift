@@ -162,7 +162,11 @@ struct SidebarView: View {
                     badge("\(state.historyService.projects.count)")
                 }
                 if section == .notes {
-                    let openTasks = state.notes.filter { $0.type == .task && !$0.done }.count
+                    let openTasks = state.notes.filter { note in
+                        guard note.type == .task else { return false }
+                        if note.taskLines.isEmpty { return !note.done }
+                        return note.taskLines.contains { !$0.done }
+                    }.count
                     if openTasks > 0 { badge("\(openTasks)") }
                 }
                 if section == .chat, !state.activeSessions.isEmpty {

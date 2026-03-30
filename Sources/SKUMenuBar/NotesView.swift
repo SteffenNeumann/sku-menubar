@@ -222,7 +222,13 @@ struct NotesView: View {
                         .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
                         .strikethrough(note.done && note.type == .task)
                         .lineLimit(1)
-                    if !note.body.isEmpty {
+                    if note.type == .task && !note.taskLines.isEmpty {
+                        let done = note.taskLines.filter(\.done).count
+                        Text("\(done)/\(note.taskLines.count) erledigt")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                            .lineLimit(1)
+                    } else if !note.body.isEmpty {
                         Text(note.body)
                             .font(.system(size: 10))
                             .foregroundStyle(theme.tertiaryText)
@@ -277,7 +283,8 @@ struct NotesView: View {
     // MARK: - Helpers
 
     private func addNote(type: NoteType) {
-        let note = NoteItem(type: type, title: "", body: "")
+        var note = NoteItem(type: type, title: "", body: "")
+        if type == .task { note.taskLines = [TaskLine()] }
         state.notes.insert(note, at: 0)
         selectedId = note.id
     }
@@ -326,16 +333,21 @@ struct NoteEditorView: View {
 
             Divider().foregroundStyle(theme.cardBorder)
 
-            // Body text
-            TextEditor(text: $note.body)
-                .font(.system(size: 13))
-                .foregroundStyle(theme.primaryText)
-                .scrollContentBackground(.hidden)
-                .background(.clear)
-                .tint(accentColor)
-                .padding(16)
-                .focused($bodyFocused)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Body / task lines
+            if note.type == .task {
+                TaskLinesEditorView(lines: $note.taskLines, theme: theme, accent: accentColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: $note.body)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.primaryText)
+                    .scrollContentBackground(.hidden)
+                    .background(.clear)
+                    .tint(accentColor)
+                    .padding(16)
+                    .focused($bodyFocused)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             Divider().foregroundStyle(theme.cardBorder)
 
@@ -484,5 +496,59 @@ private struct TagInputView: View {
                 focused = false
             }
             .animation(.easeInOut(duration: 0.12), value: focused)
+    }
+}
+
+// MARK: - Task Lines Editor
+
+struct TaskLinesEditorView: View {
+    @Binding var lines: [TaskLine]
+    let theme: AppTheme
+    let accent: Color
+    @FocusState private var focusedId: UUID?
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach($lines) { $line in
+                    HStack(spacing: 8) {
+                        Button {
+                            line.done.toggle()
+                        } label: {
+                            Image(systemName: line.done ? "checkmark.square.fill" : "square")
+                                .font(.system(size: 14))
+                                .foregroundStyle(line.done ? .green : theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+
+                        TextField("Aufgabe…", text: $line.text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(line.done ? theme.tertiaryText : theme.primaryText)
+                            .strikethrough(line.done)
+                            .textFieldStyle(.plain)
+                            .focused($focusedId, equals: line.id)
+                            .onSubmit { addLineAfter(line) }
+                    }
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .onAppear {
+            if let first = lines.first { focusedId = first.id }
+        }
+    }
+
+    private func addLineAfter(_ line: TaskLine) {
+        let newLine = TaskLine()
+        if let idx = lines.firstIndex(where: { $0.id == line.id }) {
+            lines.insert(newLine, at: idx + 1)
+        } else {
+            lines.append(newLine)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focusedId = newLine.id
+        }
     }
 }

@@ -69,6 +69,12 @@ enum NoteType: String, Codable, CaseIterable {
     case idea = "Idee"
 }
 
+struct TaskLine: Identifiable, Codable {
+    var id: UUID = UUID()
+    var text: String = ""
+    var done: Bool = false
+}
+
 struct NoteItem: Identifiable, Codable {
     var id: UUID = UUID()
     var type: NoteType = .note
@@ -77,6 +83,7 @@ struct NoteItem: Identifiable, Codable {
     var done: Bool = false
     var createdAt: Date = Date()
     var tags: [String] = []
+    var taskLines: [TaskLine] = []
 }
 
 // MARK: - Chat Messages
