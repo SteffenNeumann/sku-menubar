@@ -16,6 +16,7 @@ struct NotesView: View {
     @State private var searchText: String = ""
     @State private var filterType: NoteType? = nil
     @State private var showingDone: Bool = false
+    @State private var filterTag: String? = nil
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -23,16 +24,32 @@ struct NotesView: View {
 
     private var filtered: [NoteItem] {
         state.notes.filter { note in
-            let matchesType  = lockedType != nil ? note.type == lockedType : (filterType == nil || note.type == filterType)
-            let matchesDone  = showingDone ? note.done : true
-            let matchesHide  = !showingDone ? (note.type != .task || !note.done) : true
+            let matchesType   = lockedType != nil ? note.type == lockedType : (filterType == nil || note.type == filterType)
+            let matchesDone   = showingDone ? note.done : true
+            let matchesHide   = !showingDone ? (note.type != .task || !note.done) : true
             let matchesSearch = searchText.isEmpty ||
                 note.title.localizedCaseInsensitiveContains(searchText) ||
                 note.body.localizedCaseInsensitiveContains(searchText) ||
                 note.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-            return matchesType && matchesDone && matchesHide && matchesSearch
+            let matchesTag    = filterTag == nil || note.tags.contains { $0 == filterTag }
+            return matchesType && matchesDone && matchesHide && matchesSearch && matchesTag
         }
         .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Alle eindeutigen Tags aus der ungefilterten (ohne Tag-Filter) Liste
+    private var allTagsInList: [String] {
+        let base = state.notes.filter { note in
+            let matchesType   = lockedType != nil ? note.type == lockedType : (filterType == nil || note.type == filterType)
+            let matchesHide   = !showingDone ? (note.type != .task || !note.done) : true
+            let matchesSearch = searchText.isEmpty ||
+                note.title.localizedCaseInsensitiveContains(searchText) ||
+                note.body.localizedCaseInsensitiveContains(searchText) ||
+                note.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
+            return matchesType && matchesHide && matchesSearch
+        }
+        var seen = Set<String>()
+        return base.flatMap { $0.tags }.filter { seen.insert($0).inserted }.sorted()
     }
 
     var body: some View {
@@ -131,16 +148,16 @@ struct NotesView: View {
             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
 
-            // Type chips (nur wenn kein lockedType gesetzt)
-            if lockedType == nil {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 5) {
+            // Chips: Type (nur mixed) + Erledigte-Toggle (immer außer .note)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    if lockedType == nil {
                         typeChip(label: "Alle", icon: "tray.2", type: nil)
                         typeChip(label: "Notiz", icon: "note.text", type: .note)
                         typeChip(label: "Aufgabe", icon: "checkmark.square", type: .task)
-
                         Divider().frame(height: 14)
-
+                    }
+                    if lockedType != .note {
                         Button {
                             withAnimation(.easeInOut(duration: 0.12)) { showingDone.toggle() }
                         } label: {
@@ -156,6 +173,43 @@ struct NotesView: View {
                             .overlay(Capsule().strokeBorder(showingDone ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            // Tag-Filter (nur wenn Tags vorhanden)
+            if !allTagsInList.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "tag")
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.tertiaryText)
+                        if filterTag != nil {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.12)) { filterTag = nil }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(allTagsInList, id: \.self) { tag in
+                            let active = filterTag == tag
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.12)) {
+                                    filterTag = active ? nil : tag
+                                }
+                            } label: {
+                                Text(tag)
+                                    .font(.system(size: 10, weight: active ? .semibold : .regular))
+                                    .foregroundStyle(active ? accentColor : theme.secondaryText)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(active ? accentColor.opacity(0.10) : Color.clear, in: Capsule())
+                                    .overlay(Capsule().strokeBorder(active ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -223,16 +277,34 @@ struct NotesView: View {
             withAnimation(.easeInOut(duration: 0.12)) { selectedId = note.id }
         } label: {
             HStack(alignment: .top, spacing: 8) {
-                // type indicator
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(noteTypeColor(note.type).opacity(0.15))
-                        .frame(width: 22, height: 22)
-                    Image(systemName: noteTypeIcon(note))
-                        .font(.system(size: 10))
-                        .foregroundStyle(noteTypeColor(note.type))
+                // type indicator — für Tasks direkt klickbar zum Erledigen
+                if note.type == .task {
+                    Button {
+                        toggleDone(note)
+                    } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(noteTypeColor(note.type).opacity(note.done ? 0.25 : 0.12))
+                                .frame(width: 22, height: 22)
+                            Image(systemName: noteTypeIcon(note))
+                                .font(.system(size: 10))
+                                .foregroundStyle(noteTypeColor(note.type))
+                        }
+                        .padding(.top, 1)
+                    }
+                    .buttonStyle(.plain)
+                    .help(note.done ? "Als offen markieren" : "Als erledigt markieren")
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(noteTypeColor(note.type).opacity(0.15))
+                            .frame(width: 22, height: 22)
+                        Image(systemName: noteTypeIcon(note))
+                            .font(.system(size: 10))
+                            .foregroundStyle(noteTypeColor(note.type))
+                    }
+                    .padding(.top, 1)
                 }
-                .padding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayTitle(note))
@@ -240,8 +312,29 @@ struct NotesView: View {
                         .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
                         .strikethrough(note.done && note.type == .task)
                         .lineLimit(1)
-                    if !note.body.isEmpty {
-                        // Vorschau: erste nicht-leere Zeile nach der Titelzeile
+                    // Fortschritt bei Tasks mit Sub-Items
+                    if note.type == .task && !note.taskLines.isEmpty {
+                        let doneCount = note.taskLines.filter(\.done).count
+                        let total = note.taskLines.count
+                        HStack(spacing: 4) {
+                            // Mini-Progress-Bar
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(theme.cardBorder)
+                                        .frame(height: 3)
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(doneCount == total ? Color.green : accentColor)
+                                        .frame(width: geo.size.width * (total > 0 ? CGFloat(doneCount) / CGFloat(total) : 0), height: 3)
+                                }
+                            }
+                            .frame(height: 3)
+                            Text("\(doneCount)/\(total)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(doneCount == total ? .green : theme.tertiaryText)
+                                .monospacedDigit()
+                        }
+                    } else if note.type == .note, !note.body.isEmpty {
                         let previewLine = note.body
                             .components(separatedBy: .newlines)
                             .dropFirst()
@@ -251,6 +344,20 @@ struct NotesView: View {
                                 .font(.system(size: 10))
                                 .foregroundStyle(theme.tertiaryText)
                                 .lineLimit(1)
+                        }
+                    }
+                    // Tags
+                    if !note.tags.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 3) {
+                                ForEach(note.tags, id: \.self) { tag in
+                                    Text(tag)
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(filterTag == tag ? accentColor : theme.tertiaryText)
+                                        .padding(.horizontal, 4).padding(.vertical, 1)
+                                        .background((filterTag == tag ? accentColor : theme.cardBorder).opacity(0.25), in: Capsule())
+                                }
+                            }
                         }
                     }
                     Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
