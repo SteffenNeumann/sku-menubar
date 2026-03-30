@@ -542,7 +542,7 @@ struct TaskLinesEditorView: View {
                 ForEach($lines) { $line in
                     HStack(spacing: 8) {
                         Button {
-                            line.done.toggle()
+                            $line.wrappedValue.done.toggle()
                         } label: {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 5)
