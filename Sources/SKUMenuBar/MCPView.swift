@@ -394,6 +394,7 @@ struct AddMCPServerSheet: View {
 
     @State private var mode: AddMCPMode = .catalog
     @State private var selectedCategory: String = "Alle"
+    @State private var catalogSearch: String = ""
 
     // Manual form fields
     @State private var name = ""
@@ -418,9 +419,14 @@ struct AddMCPServerSheet: View {
     }
 
     private var filteredEntries: [MCPCatalogEntry] {
-        selectedCategory == "Alle"
-            ? MCPCatalogEntry.all
-            : MCPCatalogEntry.all.filter { $0.category == selectedCategory }
+        MCPCatalogEntry.all.filter { entry in
+            let matchesCat = selectedCategory == "Alle" || entry.category == selectedCategory
+            let matchesSearch = catalogSearch.isEmpty ||
+                entry.name.localizedCaseInsensitiveContains(catalogSearch) ||
+                entry.description.localizedCaseInsensitiveContains(catalogSearch) ||
+                entry.category.localizedCaseInsensitiveContains(catalogSearch)
+            return matchesCat && matchesSearch
+        }
     }
 
     var body: some View {
@@ -494,6 +500,32 @@ struct AddMCPServerSheet: View {
 
     private var catalogView: some View {
         VStack(spacing: 0) {
+            // Search bar
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+                TextField("Server suchen…", text: $catalogSearch)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.primaryText)
+                    .textFieldStyle(.plain)
+                if !catalogSearch.isEmpty {
+                    Button { catalogSearch = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
             // Category filter bar
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -510,8 +542,21 @@ struct AddMCPServerSheet: View {
 
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(filteredEntries) { entry in
-                        catalogCard(entry)
+                    if filteredEntries.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 24))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Keine Server gefunden")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 30)
+                    } else {
+                        ForEach(filteredEntries) { entry in
+                            catalogCard(entry)
+                        }
                     }
                 }
                 .padding(14)

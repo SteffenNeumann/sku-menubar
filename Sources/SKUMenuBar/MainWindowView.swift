@@ -41,6 +41,7 @@ struct MainWindowView: View {
         case .agents:     AgentsView()
         case .mcp:        MCPView()
         case .codeReview: CodeReviewView()
+        case .notes:      NotesView()
         case .settings:   SettingsFormView().padding(20)
         }
     }

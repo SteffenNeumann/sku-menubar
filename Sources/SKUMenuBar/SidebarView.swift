@@ -35,6 +35,10 @@ struct SidebarView: View {
                         sectionDivider
 
                         sectionGroup(title: "Claude CLI", items: [.chat, .history, .agents, .mcp, .codeReview])
+
+                        sectionDivider
+
+                        sectionGroup(title: "Workspace", items: [.notes])
                     }
                     .padding(.vertical, 8)
                     .padding(.horizontal, 10)
@@ -156,6 +160,10 @@ struct SidebarView: View {
                 }
                 if section == .history, !state.historyService.projects.isEmpty {
                     badge("\(state.historyService.projects.count)")
+                }
+                if section == .notes {
+                    let openTasks = state.notes.filter { $0.type == .task && !$0.done }.count
+                    if openTasks > 0 { badge("\(openTasks)") }
                 }
                 if section == .chat, !state.activeSessions.isEmpty {
                     liveDot

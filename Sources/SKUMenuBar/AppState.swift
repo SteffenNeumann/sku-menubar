@@ -79,12 +79,17 @@ final class AppState: ObservableObject {
         didSet { persistSnippets() }
     }
 
+    @Published var notes: [NoteItem] = [] {
+        didSet { persistNotes() }
+    }
+
     // MARK: - Private
     private let service = GitHubService()
     // Use named suite so settings persist across binary vs .app bundle changes
     private let ud      = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let key     = "gh_sku_settings_v2"
     private let snippetsKey = "cli_snippets_v1"
+    private let notesKey    = "notes_v1"
     private var timer:      Timer?
     private var usageTimer: Timer?
 
@@ -100,6 +105,7 @@ final class AppState: ObservableObject {
             Task { await refreshClaude() }
         }
         activeSessions = cliService.loadActiveSessions()
+        loadNotes()
         Task {
             async let agents: () = agentService.loadAgents()
             async let projects: () = historyService.loadProjects()
@@ -133,6 +139,19 @@ final class AppState: ObservableObject {
     private func persistSnippets() {
         if let d = try? JSONEncoder().encode(snippets) {
             ud.set(d, forKey: snippetsKey)
+        }
+    }
+
+    private func loadNotes() {
+        guard let d = ud.data(forKey: notesKey),
+              let n = try? JSONDecoder().decode([NoteItem].self, from: d)
+        else { return }
+        notes = n
+    }
+
+    private func persistNotes() {
+        if let d = try? JSONEncoder().encode(notes) {
+            ud.set(d, forKey: notesKey)
         }
     }
 

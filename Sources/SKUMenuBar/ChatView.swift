@@ -236,10 +236,10 @@ struct SingleChatSessionView: View {
             }
         }
         .onChange(of: messages) { tab.messages = messages }
-        .onChange(of: inputText) { tab.inputText = inputText }
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
+        .onDisappear { tab.inputText = inputText }
     }
 
     private func resumeSession(_ sessionId: String) {

@@ -10,6 +10,7 @@ enum AppSection: String, CaseIterable, Hashable {
     case agents      = "Agents"
     case mcp         = "MCP Server"
     case codeReview  = "Code Review"
+    case notes       = "Notizen"
     case settings    = "Einstellungen"
 
     var icon: String {
@@ -20,6 +21,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .agents:     return "cpu.fill"
         case .mcp:        return "network"
         case .codeReview: return "checklist"
+        case .notes:      return "note.text"
         case .settings:   return "gearshape.fill"
         }
     }
@@ -32,6 +34,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .agents:     return .purple
         case .mcp:        return .cyan
         case .codeReview: return .mint
+        case .notes:      return .yellow
         case .settings:   return .gray
         }
     }
@@ -56,6 +59,24 @@ struct AttachedFile: Identifiable {
                         "gitignore", "dockerfile", "makefile", "log"]
         return textExts.contains(ext) || url.pathExtension.isEmpty
     }
+}
+
+// MARK: - Notes & Tasks
+
+enum NoteType: String, Codable, CaseIterable {
+    case note = "Notiz"
+    case task = "Aufgabe"
+    case idea = "Idee"
+}
+
+struct NoteItem: Identifiable, Codable {
+    var id: UUID = UUID()
+    var type: NoteType = .note
+    var title: String = ""
+    var body: String = ""
+    var done: Bool = false
+    var createdAt: Date = Date()
+    var tags: [String] = []
 }
 
 // MARK: - Chat Messages
