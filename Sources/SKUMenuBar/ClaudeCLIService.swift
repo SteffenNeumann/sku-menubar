@@ -18,12 +18,16 @@ final class ClaudeCLIService: ObservableObject {
         sessionId: String? = nil,
         agentName: String? = nil,
         model: String? = nil,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        skipPermissions: Bool = false
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
                 var args: [String] = ["--print", "--output-format", "stream-json", "--verbose"]
+                if skipPermissions {
+                    args.append("--dangerously-skip-permissions")
+                }
 
                 if let sid = sessionId, !sid.isEmpty {
                     args += ["--resume", sid]
@@ -211,6 +215,31 @@ final class ClaudeCLIService: ObservableObject {
             ))
         }
         return servers
+    }
+
+    // MARK: - Add / Remove MCP servers
+
+    /// Add an MCP server. Returns (success, output).
+    func addMCPServer(
+        name: String,
+        transport: String,      // "stdio", "http", "sse"
+        commandOrUrl: String,
+        args: [String] = [],
+        headers: [String] = [], // e.g. ["Authorization: Bearer xxx"]
+        envVars: [String] = []  // e.g. ["API_KEY=xxx"]
+    ) async -> (Bool, String) {
+        var cliArgs = ["mcp", "add", "--transport", transport]
+        for h in headers { cliArgs += ["--header", h] }
+        for e in envVars { cliArgs += ["-e", e] }
+        cliArgs += [name, commandOrUrl]
+        cliArgs += args
+        let output = (try? await runCommand(cliArgs)) ?? "Fehler"
+        return (!output.lowercased().contains("error"), output)
+    }
+
+    func removeMCPServer(name: String) async -> (Bool, String) {
+        let output = (try? await runCommand(["mcp", "remove", name])) ?? "Fehler"
+        return (!output.lowercased().contains("error"), output)
     }
 
     // MARK: - Active sessions

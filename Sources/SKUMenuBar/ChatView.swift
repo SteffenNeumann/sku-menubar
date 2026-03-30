@@ -153,15 +153,18 @@ struct SingleChatSessionView: View {
     @State private var showAgentPicker    = false
     @State private var showOrchPicker     = false
     @State private var showSnippetPicker  = false
+    @State private var showPermPicker     = false
     @State private var showSnippetSheet   = false
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
+    @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
 
     private func closeAllPickers() {
         showModelPicker   = false
         showAgentPicker   = false
         showOrchPicker    = false
         showSnippetPicker = false
+        showPermPicker    = false
     }
     @FocusState private var inputFocused: Bool
 
@@ -455,13 +458,9 @@ struct SingleChatSessionView: View {
             // ─── Subtle control strip ───
             controlStrip
         }
-        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isDragOver ? accentColor.opacity(0.6) : theme.cardBorder,
-                              lineWidth: isDragOver ? 1.5 : 0.5)
-        )
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
+        .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
+        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
     }
 
     // Generic upward-opening themed picker button (custom overlay, no system popover)
@@ -529,6 +528,25 @@ struct SingleChatSessionView: View {
 
             // Working directory
             stripDirButton
+
+            stripSep
+
+            // Permission mode
+            pickerButton(
+                icon: autoApprove ? "shield.slash.fill" : "shield.fill",
+                label: autoApprove ? "Auto" : "Standard",
+                active: autoApprove,
+                isPresented: $showPermPicker
+            ) {
+                pickerRow(label: "🛡  Standard", selected: !autoApprove) {
+                    autoApprove = false
+                    showPermPicker = false
+                }
+                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove) {
+                    autoApprove = true
+                    showPermPicker = false
+                }
+            }
 
             stripSep
 
@@ -899,7 +917,8 @@ struct SingleChatSessionView: View {
                 sessionId: currentSessionId,
                 agentName: selectedAgent.isEmpty ? nil : selectedAgent,
                 model: selectedModel,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                skipPermissions: autoApprove
             )
 
             do {
@@ -1064,7 +1083,11 @@ struct MessageBubbleView: View {
             }
 
             if !message.toolCalls.isEmpty {
-                ForEach(message.toolCalls) { tool in toolCallView(tool) }
+                if message.isStreaming {
+                    ResearchAnimationView(recentTool: message.toolCalls.last?.name ?? "")
+                } else {
+                    toolsSummaryView(message.toolCalls)
+                }
             }
 
             if !message.content.isEmpty {
@@ -1095,6 +1118,32 @@ struct MessageBubbleView: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func toolsSummaryView(_ tools: [ToolCall]) -> some View {
+        // Count unique tool names, preserve order of first appearance
+        var seen = Set<String>()
+        var counts: [(name: String, count: Int)] = []
+        for t in tools {
+            if seen.contains(t.name) {
+                if let idx = counts.firstIndex(where: { $0.name == t.name }) {
+                    counts[idx].count += 1
+                }
+            } else {
+                seen.insert(t.name)
+                counts.append((name: t.name, count: 1))
+            }
+        }
+        let label = counts.map { $0.count > 1 ? "\($0.name) ×\($0.count)" : $0.name }.joined(separator: "  ·  ")
+        return HStack(spacing: 6) {
+            Image(systemName: "wrench.and.screwdriver.fill")
+                .font(.system(size: 9)).foregroundStyle(.orange.opacity(0.55))
+            Text(label)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.orange.opacity(0.5))
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var streamingDots: some View {
@@ -1288,6 +1337,53 @@ struct MessageBubbleView: View {
 
     // Helper to suppress compile warning about unused parameter
     private func files(from file: DiffFile) -> [DiffFile] { [] }
+}
+
+// MARK: - Research Animation (shown while Claude uses tools during streaming)
+
+private struct ResearchAnimationView: View {
+    let recentTool: String
+    @State private var rotation: Double = 0
+    @State private var pulse: CGFloat = 1.0
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(Color.orange.opacity(i == 0 ? 0.85 : i == 1 ? 0.5 : 0.25))
+                        .frame(width: i == 0 ? 4 : 3, height: i == 0 ? 4 : 3)
+                        .offset(y: -9)
+                        .rotationEffect(.degrees(rotation + Double(i) * 120))
+                }
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.orange)
+                    .scaleEffect(pulse)
+            }
+            .frame(width: 22, height: 22)
+            .onAppear {
+                withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    pulse = 1.25
+                }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Searching…")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.orange)
+                if !recentTool.isEmpty {
+                    Text(recentTool)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Color.orange.opacity(0.6))
+                }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
 }
 
 // MARK: - Picker Row Views (hover-capable)

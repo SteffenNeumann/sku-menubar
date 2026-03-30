@@ -44,9 +44,13 @@ struct AppTheme: Identifiable, Equatable, Codable {
 
     // Sidebar surface (Mirror: rgba(2,6,23,0.75) dark / rgba(248,241,233,0.95) light)
     var sidebarBg: Color {
-        isLight
-            ? Color(r: 248, g: 241, b: 233, a: 0.82)
-            : Color(r:   2, g:   6, b:  23, a: 0.75)
+        if isLight {
+            return Color(r: 248, g: 241, b: 233, a: 0.82)
+        } else if glowEnabled {
+            return Color(r: 2, g: 6, b: 23, a: 0.75)
+        } else {
+            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 0.90)
+        }
     }
 
     // Primary text
@@ -54,9 +58,15 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var secondaryText: Color { isLight ? Color(white: 0.35) : Color(white: 0.60) }
     var tertiaryText:  Color { isLight ? Color(white: 0.55) : Color(white: 0.40) }
 
-    // Base window background
+    // Base window background — glow themes use deep-space blue, others use their own bgTop
     var windowBg: Color {
-        isLight ? Color(r: 246, g: 248, b: 250, a: 1) : Color(r: 2, g: 6, b: 23, a: 1)
+        if isLight {
+            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1)
+        } else if glowEnabled {
+            return Color(r: 2, g: 6, b: 23, a: 1)
+        } else {
+            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1)
+        }
     }
 }
 
