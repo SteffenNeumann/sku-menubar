@@ -539,22 +539,22 @@ struct TaskLinesEditorView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach($lines) { $line in
+                ForEach(lines.indices, id: \.self) { idx in
                     HStack(spacing: 8) {
                         Button {
-                            $line.wrappedValue.done.toggle()
+                            lines[idx].done.toggle()
                         } label: {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 5)
-                                    .fill(line.done ? accent : Color.clear)
+                                    .fill(lines[idx].done ? accent : Color.clear)
                                     .frame(width: 18, height: 18)
                                 RoundedRectangle(cornerRadius: 5)
                                     .strokeBorder(
-                                        line.done ? accent : theme.tertiaryText.opacity(0.5),
+                                        lines[idx].done ? accent : theme.tertiaryText.opacity(0.5),
                                         lineWidth: 1.5
                                     )
                                     .frame(width: 18, height: 18)
-                                if line.done {
+                                if lines[idx].done {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundStyle(.white)
@@ -563,13 +563,13 @@ struct TaskLinesEditorView: View {
                         }
                         .buttonStyle(.plain)
 
-                        TextField("Aufgabe…", text: $line.text)
+                        TextField("Aufgabe…", text: $lines[idx].text)
                             .font(.system(size: 13))
-                            .foregroundStyle(line.done ? theme.tertiaryText : theme.primaryText)
-                            .strikethrough(line.done)
+                            .foregroundStyle(lines[idx].done ? theme.tertiaryText : theme.primaryText)
+                            .strikethrough(lines[idx].done)
                             .textFieldStyle(.plain)
-                            .focused($focusedId, equals: line.id)
-                            .onSubmit { addLineAfter(line) }
+                            .focused($focusedId, equals: lines[idx].id)
+                            .onSubmit { addLineAfter(lines[idx]) }
                     }
                     .padding(.vertical, 5)
                     .padding(.horizontal, 16)
