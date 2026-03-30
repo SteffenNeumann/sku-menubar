@@ -642,7 +642,9 @@ struct TaskLinesEditorView: View {
                 ForEach(lines.indices, id: \.self) { idx in
                     HStack(spacing: 8) {
                         Button {
-                            lines[idx].done.toggle()
+                            var updated = lines
+                            updated[idx].done.toggle()
+                            lines = updated
                         } label: {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 5)
