@@ -198,7 +198,7 @@ struct SingleChatSessionView: View {
                 dropOverlay
             }
         }
-        .onDrop(of: [UTType.fileURL], isTargeted: $isDragOver) { providers in
+        .onDrop(of: [UTType.fileURL, UTType.image, UTType.png, UTType.jpeg], isTargeted: $isDragOver) { providers in
             handleDrop(providers: providers)
         }
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
@@ -289,6 +289,30 @@ struct SingleChatSessionView: View {
                         if !attachedFiles.contains(where: { $0.url == url }) {
                             attachedFiles.append(AttachedFile(url: url))
                         }
+                    }
+                }
+                handled = true
+            } else {
+                // Handle raw image data (e.g. from Safari, Photos, screenshots)
+                let imageType: String
+                if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+                    imageType = UTType.png.identifier
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.jpeg.identifier) {
+                    imageType = UTType.jpeg.identifier
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                    imageType = UTType.image.identifier
+                } else {
+                    continue
+                }
+                provider.loadDataRepresentation(forTypeIdentifier: imageType) { data, _ in
+                    guard let data else { return }
+                    let ext = imageType == UTType.jpeg.identifier ? "jpg" : "png"
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)
+                        .appendingPathExtension(ext)
+                    try? data.write(to: tempURL)
+                    DispatchQueue.main.async {
+                        attachedFiles.append(AttachedFile(url: tempURL))
                     }
                 }
                 handled = true
@@ -903,6 +927,17 @@ struct SingleChatSessionView: View {
             let prefix = "[\(sentFiles.count == 1 ? "Datei" : "\(sentFiles.count) Dateien"): \(names)]"
             displayText = text.isEmpty ? prefix : "\(prefix)\n\(text)"
         }
+
+        // Auto-rename tab on first message
+        if messages.isEmpty {
+            let titleSource = text.isEmpty ? displayText : text
+            let words = titleSource.split(separator: " ").prefix(5).joined(separator: " ")
+            let trimmed = String(words.prefix(40))
+            if !trimmed.isEmpty {
+                tab.title = trimmed
+            }
+        }
+
         messages.append(ChatMessage(role: .user, content: displayText))
 
         let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
