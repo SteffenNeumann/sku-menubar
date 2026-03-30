@@ -215,9 +215,33 @@ struct SidebarView: View {
         let todayCost  = state.localTodayCost
         let weekPct    = weekLimit > 0 ? min(1, weekCost / weekLimit) : 0
         let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : accentColor
+        let fallbackActive = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
 
         return VStack(alignment: .leading, spacing: 8) {
-            // Today
+            // Copilot Fallback Banner
+            if fallbackActive {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Copilot Fallback aktiv")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Button {
+                        state.claudeRateLimitActive = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Fallback zurücksetzen")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 7))
+            }
             HStack {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 9))

@@ -180,6 +180,36 @@ struct SettingsFormView: View {
                                 }
                             }
                         } // end GridRow 2
+
+                        // Row 3: Copilot Fallback — full grid width
+                        GridRow(alignment: .top) {
+                            configSection(title: "Copilot Fallback", icon: "arrow.triangle.2.circlepath",
+                                          hint: "Bei Claude Rate-Limit automatisch auf GitHub Copilot umschalten") {
+                                configCard {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        HStack(spacing: 10) {
+                                            Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
+                                                .toggleStyle(.switch)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(theme.primaryText)
+                                            Spacer()
+                                        }
+                                        if draft.copilotFallbackEnabled {
+                                            VStack(alignment: .leading, spacing: 6) {
+                                                fieldLabel("Fallback-Modell (Claude CLI Model-Name)")
+                                                TextField("github/claude-sonnet-4-5", text: $draft.copilotFallbackModel)
+                                                    .textFieldStyle(.plain)
+                                                    .styledInput(theme: theme)
+                                            }
+                                            Text("Wird automatisch aktiviert wenn Claude einen Rate-Limit-Fehler zurückgibt. Indikator erscheint in der Seitenleiste.")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
+                                    }
+                                }
+                            }
+                            .gridCellColumns(2)
+                        } // end GridRow 3
                     } // end Grid
 
                     // ── Appearance — full width ────────────────────────────

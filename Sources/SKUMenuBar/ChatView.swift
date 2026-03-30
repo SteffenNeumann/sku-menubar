@@ -974,76 +974,125 @@ struct SingleChatSessionView: View {
         isStreaming = true
 
         Task { @MainActor in
-            let stream = state.cliService.send(
+            await performSend(
                 message: fullMessage,
-                sessionId: currentSessionId,
-                agentName: selectedAgent.isEmpty ? nil : selectedAgent,
-                model: selectedModel,
-                workingDirectory: workingDirectory,
-                skipPermissions: autoApprove
+                assistantIndex: assistantIndex,
+                model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+                    ? state.settings.copilotFallbackModel
+                    : selectedModel,
+                isFallback: false
             )
+        }
+    }
 
-            do {
-                for try await event in stream {
-                    if let sid = event.sessionId, currentSessionId == nil {
-                        currentSessionId = sid
-                    }
+    /// Executes the actual CLI send, handles rate-limit auto-switch on first attempt.
+    private func performSend(
+        message: String,
+        assistantIndex: Int,
+        model: String,
+        isFallback: Bool
+    ) async {
+        let stream = state.cliService.send(
+            message: message,
+            sessionId: currentSessionId,
+            agentName: selectedAgent.isEmpty ? nil : selectedAgent,
+            model: model,
+            workingDirectory: workingDirectory,
+            skipPermissions: autoApprove
+        )
 
-                    switch event.type {
-                    case "assistant":
-                        if let content = event.message?.content {
-                            for block in content {
-                                switch block.type {
-                                case "text":
-                                    if let t = block.text, !t.isEmpty {
-                                        messages[assistantIndex].content += t
-                                    }
-                                case "tool_use":
-                                    let name = block.name ?? "tool"
-                                    let tool = ToolCall(name: name, input: "")
-                                    messages[assistantIndex].toolCalls.append(tool)
-                                default: break
+        do {
+            for try await event in stream {
+                if let sid = event.sessionId, currentSessionId == nil {
+                    currentSessionId = sid
+                }
+
+                switch event.type {
+                case "assistant":
+                    if let content = event.message?.content {
+                        for block in content {
+                            switch block.type {
+                            case "text":
+                                if let t = block.text, !t.isEmpty {
+                                    messages[assistantIndex].content += t
                                 }
+                            case "tool_use":
+                                let name = block.name ?? "tool"
+                                let tool = ToolCall(name: name, input: "")
+                                messages[assistantIndex].toolCalls.append(tool)
+                            default: break
                             }
                         }
-                        if let m = event.message?.model {
-                            messages[assistantIndex].model = m
-                        }
-                        if let usage = event.message?.usage {
-                            messages[assistantIndex].inputTokens = usage.inputTokens ?? 0
-                            messages[assistantIndex].outputTokens = usage.outputTokens ?? 0
-                        }
-
-                    case "result":
-                        messages[assistantIndex].costUsd = event.costUsd
-                        if let sid = event.sessionId {
-                            currentSessionId = sid
-                        }
-
-                    default: break
                     }
+                    if let m = event.message?.model {
+                        messages[assistantIndex].model = m
+                    }
+                    if let usage = event.message?.usage {
+                        messages[assistantIndex].inputTokens = usage.inputTokens ?? 0
+                        messages[assistantIndex].outputTokens = usage.outputTokens ?? 0
+                    }
+
+                case "result":
+                    messages[assistantIndex].costUsd = event.costUsd
+                    if let sid = event.sessionId {
+                        currentSessionId = sid
+                    }
+                    // Successful response — clear rate-limit flag
+                    if state.claudeRateLimitActive { state.claudeRateLimitActive = false }
+
+                default: break
                 }
-            } catch {
-                errorMessage = error.localizedDescription
-                if messages.indices.contains(assistantIndex),
-                   messages[assistantIndex].content.isEmpty,
-                   messages[assistantIndex].toolCalls.isEmpty {
-                    messages.remove(at: assistantIndex)
-                } else if messages.indices.contains(assistantIndex) {
-                    messages[assistantIndex].isStreaming = false
+            }
+        } catch {
+            let errText = error.localizedDescription.lowercased()
+            let isRateLimit = errText.contains("rate limit") ||
+                              errText.contains("ratelimit") ||
+                              errText.contains("usage limit") ||
+                              errText.contains("overloaded") ||
+                              errText.contains("quota") ||
+                              errText.contains("529")
+
+            // Auto-switch to Copilot fallback on first rate-limit hit
+            if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
+                state.claudeRateLimitActive = true
+                let fallbackModel = state.settings.copilotFallbackModel
+                if messages.indices.contains(assistantIndex) {
+                    messages[assistantIndex].content = ""
+                    messages[assistantIndex].toolCalls = []
+                    messages[assistantIndex].isStreaming = true
                 }
-                isStreaming = false
+                await performSend(
+                    message: message,
+                    assistantIndex: assistantIndex,
+                    model: fallbackModel,
+                    isFallback: true
+                )
                 return
             }
 
-            messages[assistantIndex].isStreaming = false
+            errorMessage = error.localizedDescription
+            if messages.indices.contains(assistantIndex),
+               messages[assistantIndex].content.isEmpty,
+               messages[assistantIndex].toolCalls.isEmpty {
+                messages.remove(at: assistantIndex)
+            } else if messages.indices.contains(assistantIndex) {
+                messages[assistantIndex].isStreaming = false
+            }
             isStreaming = false
+            return
+        }
 
-            // If tool calls were made, fetch git diff to show changed files
-            if !messages[assistantIndex].toolCalls.isEmpty, let cwd = workingDirectory {
-                if let diff = await fetchGitDiff(in: cwd), !diff.isEmpty {
-                    messages[assistantIndex].gitDiff = diff
-                }
+        if messages.indices.contains(assistantIndex) {
+            messages[assistantIndex].isStreaming = false
+        }
+        isStreaming = false
+
+        // If tool calls were made, fetch git diff to show changed files
+        if messages.indices.contains(assistantIndex),
+           !messages[assistantIndex].toolCalls.isEmpty,
+           let cwd = workingDirectory {
+            if let diff = await fetchGitDiff(in: cwd), !diff.isEmpty {
+                messages[assistantIndex].gitDiff = diff
             }
         }
     }

@@ -40,6 +40,9 @@ final class AppState: ObservableObject {
     @Published var claudeError:      String?
     @Published var claudeLastUpdate: Date?
 
+    // Copilot Fallback state
+    @Published var claudeRateLimitActive: Bool = false
+
     // Set this to open a specific session in Chat tab
     @Published var pendingChatSession: String? = nil
     @Published var pendingChatSessionTitle: String? = nil
