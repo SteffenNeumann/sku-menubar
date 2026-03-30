@@ -235,7 +235,15 @@ struct SingleChatSessionView: View {
                 selectedAgent = tab.agentId
             }
         }
-        .onChange(of: messages) { tab.messages = messages }
+        // Sync messages back to tab only when NOT streaming to avoid
+        // parent re-renders on every streaming token (input lag fix)
+        .onChange(of: messages) {
+            if !isStreaming { tab.messages = messages }
+        }
+        .onChange(of: isStreaming) {
+            // Flush final messages when streaming ends
+            if !isStreaming { tab.messages = messages }
+        }
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
@@ -410,7 +418,16 @@ struct SingleChatSessionView: View {
             }
             .onAppear { scrollProxy = proxy }
             .onChange(of: messages.count) { scrollToBottom(proxy) }
-            .onChange(of: messages.last?.content) { scrollToBottom(proxy) }
+            // Only scroll on content change when NOT streaming to avoid
+            // calling scrollTo on every single streaming token
+            .onChange(of: messages.last?.content) {
+                guard !isStreaming else { return }
+                scrollToBottom(proxy)
+            }
+            // Scroll once when streaming ends
+            .onChange(of: isStreaming) {
+                if !isStreaming { scrollToBottom(proxy) }
+            }
         }
     }
 
@@ -484,13 +501,12 @@ struct SingleChatSessionView: View {
                             attachedFiles = []
                         }
                     } label: {
-                        let hasContent = !messages.isEmpty || !inputText.isEmpty
+                        // Avoid reading messages.isEmpty in inputBar — use isStreaming + inputText instead
                         Image(systemName: "trash")
                             .font(.system(size: 13))
-                            .foregroundStyle(hasContent ? .red.opacity(0.75) : theme.tertiaryText.opacity(0.4))
+                            .foregroundStyle((!inputText.isEmpty || !isStreaming) ? .red.opacity(0.75) : theme.tertiaryText.opacity(0.4))
                     }
                     .buttonStyle(.plain)
-                    .disabled(messages.isEmpty && inputText.isEmpty)
                     .help("Chat leeren")
 
                     Button {
