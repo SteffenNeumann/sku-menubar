@@ -97,6 +97,7 @@ struct ChatMessage: Identifiable, Equatable {
     var toolCalls: [ToolCall] = []
     var isStreaming: Bool = false
     var model: String?
+    var source: ChatProviderSource?
     var costUsd: Double?
     var inputTokens: Int = 0
     var outputTokens: Int = 0
@@ -112,6 +113,25 @@ struct ChatMessage: Identifiable, Equatable {
 
 enum MessageRole: Equatable {
     case user, assistant, system
+}
+
+enum ChatProviderSource: String, Codable {
+    case claude
+    case copilot
+
+    var label: String {
+        switch self {
+        case .claude: return "Claude"
+        case .copilot: return "Copilot"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .claude: return "sparkles"
+        case .copilot: return "arrow.triangle.2.circlepath"
+        }
+    }
 }
 
 struct ToolCall: Identifiable, Equatable {

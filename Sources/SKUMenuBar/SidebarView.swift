@@ -216,6 +216,7 @@ struct SidebarView: View {
         let weekPct    = weekLimit > 0 ? min(1, weekCost / weekLimit) : 0
         let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : accentColor
         let fallbackActive = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+        let lastProvider = state.lastChatProvider
 
         return VStack(alignment: .leading, spacing: 8) {
             // Copilot Fallback Banner
@@ -242,6 +243,19 @@ struct SidebarView: View {
                 .padding(.vertical, 5)
                 .background(.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 7))
             }
+
+            if let lastProvider {
+                HStack(spacing: 5) {
+                    Image(systemName: lastProvider.icon)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(lastProvider == .copilot ? .orange : accentColor)
+                    Text("Letzte Antwort: \(lastProvider.label)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                    Spacer()
+                }
+            }
+
             HStack {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 9))

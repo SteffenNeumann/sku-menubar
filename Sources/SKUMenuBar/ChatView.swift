@@ -185,6 +185,17 @@ struct SingleChatSessionView: View {
             .replacingOccurrences(of: "-20251001", with: "")
     }
 
+    private var currentRouteSource: ChatProviderSource {
+        if state.claudeRateLimitActive && state.settings.copilotFallbackEnabled {
+            return .copilot
+        }
+        return inferredSource(from: selectedModel)
+    }
+
+    private func inferredSource(from model: String) -> ChatProviderSource {
+        model.lowercased().hasPrefix("github/") ? .copilot : .claude
+    }
+
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
@@ -644,6 +655,23 @@ struct SingleChatSessionView: View {
             }
             .disabled(orchestratorMode)
 
+            stripSep
+
+            HStack(spacing: 4) {
+                Image(systemName: currentRouteSource.icon)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(currentRouteSource.label)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(currentRouteSource == .copilot ? .orange : accentColor)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(
+                (currentRouteSource == .copilot ? Color.orange : accentColor).opacity(0.10),
+                in: Capsule()
+            )
+            .help("Aktuelle Routing-Quelle")
+
             // Agent picker (single mode only)
             if !orchestratorMode && !state.agentService.agents.isEmpty {
                 stripSep
@@ -1023,6 +1051,14 @@ struct SingleChatSessionView: View {
         model: String,
         isFallback: Bool
     ) async {
+        let source = inferredSource(from: model)
+        if messages.indices.contains(assistantIndex) {
+            messages[assistantIndex].source = source
+            if messages[assistantIndex].model == nil || messages[assistantIndex].model?.isEmpty == true {
+                messages[assistantIndex].model = model
+            }
+        }
+
         let stream = state.cliService.send(
             message: message,
             sessionId: currentSessionId,
@@ -1068,6 +1104,7 @@ struct SingleChatSessionView: View {
                     if let sid = event.sessionId {
                         currentSessionId = sid
                     }
+                    state.lastChatProvider = source
                     // Successful response — clear rate-limit flag
                     if state.claudeRateLimitActive { state.claudeRateLimitActive = false }
 
@@ -1116,6 +1153,7 @@ struct SingleChatSessionView: View {
         if messages.indices.contains(assistantIndex) {
             messages[assistantIndex].isStreaming = false
         }
+        state.lastChatProvider = source
         isStreaming = false
 
         // If tool calls were made, fetch git diff to show changed files
@@ -1305,6 +1343,30 @@ struct MessageBubbleView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    private var resolvedSource: ChatProviderSource {
+        if let source = message.source {
+            return source
+        }
+        if let model = message.model, model.lowercased().hasPrefix("github/") {
+            return .copilot
+        }
+        return .claude
+    }
+
+    private var sourceColor: Color {
+        resolvedSource == .copilot ? .orange : accentColor
+    }
+
+    private var modelLabel: String {
+        guard let model = message.model, !model.isEmpty else {
+            return resolvedSource.label
+        }
+        return model
+            .replacingOccurrences(of: "claude-", with: "")
+            .replacingOccurrences(of: "github/", with: "")
+            .replacingOccurrences(of: "-20251001", with: "")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if message.role == .user {
@@ -1357,9 +1419,22 @@ struct MessageBubbleView: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(accentColor)
                 }
-                Text(message.model?.replacingOccurrences(of: "claude-", with: "") ?? "Claude")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.secondaryText)
+                HStack(spacing: 5) {
+                    HStack(spacing: 4) {
+                        Image(systemName: resolvedSource.icon)
+                            .font(.system(size: 8, weight: .semibold))
+                        Text(resolvedSource.label)
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(sourceColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(sourceColor.opacity(0.10), in: Capsule())
+
+                    Text(modelLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
                 Spacer()
                 if message.isStreaming {
                     ProgressView().scaleEffect(0.5)
