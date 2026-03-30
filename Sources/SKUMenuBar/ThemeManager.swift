@@ -23,6 +23,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var accent:             Color { Color(r: acR, g: acG, b: acB, a: 0.15) }
     var accentHover:        Color { Color(r: acR, g: acG, b: acB, a: 0.20) }
     var accentStrong:       Color { Color(r: acR, g: acG, b: acB, a: 0.60) }
+    var accentFull:         Color { Color(r: acR, g: acG, b: acB, a: 1.00) }
     var accentBorder:       Color { Color(r: acR, g: acG, b: acB, a: 0.30) }
     var accentBorderStrong: Color { Color(r: acR, g: acG, b: acB, a: 0.40) }
     var accentRing:         Color { Color(r: acR, g: acG, b: acB, a: 0.25) }

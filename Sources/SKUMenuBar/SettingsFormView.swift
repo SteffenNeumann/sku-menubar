@@ -190,6 +190,7 @@ struct SettingsFormView: View {
                                         HStack(spacing: 10) {
                                             Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
                                                 .toggleStyle(.switch)
+                                                .tint(theme.accentFull)
                                                 .font(.system(size: 12))
                                                 .foregroundStyle(theme.primaryText)
                                             Spacer()

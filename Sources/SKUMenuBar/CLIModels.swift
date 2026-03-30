@@ -335,9 +335,6 @@ struct AgentDefinition: Identifiable, Hashable {
     let memory: String?
     let promptBody: String
     let filePath: String
-    // Scheduling
-    let schedule: String?       // "hourly", "daily", "weekly", "@HH:MM" (daily at time)
-    let isActive: Bool          // scheduling enabled
 
     var modelBadgeColor: Color {
         switch model.lowercased() {
@@ -361,9 +358,7 @@ struct AgentDefinition: Identifiable, Hashable {
     }
 }
 
-// MARK: - Agent Draft (editor model)
-
-struct AgentDraft {
+struct AgentDraft: Hashable {
     var id: String = ""
     var name: String = ""
     var description: String = ""
@@ -371,62 +366,18 @@ struct AgentDraft {
     var color: String = ""
     var memory: String = ""
     var promptBody: String = ""
-    var schedule: String = ""
-    var isActive: Bool = false
 
     init() {}
 
     init(agent: AgentDefinition) {
-        id          = agent.id
-        name        = agent.name
+        id = agent.id
+        name = agent.name
         description = agent.description
-        model       = agent.model
-        color       = agent.color  ?? ""
-        memory      = agent.memory ?? ""
-        promptBody  = agent.promptBody
-        schedule    = agent.schedule ?? ""
-        isActive    = agent.isActive
+        model = agent.model
+        color = agent.color ?? ""
+        memory = agent.memory ?? ""
+        promptBody = agent.promptBody
     }
-}
-
-// MARK: - Scheduled Task Log
-
-enum ScheduledTaskStatus: String, Codable {
-    case running, success, failed
-
-    var label: String {
-        switch self {
-        case .running: return "Läuft"
-        case .success: return "Erfolg"
-        case .failed:  return "Fehler"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .running: return .orange
-        case .success: return .green
-        case .failed:  return .red
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .running: return "clock.badge.fill"
-        case .success: return "checkmark.circle.fill"
-        case .failed:  return "xmark.circle.fill"
-        }
-    }
-}
-
-struct ScheduledTaskLogEntry: Identifiable, Codable {
-    var id: UUID = UUID()
-    var agentId: String
-    var startedAt: Date
-    var finishedAt: Date?
-    var status: ScheduledTaskStatus
-    var output: String = ""
-    var error: String = ""
 }
 
 // MARK: - MCP Servers
