@@ -117,30 +117,30 @@ private struct AgentBaseballCard: View {
 
     @State private var hovered = false
 
-    private let cardHeight: CGFloat = 136
-    private let avatarWidth: CGFloat = 108
-
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 0) {
-                // Left: Generated avatar
-                AgentAvatarView(agent: agent, size: cardHeight)
-                    .frame(width: avatarWidth, height: cardHeight)
+            VStack(spacing: 0) {
+                // Top: Generated avatar (full card width, portrait ratio)
+                AgentAvatarView(agent: agent, size: 120)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 120)
+                    .clipped()
 
                 // Thin accent divider
                 Rectangle()
-                    .fill(agent.dotColor.opacity(0.35))
-                    .frame(width: 1, height: cardHeight)
+                    .fill(agent.dotColor.opacity(0.4))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 1)
 
-                // Right: Properties
-                VStack(alignment: .leading, spacing: 0) {
-                    // Name row
-                    HStack(spacing: 6) {
+                // Bottom: Properties
+                VStack(alignment: .leading, spacing: 6) {
+                    // Name + model badge
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Text(agent.name)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(theme.primaryText)
                             .lineLimit(1)
-                        Spacer(minLength: 4)
+                        Spacer(minLength: 2)
                         modelBadge(agent.model)
                     }
 
@@ -150,9 +150,9 @@ private struct AgentBaseballCard: View {
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(3)
                         .multilineTextAlignment(.leading)
-                        .padding(.top, 4)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer(minLength: 6)
+                    Spacer(minLength: 0)
 
                     // Bottom row: ID + action icons
                     HStack(alignment: .center, spacing: 0) {
@@ -162,25 +162,18 @@ private struct AgentBaseballCard: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
 
-                        Spacer(minLength: 6)
+                        Spacer(minLength: 4)
 
-                        HStack(spacing: 5) {
-                            cardIconButton(
-                                icon: "pencil",
-                                color: accentColor,
-                                action: onEdit
-                            )
-                            cardIconButton(
-                                icon: "trash",
-                                color: .red,
-                                action: onDelete
-                            )
+                        HStack(spacing: 4) {
+                            cardIconButton(icon: "pencil", color: accentColor, action: onEdit)
+                            cardIconButton(icon: "trash", color: .red, action: onDelete)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(height: cardHeight)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
@@ -268,9 +261,9 @@ struct AgentsView: View {
                     ScrollView {
                         LazyVGrid(
                             columns: selectedAgent != nil
-                                ? [GridItem(.flexible())]
-                                : [GridItem(.flexible(minimum: 260)), GridItem(.flexible(minimum: 260))],
-                            spacing: 10
+                                ? [GridItem(.flexible(minimum: 180)), GridItem(.flexible(minimum: 180))]
+                                : [GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160))],
+                            spacing: 12
                         ) {
                             ForEach(filteredAgents) { agent in
                                 AgentBaseballCard(
