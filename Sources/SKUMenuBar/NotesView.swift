@@ -409,7 +409,8 @@ struct NotesView: View {
     // MARK: - Helpers
 
     private func addNote(type: NoteType) {
-        let note = NoteItem(type: type, title: "", body: "")
+        var note = NoteItem(type: type, title: "", body: "")
+        if type == .task { note.taskLines = [TaskLine()] }
         state.notes.insert(note, at: 0)
         selectedId = note.id
     }
@@ -457,16 +458,21 @@ struct NoteEditorView: View {
 
             Divider().foregroundStyle(theme.cardBorder)
 
-            // Body / notes
-            TextEditor(text: $note.body)
-                .font(.system(size: 13))
-                .foregroundStyle(theme.primaryText)
-                .scrollContentBackground(.hidden)
-                .background(.clear)
-                .tint(accentColor)
-                .padding(16)
-                .focused($bodyFocused)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Body: Checkliste für Tasks, Freitext für Notizen
+            if note.type == .task {
+                TaskLinesEditorView(lines: $note.taskLines, theme: theme, accent: accentColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                TextEditor(text: $note.body)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.primaryText)
+                    .scrollContentBackground(.hidden)
+                    .background(.clear)
+                    .tint(accentColor)
+                    .padding(16)
+                    .focused($bodyFocused)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             Divider().foregroundStyle(theme.cardBorder)
 
