@@ -147,13 +147,17 @@ struct KnownModel: Identifiable {
 
     static func providerIcon(_ provider: String) -> String {
         switch provider {
-        case "Anthropic": return "brain"
-        case "OpenAI":    return "sparkles"
-        case "Google":    return "g.circle.fill"
-        case "Meta":      return "person.2.fill"
-        case "Mistral":   return "wind"
-        case "xAI":       return "x.circle.fill"
-        default:          return "cpu"
+        case "Anthropic":   return "brain"
+        case "OpenAI":      return "sparkles"
+        case "Google":      return "g.circle.fill"
+        case "Meta":        return "person.2.fill"
+        case "Mistral":     return "wind"
+        case "xAI":         return "x.circle.fill"
+        case "Cohere":      return "waveform"
+        case "DeepSeek":    return "water.waves"
+        case "Amazon":      return "cloud.fill"
+        case "Perplexity":  return "magnifyingglass.circle.fill"
+        default:            return "cpu"
         }
     }
 
@@ -161,32 +165,63 @@ struct KnownModel: Identifiable {
         // Anthropic
         .init(name: "Claude Opus 4",            apiName: "claude-opus-4-5",                provider: "Anthropic", contextK: 200),
         .init(name: "Claude Sonnet 4.5",        apiName: "claude-sonnet-4-5",              provider: "Anthropic", contextK: 200),
+        .init(name: "Claude 3.7 Sonnet",        apiName: "claude-3-7-sonnet-20250219",     provider: "Anthropic", contextK: 200),
         .init(name: "Claude 3.5 Sonnet",        apiName: "claude-3-5-sonnet-20241022",     provider: "Anthropic", contextK: 200),
         .init(name: "Claude 3.5 Haiku",         apiName: "claude-3-5-haiku-20241022",      provider: "Anthropic", contextK: 200),
         .init(name: "Claude 3 Opus",            apiName: "claude-3-opus-20240229",         provider: "Anthropic", contextK: 200),
+        .init(name: "Claude 3 Haiku",           apiName: "claude-3-haiku-20240307",        provider: "Anthropic", contextK: 200),
         // OpenAI
+        .init(name: "GPT-4.1",                  apiName: "gpt-4.1",                        provider: "OpenAI",    contextK: 1000),
+        .init(name: "GPT-4.1 mini",             apiName: "gpt-4.1-mini",                   provider: "OpenAI",    contextK: 1000),
+        .init(name: "GPT-4.1 nano",             apiName: "gpt-4.1-nano",                   provider: "OpenAI",    contextK: 1000),
         .init(name: "GPT-4o",                   apiName: "gpt-4o",                         provider: "OpenAI",    contextK: 128),
         .init(name: "GPT-4o mini",              apiName: "gpt-4o-mini",                    provider: "OpenAI",    contextK: 128),
         .init(name: "GPT-4 Turbo",              apiName: "gpt-4-turbo",                    provider: "OpenAI",    contextK: 128),
         .init(name: "o1",                       apiName: "o1",                             provider: "OpenAI",    contextK: 200),
+        .init(name: "o1-mini",                  apiName: "o1-mini",                        provider: "OpenAI",    contextK: 128),
+        .init(name: "o3",                       apiName: "o3",                             provider: "OpenAI",    contextK: 200),
         .init(name: "o3-mini",                  apiName: "o3-mini",                        provider: "OpenAI",    contextK: 200),
         .init(name: "o4-mini",                  apiName: "o4-mini",                        provider: "OpenAI",    contextK: 200),
         // Google
         .init(name: "Gemini 2.5 Pro",           apiName: "gemini-2.5-pro",                 provider: "Google",    contextK: 1000),
+        .init(name: "Gemini 2.5 Flash",         apiName: "gemini-2.5-flash",               provider: "Google",    contextK: 1000),
         .init(name: "Gemini 2.0 Flash",         apiName: "gemini-2.0-flash",               provider: "Google",    contextK: 1000),
+        .init(name: "Gemini 2.0 Flash Lite",    apiName: "gemini-2.0-flash-lite",          provider: "Google",    contextK: 1000),
         .init(name: "Gemini 1.5 Pro",           apiName: "gemini-1.5-pro",                 provider: "Google",    contextK: 2000),
         .init(name: "Gemini 1.5 Flash",         apiName: "gemini-1.5-flash",               provider: "Google",    contextK: 1000),
         // Meta
-        .init(name: "Llama 3.3 70B",            apiName: "meta-llama/llama-3.3-70b-instruct",          provider: "Meta", contextK: 128),
-        .init(name: "Llama 3.2 90B Vision",     apiName: "meta-llama/llama-3.2-90b-vision-instruct",   provider: "Meta", contextK: 128),
-        .init(name: "Llama 4 Maverick",         apiName: "meta-llama/llama-4-maverick",                provider: "Meta", contextK: 1000),
+        .init(name: "Llama 4 Scout",            apiName: "meta-llama/llama-4-scout",                         provider: "Meta", contextK: 10000),
+        .init(name: "Llama 4 Maverick",         apiName: "meta-llama/llama-4-maverick",                      provider: "Meta", contextK: 1000),
+        .init(name: "Llama 3.3 70B",            apiName: "meta-llama/llama-3.3-70b-instruct",                provider: "Meta", contextK: 128),
+        .init(name: "Llama 3.2 90B Vision",     apiName: "meta-llama/llama-3.2-90b-vision-instruct",         provider: "Meta", contextK: 128),
+        .init(name: "Llama 3.1 405B",           apiName: "meta-llama/llama-3.1-405b-instruct",               provider: "Meta", contextK: 128),
         // Mistral
+        .init(name: "Mistral Large 2",          apiName: "mistral-large-2411",             provider: "Mistral",   contextK: 128),
+        .init(name: "Mistral Small 3.1",        apiName: "mistral-small-2503",             provider: "Mistral",   contextK: 128),
         .init(name: "Mistral Large",            apiName: "mistral-large-latest",           provider: "Mistral",   contextK: 128),
         .init(name: "Mistral Small",            apiName: "mistral-small-latest",           provider: "Mistral",   contextK: 32),
         .init(name: "Codestral",                apiName: "codestral-latest",               provider: "Mistral",   contextK: 256),
+        .init(name: "Mixtral 8x22B",            apiName: "open-mixtral-8x22b",             provider: "Mistral",   contextK: 64),
         // xAI
         .init(name: "Grok 3",                   apiName: "grok-3",                         provider: "xAI",       contextK: 131),
         .init(name: "Grok 3 mini",              apiName: "grok-3-mini",                    provider: "xAI",       contextK: 131),
+        .init(name: "Grok 2",                   apiName: "grok-2-latest",                  provider: "xAI",       contextK: 131),
+        .init(name: "Grok Vision Beta",         apiName: "grok-vision-beta",               provider: "xAI",       contextK: 8),
+        // Cohere
+        .init(name: "Command R+",               apiName: "command-r-plus",                 provider: "Cohere",    contextK: 128),
+        .init(name: "Command R",                apiName: "command-r",                      provider: "Cohere",    contextK: 128),
+        .init(name: "Command R 08-2024",        apiName: "command-r-08-2024",              provider: "Cohere",    contextK: 128),
+        // DeepSeek
+        .init(name: "DeepSeek V3",              apiName: "deepseek-chat",                  provider: "DeepSeek",  contextK: 64),
+        .init(name: "DeepSeek R1",              apiName: "deepseek-reasoner",              provider: "DeepSeek",  contextK: 64),
+        // Amazon
+        .init(name: "Nova Pro",                 apiName: "amazon.nova-pro-v1:0",           provider: "Amazon",    contextK: 300),
+        .init(name: "Nova Lite",                apiName: "amazon.nova-lite-v1:0",          provider: "Amazon",    contextK: 300),
+        .init(name: "Titan Text G1 Express",    apiName: "amazon.titan-text-express-v1",   provider: "Amazon",    contextK: 8),
+        // Perplexity
+        .init(name: "Sonar Large",              apiName: "llama-3.1-sonar-large-128k-online", provider: "Perplexity", contextK: 128),
+        .init(name: "Sonar Small",              apiName: "llama-3.1-sonar-small-128k-online", provider: "Perplexity", contextK: 128),
+        .init(name: "Sonar Pro",                apiName: "sonar-pro",                      provider: "Perplexity", contextK: 200),
     ]
 
     static var providers: [String] {
