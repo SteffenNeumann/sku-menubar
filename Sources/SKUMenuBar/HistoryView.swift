@@ -240,6 +240,7 @@ struct HistoryView: View {
                     state.pendingChatSession = session.sessionId
                     let projectName = session.projectPath.components(separatedBy: "/").last ?? "Session"
                     state.pendingChatSessionTitle = projectName
+                    state.pendingChatWorkingDirectory = session.projectPath
                 } label: {
                     Label("In Chat öffnen", systemImage: "arrow.right.circle.fill")
                         .font(.system(size: 11, weight: .medium))

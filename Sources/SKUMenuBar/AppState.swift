@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     // Set this to open a specific session in Chat tab
     @Published var pendingChatSession: String? = nil
     @Published var pendingChatSessionTitle: String? = nil
+    @Published var pendingChatWorkingDirectory: String? = nil
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {

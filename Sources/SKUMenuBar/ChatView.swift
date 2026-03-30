@@ -39,15 +39,17 @@ struct ChatView: View {
 
     private func handlePendingSession() {
         if let sid = state.pendingChatSession {
-            openSessionInNewTab(sid, title: state.pendingChatSessionTitle)
+            openSessionInNewTab(sid, title: state.pendingChatSessionTitle, workingDirectory: state.pendingChatWorkingDirectory)
             state.pendingChatSession = nil
             state.pendingChatSessionTitle = nil
+            state.pendingChatWorkingDirectory = nil
         }
     }
 
-    private func openSessionInNewTab(_ sessionId: String, title: String?) {
+    private func openSessionInNewTab(_ sessionId: String, title: String?, workingDirectory: String? = nil) {
         var newTab = ChatTab(title: title ?? String(sessionId.prefix(8)))
         newTab.sessionId = sessionId
+        newTab.workingDirectory = workingDirectory
         tabs.append(newTab)
         selectedTabIndex = tabs.count - 1
     }
@@ -219,6 +221,7 @@ struct SingleChatSessionView: View {
             inputFocused = true
             // Restore state from tab
             if !tab.inputText.isEmpty { inputText = tab.inputText }
+            if let wd = tab.workingDirectory { workingDirectory = wd }
             if let sid = tab.sessionId {
                 currentSessionId = sid
                 sessionTitle = tab.title
@@ -254,6 +257,7 @@ struct SingleChatSessionView: View {
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
+        .onChange(of: workingDirectory) { tab.workingDirectory = workingDirectory }
         .onDisappear { tab.inputText = inputText }
     }
 
