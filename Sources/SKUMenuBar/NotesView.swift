@@ -679,6 +679,7 @@ private struct TagInputView: View {
     let accent: Color
     let allTags: [String]
     @State private var input = ""
+    @State private var showSuggestions = false
     @FocusState private var focused: Bool
 
     private var suggestions: [String] {
@@ -690,6 +691,7 @@ private struct TagInputView: View {
         let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty && !tags.contains(trimmed) { tags.append(trimmed) }
         input = ""
+        showSuggestions = false
         focused = false
     }
 
@@ -702,13 +704,13 @@ private struct TagInputView: View {
             .focused($focused)
             .onSubmit { addTag(input) }
             .animation(.easeInOut(duration: 0.12), value: focused)
-            .popover(
-                isPresented: Binding(
-                    get: { focused && !suggestions.isEmpty },
-                    set: { if !$0 { input = ""; focused = false } }
-                ),
-                arrowEdge: .bottom
-            ) {
+            .onChange(of: input) { _, newValue in
+                showSuggestions = focused && !suggestions.isEmpty
+            }
+            .onChange(of: focused) { _, newValue in
+                if !newValue { showSuggestions = false }
+            }
+            .popover(isPresented: $showSuggestions, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(suggestions, id: \.self) { tag in
                         Button { addTag(tag) } label: {
