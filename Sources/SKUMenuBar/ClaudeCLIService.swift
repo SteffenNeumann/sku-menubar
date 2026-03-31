@@ -18,6 +18,7 @@ final class ClaudeCLIService: ObservableObject {
         sessionId: String? = nil,
         agentName: String? = nil,
         model: String? = nil,
+        fallbackModel: String? = nil,
         workingDirectory: String? = nil,
         skipPermissions: Bool = false
     ) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -37,6 +38,9 @@ final class ClaudeCLIService: ObservableObject {
                 }
                 if let m = model, !m.isEmpty {
                     args += ["--model", m]
+                }
+                if let fb = fallbackModel, !fb.isEmpty {
+                    args += ["--fallback-model", fb]
                 }
                 args.append(message)
 

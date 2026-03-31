@@ -1036,20 +1036,18 @@ struct SingleChatSessionView: View {
                 assistantIndex: assistantIndex,
                 model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
                     ? state.settings.copilotFallbackModel
-                    : selectedModel,
-                isFallback: false
+                    : selectedModel
             )
         }
     }
 
-    /// Executes the actual CLI send, handles rate-limit auto-switch on first attempt.
+    /// Executes the actual CLI send. Fallback is handled natively by `--fallback-model`.
     private func performSend(
         message: String,
         assistantIndex: Int,
-        model: String,
-        isFallback: Bool
+        model: String
     ) async {
-        let source: ChatProviderSource = isFallback ? .copilot : inferredSource(from: model)
+        let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
             messages[assistantIndex].source = source
             if messages[assistantIndex].model == nil || messages[assistantIndex].model?.isEmpty == true {
@@ -1057,16 +1055,17 @@ struct SingleChatSessionView: View {
             }
         }
 
-        // For fallback: do NOT resume the old Claude session — start fresh so the
-        // github/ model is actually routed through Copilot (--resume overrides --model)
-        let sessionIdToUse: String? = isFallback ? nil : currentSessionId
-        if isFallback { currentSessionId = nil }
+        // Fallback model for --fallback-model CLI flag (native overload handling)
+        let fallback: String? = state.settings.copilotFallbackEnabled
+            ? state.settings.copilotFallbackModel
+            : nil
 
         let stream = state.cliService.send(
             message: message,
-            sessionId: sessionIdToUse,
+            sessionId: currentSessionId,
             agentName: selectedAgent.isEmpty ? nil : selectedAgent,
             model: model,
+            fallbackModel: fallback,
             workingDirectory: workingDirectory,
             skipPermissions: autoApprove
         )
@@ -1102,40 +1101,13 @@ struct SingleChatSessionView: View {
                         messages[assistantIndex].outputTokens = usage.outputTokens ?? 0
                     }
 
-                    // Claude CLI sends error:"rate_limit" on the assistant event
-                    if event.error == "rate_limit", !isFallback, state.settings.copilotFallbackEnabled {
+                    // Track rate-limit for UI indicator (--fallback-model handles the actual switch)
+                    if event.error == "rate_limit" {
                         state.claudeRateLimitActive = true
-                        if messages.indices.contains(assistantIndex) {
-                            messages[assistantIndex].content = ""
-                            messages[assistantIndex].toolCalls = []
-                            messages[assistantIndex].isStreaming = true
-                        }
-                        await performSend(
-                            message: message,
-                            assistantIndex: assistantIndex,
-                            model: state.settings.copilotFallbackModel,
-                            isFallback: true
-                        )
-                        return
                     }
 
-                // Claude CLI 2.x sends rate_limit_event before the assistant/result events
                 case "rate_limit_event":
-                    if !isFallback, state.settings.copilotFallbackEnabled {
-                        state.claudeRateLimitActive = true
-                        if messages.indices.contains(assistantIndex) {
-                            messages[assistantIndex].content = ""
-                            messages[assistantIndex].toolCalls = []
-                            messages[assistantIndex].isStreaming = true
-                        }
-                        await performSend(
-                            message: message,
-                            assistantIndex: assistantIndex,
-                            model: state.settings.copilotFallbackModel,
-                            isFallback: true
-                        )
-                        return
-                    }
+                    state.claudeRateLimitActive = true
 
                 case "result":
                     messages[assistantIndex].costUsd = event.costUsd
@@ -1143,48 +1115,24 @@ struct SingleChatSessionView: View {
                         currentSessionId = sid
                     }
 
-                    // Handle error result (e.g. Claude rate-limit / usage-limit)
+                    // Handle error result (e.g. rate-limit / usage-limit)
                     if event.isError == true {
                         let contentText = messages.indices.contains(assistantIndex)
-                            ? messages[assistantIndex].content
-                            : ""
-                        let resultText = event.message?.content?.compactMap(\.text).joined() ?? ""
+                            ? messages[assistantIndex].content : ""
                         let eventResult = event.result ?? ""
-                        let combined = (contentText + " " + resultText + " " + eventResult).lowercased()
+                        let combined = (contentText + " " + eventResult).lowercased()
 
-                        let isRateLimit = combined.contains("rate limit") ||
-                                          combined.contains("ratelimit") ||
-                                          combined.contains("usage limit") ||
-                                          combined.contains("limit reached") ||
-                                          combined.contains("hit your limit") ||
-                                          combined.contains("overloaded") ||
-                                          combined.contains("quota") ||
-                                          combined.contains("529") ||
-                                          combined.contains("429")
-
-                        if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
+                        if combined.contains("limit") || combined.contains("overloaded") ||
+                           combined.contains("quota") || combined.contains("529") || combined.contains("429") {
                             state.claudeRateLimitActive = true
-                            let fallbackModel = state.settings.copilotFallbackModel
-                            if messages.indices.contains(assistantIndex) {
-                                messages[assistantIndex].content = ""
-                                messages[assistantIndex].toolCalls = []
-                                messages[assistantIndex].isStreaming = true
-                            }
-                            await performSend(
-                                message: message,
-                                assistantIndex: assistantIndex,
-                                model: fallbackModel,
-                                isFallback: true
-                            )
-                            return
-                        } else {
-                            errorMessage = contentText.isEmpty ? "Claude returned an error" : contentText
-                            if messages.indices.contains(assistantIndex) {
-                                messages[assistantIndex].isStreaming = false
-                            }
-                            isStreaming = false
-                            return
                         }
+
+                        errorMessage = contentText.isEmpty ? (eventResult.isEmpty ? "Claude returned an error" : eventResult) : contentText
+                        if messages.indices.contains(assistantIndex) {
+                            messages[assistantIndex].isStreaming = false
+                        }
+                        isStreaming = false
+                        return
                     }
 
                     state.lastChatProvider = source
@@ -1195,33 +1143,13 @@ struct SingleChatSessionView: View {
                 }
             }
         } catch {
+            print("⚠️ performSend error: \(error.localizedDescription)")
             let errText = error.localizedDescription.lowercased()
-            let isRateLimit = errText.contains("rate limit") ||
-                              errText.contains("ratelimit") ||
-                              errText.contains("usage limit") ||
-                              errText.contains("limit reached") ||
-                              errText.contains("hit your limit") ||
-                              errText.contains("overloaded") ||
-                              errText.contains("quota") ||
-                              errText.contains("529") ||
-                              errText.contains("429")
 
-            // Auto-switch to Copilot fallback on first rate-limit hit
-            if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
+            // Track rate-limit for UI
+            if errText.contains("limit") || errText.contains("overloaded") ||
+               errText.contains("quota") || errText.contains("529") || errText.contains("429") {
                 state.claudeRateLimitActive = true
-                let fallbackModel = state.settings.copilotFallbackModel
-                if messages.indices.contains(assistantIndex) {
-                    messages[assistantIndex].content = ""
-                    messages[assistantIndex].toolCalls = []
-                    messages[assistantIndex].isStreaming = true
-                }
-                await performSend(
-                    message: message,
-                    assistantIndex: assistantIndex,
-                    model: fallbackModel,
-                    isFallback: true
-                )
-                return
             }
 
             errorMessage = error.localizedDescription
