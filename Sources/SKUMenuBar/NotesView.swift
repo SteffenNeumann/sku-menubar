@@ -547,6 +547,7 @@ struct NoteEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { bodyFocused = note.title.isEmpty }
         .onChange(of: note.body) { _, newBody in
+            guard note.type == .note else { return }
             let firstLine = newBody
                 .components(separatedBy: .newlines)
                 .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
@@ -702,7 +703,10 @@ private struct TagInputView: View {
             .onSubmit { addTag(input) }
             .animation(.easeInOut(duration: 0.12), value: focused)
             .popover(
-                isPresented: Binding(get: { focused && !suggestions.isEmpty }, set: { _ in }),
+                isPresented: Binding(
+                    get: { focused && !suggestions.isEmpty },
+                    set: { if !$0 { input = ""; focused = false } }
+                ),
                 arrowEdge: .bottom
             ) {
                 VStack(alignment: .leading, spacing: 0) {
