@@ -679,20 +679,12 @@ private struct TagInputView: View {
     let accent: Color
     let allTags: [String]
     @State private var input = ""
-    @State private var showSuggestions = false
     @FocusState private var focused: Bool
-
-    private var suggestions: [String] {
-        guard !input.isEmpty else { return [] }
-        return allTags.filter { !tags.contains($0) && $0.localizedCaseInsensitiveContains(input) }.prefix(5).map { $0 }
-    }
 
     private func addTag(_ tag: String) {
         let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty && !tags.contains(trimmed) { tags.append(trimmed) }
         input = ""
-        showSuggestions = false
-        focused = false
     }
 
     var body: some View {
@@ -705,28 +697,10 @@ private struct TagInputView: View {
             .onSubmit { addTag(input) }
             .animation(.easeInOut(duration: 0.12), value: focused)
             .onChange(of: input) { _, newValue in
-                showSuggestions = focused && !suggestions.isEmpty
-            }
-            .onChange(of: focused) { _, newValue in
-                if !newValue { showSuggestions = false }
-            }
-            .popover(isPresented: $showSuggestions, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(suggestions, id: \.self) { tag in
-                        Button { addTag(tag) } label: {
-                            Text(tag)
-                                .font(.system(size: 11))
-                                .foregroundStyle(theme.primaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                // Komma oder Leerzeichen als Trennzeichen akzeptieren
+                if newValue.hasSuffix(",") || newValue.hasSuffix(" ") {
+                    addTag(String(newValue.dropLast()))
                 }
-                .padding(.vertical, 4)
-                .frame(minWidth: 120)
-                .background(theme.windowBg)
             }
     }
 }
