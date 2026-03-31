@@ -1001,6 +1001,11 @@ struct SingleChatSessionView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
+        // Prompt for working directory before first message of a new session
+        if currentSessionId == nil, workingDirectory == nil {
+            openDirectoryPicker()
+        }
+
         let fullMessage = buildMessageWithAttachments(text: text)
         inputText = ""
         let sentFiles = attachedFiles
