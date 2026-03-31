@@ -640,8 +640,7 @@ struct NoteEditorView: View {
                     TagInputView(
                         tags: $note.tags,
                         theme: theme,
-                        accent: accentColor,
-                        allTags: Array(Set(state.notes.flatMap { $0.tags })).sorted()
+                        accent: accentColor
                     )
                 }
             }
@@ -677,30 +676,20 @@ private struct TagInputView: View {
     @Binding var tags: [String]
     let theme: AppTheme
     let accent: Color
-    let allTags: [String]
     @State private var input = ""
-    @FocusState private var focused: Bool
-
-    private func addTag(_ tag: String) {
-        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && !tags.contains(trimmed) { tags.append(trimmed) }
-        input = ""
-    }
 
     var body: some View {
         TextField("+Tag", text: $input)
             .font(.system(size: 10))
             .foregroundStyle(theme.secondaryText)
             .textFieldStyle(.plain)
-            .frame(width: focused ? 80 : 36)
-            .focused($focused)
-            .onSubmit { addTag(input) }
-            .animation(.easeInOut(duration: 0.12), value: focused)
-            .onChange(of: input) { _, newValue in
-                // Komma oder Leerzeichen als Trennzeichen akzeptieren
-                if newValue.hasSuffix(",") || newValue.hasSuffix(" ") {
-                    addTag(String(newValue.dropLast()))
+            .frame(width: 80)
+            .onSubmit {
+                let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && !tags.contains(trimmed) {
+                    tags.append(trimmed)
                 }
+                input = ""
             }
     }
 }
