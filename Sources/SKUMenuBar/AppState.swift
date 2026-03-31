@@ -44,6 +44,10 @@ final class AppState: ObservableObject {
     @Published var claudeRateLimitActive: Bool = false
     @Published var lastChatProvider: ChatProviderSource? = nil
 
+    // MARK: - Chat Tab State (persisted here so it survives window close/reopen)
+    @Published var chatTabs: [ChatTab] = [ChatTab(title: "Chat 1")]
+    @Published var selectedChatTabIndex: Int = 0
+
     // Set this to open a specific session in Chat tab
     @Published var pendingChatSession: String? = nil
     @Published var pendingChatSessionTitle: String? = nil

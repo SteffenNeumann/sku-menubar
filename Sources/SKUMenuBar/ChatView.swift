@@ -7,8 +7,8 @@ struct ChatView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
 
-    @State private var tabs: [ChatTab] = [ChatTab(title: "Chat 1")]
-    @State private var selectedTabIndex: Int = 0
+    private var tabs: [ChatTab] { state.chatTabs }
+    private var selectedTabIndex: Int { state.selectedChatTabIndex }
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -19,12 +19,12 @@ struct ChatView: View {
             tabBar
 
             // Render selected tab content, keyed by tab id to force recreation on switch
-            if tabs.indices.contains(selectedTabIndex) {
+            if state.chatTabs.indices.contains(state.selectedChatTabIndex) {
                 SingleChatSessionView(tab: Binding(
-                    get: { tabs.indices.contains(selectedTabIndex) ? tabs[selectedTabIndex] : ChatTab() },
-                    set: { if tabs.indices.contains(selectedTabIndex) { tabs[selectedTabIndex] = $0 } }
+                    get: { state.chatTabs.indices.contains(state.selectedChatTabIndex) ? state.chatTabs[state.selectedChatTabIndex] : ChatTab() },
+                    set: { if state.chatTabs.indices.contains(state.selectedChatTabIndex) { state.chatTabs[state.selectedChatTabIndex] = $0 } }
                 ))
-                .id(tabs[selectedTabIndex].id)
+                .id(state.chatTabs[state.selectedChatTabIndex].id)
                 .environmentObject(state)
             }
         }
@@ -50,8 +50,8 @@ struct ChatView: View {
         var newTab = ChatTab(title: title ?? String(sessionId.prefix(8)))
         newTab.sessionId = sessionId
         newTab.workingDirectory = workingDirectory
-        tabs.append(newTab)
-        selectedTabIndex = tabs.count - 1
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
     }
 
     // MARK: - Tab Bar
@@ -59,14 +59,14 @@ struct ChatView: View {
     private var tabBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(tabs.indices, id: \.self) { i in
+                ForEach(state.chatTabs.indices, id: \.self) { i in
                     tabButton(index: i)
                 }
                 // New tab button
                 Button {
-                    let newTab = ChatTab(title: "Chat \(tabs.count + 1)")
-                    tabs.append(newTab)
-                    selectedTabIndex = tabs.count - 1
+                    let newTab = ChatTab(title: "Chat \(state.chatTabs.count + 1)")
+                    state.chatTabs.append(newTab)
+                    state.selectedChatTabIndex = state.chatTabs.count - 1
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .medium))
@@ -83,8 +83,8 @@ struct ChatView: View {
     }
 
     private func tabButton(index: Int) -> some View {
-        let isSelected = selectedTabIndex == index
-        let tab = tabs[index]
+        let isSelected = state.selectedChatTabIndex == index
+        let tab = state.chatTabs[index]
 
         return HStack(spacing: 5) {
             if tab.isStreaming {
@@ -100,10 +100,10 @@ struct ChatView: View {
                 .lineLimit(1)
 
             // Close button (only if more than 1 tab)
-            if tabs.count > 1 {
+            if state.chatTabs.count > 1 {
                 Button {
-                    tabs.remove(at: index)
-                    selectedTabIndex = max(0, min(selectedTabIndex, tabs.count - 1))
+                    state.chatTabs.remove(at: index)
+                    state.selectedChatTabIndex = max(0, min(state.selectedChatTabIndex, state.chatTabs.count - 1))
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .medium))
@@ -121,7 +121,7 @@ struct ChatView: View {
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(isSelected ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
         )
-        .onTapGesture { selectedTabIndex = index }
+        .onTapGesture { state.selectedChatTabIndex = index }
         .frame(maxWidth: 160)
     }
 }
@@ -1203,6 +1203,37 @@ struct SingleChatSessionView: View {
         if messages.indices.contains(assistantIndex) {
             messages[assistantIndex].isStreaming = false
         }
+
+        // Check if Claude delivered a rate-limit / usage-limit message as normal text
+        // (Claude CLI often streams the error as content instead of throwing)
+        if !isFallback, state.settings.copilotFallbackEnabled,
+           messages.indices.contains(assistantIndex) {
+            let finalContent = messages[assistantIndex].content.lowercased()
+            let isRateLimitContent =
+                finalContent.contains("usage limit") ||
+                finalContent.contains("rate limit") ||
+                finalContent.contains("limit reached") ||
+                finalContent.contains("limit_reached") ||
+                finalContent.contains("plan limit") ||
+                finalContent.contains("usagelimitreached") ||
+                finalContent.contains("overloaded") ||
+                finalContent.contains("quota exceeded") ||
+                (finalContent.contains("claude.ai") && finalContent.contains("limit"))
+            if isRateLimitContent {
+                state.claudeRateLimitActive = true
+                messages[assistantIndex].content = ""
+                messages[assistantIndex].toolCalls = []
+                messages[assistantIndex].isStreaming = true
+                await performSend(
+                    message: message,
+                    assistantIndex: assistantIndex,
+                    model: state.settings.copilotFallbackModel,
+                    isFallback: true
+                )
+                return
+            }
+        }
+
         state.lastChatProvider = source
         isStreaming = false
 
