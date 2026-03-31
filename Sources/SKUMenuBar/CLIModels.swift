@@ -356,6 +356,10 @@ struct AgentDefinition: Identifiable, Hashable {
         case "orange": return .orange
         case "red":    return .red
         case "cyan":   return .cyan
+        case "yellow": return .yellow
+        case "pink":   return Color(red: 0.95, green: 0.20, blue: 0.55)
+        case "indigo": return .indigo
+        case "teal":   return .teal
         default:       return .gray
         }
     }

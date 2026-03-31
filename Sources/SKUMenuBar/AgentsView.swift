@@ -363,6 +363,10 @@ private struct AgentBaseballCard: View {
         case "orange": c1 = Color(red: 0.92, green: 0.35, blue: 0.05); c2 = Color(red: 0.98, green: 0.75, blue: 0.15)
         case "red":    c1 = Color(red: 0.86, green: 0.15, blue: 0.15); c2 = Color(red: 0.98, green: 0.45, blue: 0.09)
         case "cyan":   c1 = Color(red: 0.04, green: 0.57, blue: 0.70); c2 = Color(red: 0.39, green: 0.40, blue: 0.95)
+        case "yellow": c1 = Color(red: 0.95, green: 0.75, blue: 0.00); c2 = Color(red: 0.98, green: 0.50, blue: 0.05)
+        case "pink":   c1 = Color(red: 0.95, green: 0.20, blue: 0.55); c2 = Color(red: 0.75, green: 0.10, blue: 0.80)
+        case "indigo": c1 = Color(red: 0.29, green: 0.14, blue: 0.80); c2 = Color(red: 0.49, green: 0.23, blue: 0.93)
+        case "teal":   c1 = Color(red: 0.00, green: 0.60, blue: 0.60); c2 = Color(red: 0.02, green: 0.71, blue: 0.83)
         default:       c1 = agent.dotColor; c2 = agent.dotColor.opacity(0.45)
         }
         return LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -621,7 +625,7 @@ struct AgentsView: View {
 
     /// Berechnet Spalten + Abstände so dass Karten (feste Breite) sich wie auf einem Tisch verteilen.
     private func tableLayout(for availableWidth: CGFloat) -> (columns: [GridItem], rowGap: CGFloat) {
-        let cardW: CGFloat = 148
+        let cardW: CGFloat = 178
         let edgePad: CGFloat = 28          // 14 × 2
         let usable = availableWidth - edgePad
         let minGap: CGFloat = 24
@@ -1439,7 +1443,7 @@ private struct AgentEditorSheet: View {
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
-                            editorField("Color", hint: "Optional, z. B. blue oder orange") {
+                            editorField("Color", hint: "purple, blue, green, orange, red, cyan, yellow, pink, indigo, teal") {
                                 TextField("blue", text: $draft.color)
                                     .textFieldStyle(.roundedBorder)
                             }
