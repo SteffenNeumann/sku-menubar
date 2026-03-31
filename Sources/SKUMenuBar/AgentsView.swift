@@ -27,6 +27,67 @@ private struct AgentAvatarView: View {
     }
 }
 
+// MARK: - Robot Head Icon (Canvas)
+
+private struct RobotHeadIcon: View {
+    let size: CGFloat
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = sz.width, h = sz.height
+            let cx = w / 2, cy = h / 2
+
+            // Antenna stem
+            var stem = Path()
+            stem.move(to: CGPoint(x: cx, y: cy - h * 0.28))
+            stem.addLine(to: CGPoint(x: cx, y: cy - h * 0.42))
+            ctx.stroke(stem, with: .color(.white.opacity(0.80)), lineWidth: w * 0.032)
+            // Antenna ball
+            let aR = w * 0.055
+            ctx.fill(Path(ellipseIn: CGRect(x: cx - aR, y: cy - h*0.42 - aR, width: aR*2, height: aR*2)), with: .color(.white))
+            ctx.fill(Path(ellipseIn: CGRect(x: cx - aR*0.4, y: cy - h*0.42 - aR*0.55, width: aR*0.8, height: aR*0.8)), with: .color(.white.opacity(0.5)))
+
+            // Head body
+            let hW = w * 0.62, hH = h * 0.50
+            let headRect = CGRect(x: cx - hW/2, y: cy - hH/2 + h*0.03, width: hW, height: hH)
+            ctx.fill(Path(roundedRect: headRect, cornerRadius: w * 0.09), with: .color(.white.opacity(0.93)))
+            ctx.stroke(Path(roundedRect: headRect, cornerRadius: w * 0.09), with: .color(.white.opacity(0.40)), lineWidth: 1.2)
+
+            // Ears
+            let eW = w * 0.07, eH = h * 0.22
+            let eY = headRect.midY - eH/2
+            for xSign in [-1.0, 1.0] {
+                let ex = xSign > 0 ? headRect.maxX + 1 : headRect.minX - eW - 1
+                ctx.fill(Path(roundedRect: CGRect(x: ex, y: eY, width: eW, height: eH), cornerRadius: 2), with: .color(.white.opacity(0.72)))
+            }
+
+            // Eyes
+            let eyeY = headRect.minY + hH * 0.33
+            let eyeX  = hW * 0.20
+            let eyeR  = w * 0.078
+            for xOff in [-eyeX, eyeX] {
+                ctx.fill(Path(ellipseIn: CGRect(x: cx + xOff - eyeR*1.45, y: eyeY - eyeR*1.45, width: eyeR*2.9, height: eyeR*2.9)), with: .color(.black.opacity(0.07)))
+                ctx.fill(Path(ellipseIn: CGRect(x: cx + xOff - eyeR, y: eyeY - eyeR, width: eyeR*2, height: eyeR*2)), with: .color(.black.opacity(0.65)))
+                let sR = eyeR * 0.38
+                ctx.fill(Path(ellipseIn: CGRect(x: cx + xOff - sR*0.2, y: eyeY - eyeR*0.60, width: sR*2, height: sR*2)), with: .color(.white.opacity(0.95)))
+            }
+
+            // Mouth (pixel grid: 3 slots)
+            let mW = hW * 0.55, mH = hH * 0.16
+            let mX = cx - mW/2, mY = headRect.minY + hH * 0.72
+            ctx.fill(Path(roundedRect: CGRect(x: mX, y: mY, width: mW, height: mH), cornerRadius: 2.5), with: .color(.black.opacity(0.22)))
+            let gap: CGFloat = 1.8
+            let slots = 3
+            let slotW = (mW - CGFloat(slots + 1) * gap) / CGFloat(slots)
+            for i in 0..<slots {
+                let sx = mX + gap + CGFloat(i) * (slotW + gap)
+                ctx.fill(Path(roundedRect: CGRect(x: sx, y: mY + 2, width: slotW, height: mH - 4), cornerRadius: 1.2), with: .color(.white.opacity(0.88)))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 // MARK: - Deterministic character canvas
 
 private struct AgentCharacterView: View {
@@ -293,93 +354,105 @@ private struct AgentBaseballCard: View {
 
     @State private var hovered = false
 
+    private var headerGradient: LinearGradient {
+        let c1: Color, c2: Color
+        switch agent.color?.lowercased() ?? "" {
+        case "purple": c1 = Color(red: 0.49, green: 0.23, blue: 0.93); c2 = Color(red: 0.86, green: 0.16, blue: 0.47)
+        case "blue":   c1 = Color(red: 0.15, green: 0.39, blue: 0.92); c2 = Color(red: 0.02, green: 0.71, blue: 0.83)
+        case "green":  c1 = Color(red: 0.02, green: 0.59, blue: 0.41); c2 = Color(red: 0.29, green: 0.86, blue: 0.56)
+        case "orange": c1 = Color(red: 0.92, green: 0.35, blue: 0.05); c2 = Color(red: 0.98, green: 0.75, blue: 0.15)
+        case "red":    c1 = Color(red: 0.86, green: 0.15, blue: 0.15); c2 = Color(red: 0.98, green: 0.45, blue: 0.09)
+        case "cyan":   c1 = Color(red: 0.04, green: 0.57, blue: 0.70); c2 = Color(red: 0.39, green: 0.40, blue: 0.95)
+        default:       c1 = agent.dotColor; c2 = agent.dotColor.opacity(0.45)
+        }
+        return LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private let φ: CGFloat = 1.618  // goldener Schnitt
+
+    private var simulatedLatency: Int {
+        20 + (abs(agent.id.hashValue) % 180)
+    }
+
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 0) {
-                // Top: Generated avatar (full card width, portrait ratio)
-                AgentAvatarView(agent: agent, size: 120)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 120)
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                let headerH = h * 0.46
+                let iconSize = min(w * 0.52, headerH * 0.72)
+
+                VStack(spacing: 0) {
+                    // Header: Gradient + Robot + role tag badge
+                    ZStack(alignment: .top) {
+                        headerGradient
+                        AvatarNoiseView(seed: abs(agent.id.hashValue)).opacity(0.09)
+                        RobotHeadIcon(size: iconSize)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                        // Role tag badge top-center
+                        Text(agent.id.uppercased())
+                            .font(.system(size: 6, weight: .bold))
+                            .foregroundStyle(agent.dotColor)
+                            .kerning(0.4)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(agent.dotColor.opacity(0.18), in: Capsule())
+                            .overlay(Capsule().strokeBorder(agent.dotColor.opacity(0.45), lineWidth: 0.5))
+                            .padding(.top, 7)
+                    }
+                    .frame(width: w, height: headerH)
                     .clipped()
 
-                // Thin accent divider
-                Rectangle()
-                    .fill(agent.dotColor.opacity(0.4))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 1)
+                    // Accent divider
+                    Rectangle()
+                        .fill(agent.dotColor.opacity(0.38))
+                        .frame(width: w, height: 1)
 
-                // Bottom: Properties
-                VStack(alignment: .leading, spacing: 6) {
-                    // Name + model badge
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    // Content
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(agent.name)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(theme.primaryText)
-                            .lineLimit(1)
-                        Spacer(minLength: 2)
-                        modelBadge(agent.model)
-                    }
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
 
-                    // Description
-                    Text(agent.description.isEmpty ? "Kein Beschreibungstext." : agent.description)
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.secondaryText)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text(agent.description.isEmpty ? "—" : agent.description)
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
 
-                    Spacer(minLength: 0)
+                        Spacer(minLength: 0)
 
-                    // Schedule indicator (if any)
-                    if let sched = agent.schedule, !sched.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: agent.isActive ? "timer" : "timer.slash")
-                                .font(.system(size: 8))
-                                .foregroundStyle(agent.isActive ? .green : theme.tertiaryText)
-                            Text(sched)
-                                .font(.system(size: 8))
-                                .foregroundStyle(agent.isActive ? .green : theme.tertiaryText)
-                                .lineLimit(1)
-                            Spacer()
+                        // Footer: model + latency
+                        HStack(spacing: 0) {
+                            modelBadge(agent.model)
+                            Spacer(minLength: 4)
+                            Text("LATENCY: \(simulatedLatency)ms")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundStyle(theme.tertiaryText)
                         }
                     }
-
-                    // Bottom row: ID + action icons
-                    HStack(alignment: .center, spacing: 0) {
-                        Text(agent.id)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Spacer(minLength: 4)
-
-                        HStack(spacing: 4) {
-                            cardIconButton(icon: "pencil", color: accentColor, action: onEdit)
-                            cardIconButton(icon: "trash", color: .red, action: onDelete)
-                        }
-                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 7)
+                    .frame(width: w, height: h - headerH - 1, alignment: .topLeading)
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isSelected ? theme.accent : theme.cardBg)
-        )
+        .aspectRatio(1.0 / φ, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? theme.accent : theme.cardBg))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(
                     isSelected ? agent.dotColor.opacity(0.5) : theme.cardBorder,
                     lineWidth: isSelected ? 1.5 : 0.5
                 )
         )
-        .shadow(color: .black.opacity(hovered || isSelected ? 0.1 : 0.04), radius: hovered ? 8 : 3, x: 0, y: 2)
+        .shadow(color: .black.opacity(hovered || isSelected ? 0.10 : 0.04), radius: hovered ? 8 : 3, x: 0, y: 2)
         .scaleEffect(hovered ? 1.01 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.75), value: hovered)
         .onHover { hovered = $0 }
@@ -387,19 +460,19 @@ private struct AgentBaseballCard: View {
 
     private func modelBadge(_ model: String) -> some View {
         Text(model.lowercased())
-            .font(.system(size: 8, weight: .semibold))
+            .font(.system(size: 7, weight: .semibold))
             .foregroundStyle(accentColor)
-            .padding(.horizontal, 5).padding(.vertical, 2)
+            .padding(.horizontal, 4).padding(.vertical, 2)
             .background(accentColor.opacity(0.15), in: Capsule())
     }
 
     private func cardIconButton(icon: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(color)
-                .frame(width: 24, height: 24)
-                .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                .frame(width: 20, height: 20)
+                .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
     }
@@ -451,47 +524,44 @@ struct AgentsView: View {
             } else {
                 HStack(spacing: 0) {
                     // Card grid
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            // Active agents section
-                            if !activeAgents.isEmpty {
-                                agentSectionHeader(
-                                    title: "Aktive Agents",
-                                    count: activeAgents.count,
-                                    color: .green
-                                )
-                                LazyVGrid(
-                                    columns: gridColumns,
-                                    spacing: 12
-                                ) {
-                                    ForEach(activeAgents) { agent in
-                                        agentCard(agent)
+                    GeometryReader { gridProxy in
+                        ScrollView {
+                            let (cols, rowGap) = tableLayout(for: gridProxy.size.width)
+                            VStack(alignment: .leading, spacing: 0) {
+                                // Active agents section
+                                if !activeAgents.isEmpty {
+                                    agentSectionHeader(
+                                        title: "Aktive Agents",
+                                        count: activeAgents.count,
+                                        color: .green
+                                    )
+                                    LazyVGrid(columns: cols, spacing: rowGap) {
+                                        ForEach(activeAgents) { agent in
+                                            agentCard(agent)
+                                        }
                                     }
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 18)
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.bottom, 18)
-                            }
 
-                            // Inactive agents section
-                            if !inactiveAgents.isEmpty {
-                                agentSectionHeader(
-                                    title: "Inaktive Agents",
-                                    count: inactiveAgents.count,
-                                    color: theme.tertiaryText
-                                )
-                                LazyVGrid(
-                                    columns: gridColumns,
-                                    spacing: 12
-                                ) {
-                                    ForEach(inactiveAgents) { agent in
-                                        agentCard(agent)
+                                // Inactive agents section
+                                if !inactiveAgents.isEmpty {
+                                    agentSectionHeader(
+                                        title: "Inaktive Agents",
+                                        count: inactiveAgents.count,
+                                        color: theme.tertiaryText
+                                    )
+                                    LazyVGrid(columns: cols, spacing: rowGap) {
+                                        ForEach(inactiveAgents) { agent in
+                                            agentCard(agent)
+                                        }
                                     }
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 14)
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.bottom, 14)
                             }
+                            .padding(.top, 14)
                         }
-                        .padding(.top, 14)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -499,7 +569,7 @@ struct AgentsView: View {
                     if let agent = selectedAgent {
                         Divider().foregroundStyle(theme.cardBorder)
                         agentDetail(agent)
-                            .frame(width: 360)
+                            .frame(minWidth: 380, idealWidth: 460, maxWidth: 560)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -549,10 +619,18 @@ struct AgentsView: View {
 
     // MARK: - Grid helpers
 
-    private var gridColumns: [GridItem] {
-        selectedAgent != nil
-            ? [GridItem(.flexible(minimum: 180)), GridItem(.flexible(minimum: 180))]
-            : [GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160)), GridItem(.flexible(minimum: 160))]
+    /// Berechnet Spalten + Abstände so dass Karten (feste Breite) sich wie auf einem Tisch verteilen.
+    private func tableLayout(for availableWidth: CGFloat) -> (columns: [GridItem], rowGap: CGFloat) {
+        let cardW: CGFloat = 148
+        let edgePad: CGFloat = 28          // 14 × 2
+        let usable = availableWidth - edgePad
+        let minGap: CGFloat = 24
+        let count = max(1, Int((usable + minGap) / (cardW + minGap)))
+        let gap = count > 1
+            ? (usable - CGFloat(count) * cardW) / CGFloat(count - 1)
+            : 0
+        let colGap = max(minGap, gap)
+        return (Array(repeating: GridItem(.fixed(cardW), spacing: colGap), count: count), colGap)
     }
 
     private func agentCard(_ agent: AgentDefinition) -> some View {
@@ -597,49 +675,71 @@ struct AgentsView: View {
     // MARK: - Header
 
     private var agentsHeader: some View {
-        HStack(spacing: 10) {
-            Text("Agents")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.primaryText)
-
-            Text("\(state.agentService.agents.count)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(theme.tertiaryText)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(theme.cardBg, in: Capsule())
-                .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
-
-            // Search
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(theme.tertiaryText)
-                TextField("Agent suchen…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                // Hero title + subtitle
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Agent Fleet")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(theme.primaryText)
+                    Text("Manage and orchestrate your deployed autonomous agents.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                        .lineLimit(2)
                 }
+
+                Spacer()
+
+                // Online badge
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+                        .shadow(color: .green.opacity(0.6), radius: 4)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("\(activeAgents.count)")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.primaryText)
+                        Text("ONLINE")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(Color.green)
+                            .kerning(0.5)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.green.opacity(0.35), lineWidth: 0.5))
             }
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-            .frame(maxWidth: 220)
 
-            Spacer()
+            // Search + actions row
+            HStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                    TextField("Agent suchen…", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                .frame(maxWidth: 200)
 
-            // Action buttons
-            HStack(spacing: 6) {
+                Spacer()
+
                 headerButton(icon: "square.and.arrow.down", tooltip: "Importieren") { importAgents() }
                 headerButton(icon: "arrow.clockwise", tooltip: "Neu laden") {
                     Task { await state.agentService.loadAgents() }
                 }
-
                 Button {
                     startCreatingAgent()
                 } label: {
@@ -650,9 +750,11 @@ struct AgentsView: View {
                 .tint(accentColor)
                 .controlSize(.small)
             }
+            .padding(.top, 10)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
     }
 
     private func headerButton(icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
@@ -668,56 +770,92 @@ struct AgentsView: View {
 
     // MARK: - Detail Panel
 
+    private func colorDisplayName(_ color: String?) -> String {
+        switch color?.lowercased() {
+        case "purple": return "Spectral Purple"
+        case "blue":   return "Neural Blue"
+        case "green":  return "Spectral Green"
+        case "orange": return "Amber Core"
+        case "red":    return "Alert Red"
+        case "cyan":   return "Cyan Stream"
+        default:       return "Neutral Gray"
+        }
+    }
+
+    private func modelDisplayName(_ model: String) -> String {
+        let m = model.lowercased()
+        if m.contains("opus")   { return "Claude Opus" }
+        if m.contains("sonnet") { return "Claude Sonnet" }
+        if m.contains("haiku")  { return "Claude Haiku" }
+        return model.isEmpty ? "Claude Sonnet" : model.capitalized
+    }
+
+    private func memoryDisplayName(_ memory: String?) -> String {
+        switch memory?.lowercased() {
+        case "user":    return "User Session"
+        case "project": return "Project Memory"
+        case "none", nil: return "None"
+        default:        return memory?.capitalized ?? "None"
+        }
+    }
+
+    private func promptWordCount(_ body: String) -> String {
+        let words = body.split(whereSeparator: { $0.isWhitespace }).count
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        return (formatter.string(from: NSNumber(value: words)) ?? "\(words)") + " words"
+    }
+
     private func agentDetail(_ agent: AgentDefinition) -> some View {
         VStack(spacing: 0) {
-            // Panel header
-            HStack(spacing: 8) {
-                AgentAvatarView(agent: agent, size: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(agent.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                        .lineLimit(1)
-                    Text("System Prompt & Speicher")
-                        .font(.system(size: 9))
-                        .foregroundStyle(theme.tertiaryText)
-                }
+            // Panel header: "Agent Settings"
+            HStack(spacing: 6) {
+                Text("Agent Settings")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    Button { exportAgent(agent) } label: {
-                        Image(systemName: "square.and.arrow.up").font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.secondaryText)
-                    .help("Exportieren")
-
-                    Button { duplicateAgent(agent) } label: {
-                        Image(systemName: "plus.square.on.square").font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.secondaryText)
-                    .help("Duplizieren")
-
-                    Button { startEditingAgent(agent) } label: {
-                        Image(systemName: "pencil").font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(accentColor)
-                    .help("Bearbeiten")
-
-                    Button {
-                        withAnimation(.spring(response: 0.3)) { selectedAgent = nil }
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.tertiaryText)
-                    .help("Schliessen")
+                Button { startEditingAgent(agent) } label: {
+                    Image(systemName: "pencil").font(.system(size: 11))
+                        .frame(width: 26, height: 26)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(accentColor)
+                .help("Bearbeiten")
+
+                Button { duplicateAgent(agent) } label: {
+                    Image(systemName: "plus.square.on.square").font(.system(size: 11))
+                        .frame(width: 26, height: 26)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondaryText)
+                .help("Duplizieren")
+
+                Button {
+                    detailError = nil
+                    pendingDeleteAgent = agent
+                } label: {
+                    Image(systemName: "trash").font(.system(size: 11))
+                        .frame(width: 26, height: 26)
+                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .help("Loeschen")
+
+                Button {
+                    withAnimation(.spring(response: 0.3)) { selectedAgent = nil }
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11))
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.tertiaryText)
+                .help("Schliessen")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -726,7 +864,7 @@ struct AgentsView: View {
 
             // Scrollable content
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 14) {
                     // Error banner
                     if let detailError, !detailError.isEmpty {
                         Text(detailError)
@@ -738,16 +876,47 @@ struct AgentsView: View {
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
                     }
 
-                    // Metadata row
-                    HStack(spacing: 8) {
-                        metaTag("ID", value: agent.id)
-                        metaTag("Model", value: agent.model)
-                        if let mem = agent.memory { metaTag("Memory", value: mem) }
-                        if let col = agent.color { metaTag("Color", value: col) }
-                    }
-                    .padding(.top, 2)
+                    // Avatar + name + ID
+                    HStack(spacing: 12) {
+                        ZStack {
+                            LinearGradient(
+                                colors: [agent.dotColor, agent.dotColor.opacity(0.45)],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            )
+                            AvatarNoiseView(seed: abs(agent.id.hashValue)).opacity(0.09)
+                            RobotHeadIcon(size: 32)
+                        }
+                        .frame(width: 52, height: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                    // Schedule / status row
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(agent.name)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(2)
+                            Text("ID: \(agent.id.uppercased())")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+
+                    // 2×2 info tile grid
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        infoTile(label: "NEURAL MODEL",
+                                 value: modelDisplayName(agent.model),
+                                 valueColor: accentColor)
+                        infoTile(label: "MEMORY POOL",
+                                 value: memoryDisplayName(agent.memory),
+                                 valueColor: accentColor)
+                        infoTile(label: "STATUS COLOR",
+                                 value: colorDisplayName(agent.color),
+                                 valueIcon: agent.dotColor)
+                        infoTile(label: "PROMPT SIZE",
+                                 value: promptWordCount(agent.promptBody),
+                                 valueColor: theme.primaryText)
+                    }
+
+                    // Schedule panel
                     if let sched = agent.schedule, !sched.isEmpty {
                         Divider().foregroundStyle(theme.cardBorder)
                         schedulingInfoPanel(agent: agent, schedule: sched)
@@ -757,10 +926,18 @@ struct AgentsView: View {
 
                     // System prompt
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("SYSTEM PROMPT")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(theme.tertiaryText)
-                            .kerning(0.6)
+                        HStack {
+                            Text("SYSTEM PROMPT")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                                .kerning(0.6)
+                            Spacer()
+                            Text("Markdown Enabled")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(accentColor)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(accentColor.opacity(0.12), in: Capsule())
+                        }
 
                         Text(agent.promptBody.isEmpty ? "(Kein Prompt)" : agent.promptBody)
                             .font(.system(size: 11))
@@ -788,11 +965,53 @@ struct AgentsView: View {
                     // Logbook
                     Divider().foregroundStyle(theme.cardBorder)
                     logbookPanel(agent: agent)
+
+                    // Regenerate Credentials button
+                    Button {
+                        exportAgent(agent)
+                    } label: {
+                        Text("Regenerate Credentials")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Als Markdown exportieren")
                 }
                 .padding(12)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func infoTile(label: String, value: String, valueColor: Color = .primary, valueIcon: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+                .kerning(0.5)
+            if let dot = valueIcon {
+                HStack(spacing: 5) {
+                    Circle().fill(dot).frame(width: 7, height: 7)
+                    Text(value)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                }
+            } else {
+                Text(value)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(valueColor)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 0.5))
     }
 
     // MARK: - Scheduling info panel
@@ -1142,6 +1361,11 @@ private struct AgentEditorSheet: View {
     let onCopyPreview: () -> Void
     let onSave: () -> Void
 
+    @State private var showAiPanel = false
+    @State private var aiDescription = ""
+    @State private var isGenerating = false
+    @State private var aiError: String?
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -1275,12 +1499,82 @@ private struct AgentEditorSheet: View {
                     )
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("System Prompt")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(theme.primaryText)
-                        Text("Der Inhalt unterhalb des Frontmatters wird direkt in die Agent-Datei geschrieben.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.secondaryText)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("System Prompt")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(theme.primaryText)
+                                Text("Der Inhalt unterhalb des Frontmatters wird direkt in die Agent-Datei geschrieben.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                            Spacer()
+                            Button {
+                                withAnimation(.spring(response: 0.3)) { showAiPanel.toggle() }
+                            } label: {
+                                Label(showAiPanel ? "Schliessen" : "Mit AI generieren",
+                                      systemImage: showAiPanel ? "xmark" : "sparkles")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                            .controlSize(.small)
+                        }
+
+                        if showAiPanel {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("AGENT BESCHREIBEN")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .kerning(0.5)
+
+                                TextField(
+                                    "z. B. Ein Senior VBA-Entwickler der Excel-Makros schreibt und auf Fehlerbehandlung achtet…",
+                                    text: $aiDescription,
+                                    axis: .vertical
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(3...5)
+
+                                if let aiError {
+                                    Text(aiError)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.red)
+                                }
+
+                                HStack {
+                                    Spacer()
+                                    Button {
+                                        generatePromptWithAI()
+                                    } label: {
+                                        if isGenerating {
+                                            ProgressView().controlSize(.small)
+                                            Text("Generiere…").font(.system(size: 11))
+                                        } else {
+                                            Label("Prompt generieren", systemImage: "sparkles")
+                                                .font(.system(size: 11, weight: .semibold))
+                                        }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                                    .controlSize(.small)
+                                    .disabled(aiDescription.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
+                                }
+                            }
+                            .padding(12)
+                            .background(
+                                Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255).opacity(0.07),
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(
+                                        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255).opacity(0.25),
+                                        lineWidth: 0.5
+                                    )
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
 
                         TextEditor(text: $draft.promptBody)
                             .font(.system(size: 12, design: .monospaced))
@@ -1358,5 +1652,73 @@ private struct AgentEditorSheet: View {
                 .foregroundStyle(theme.tertiaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func generatePromptWithAI() {
+        let desc = aiDescription.trimmingCharacters(in: .whitespaces)
+        guard !desc.isEmpty else { return }
+        isGenerating = true
+        aiError = nil
+
+        Task {
+            let metaHint: String
+            if !draft.name.isEmpty || !draft.description.isEmpty {
+                metaHint = " The agent is named \"\(draft.name)\" and is described as: \(draft.description)."
+            } else {
+                metaHint = ""
+            }
+
+            let userPrompt = """
+            Write a professional system prompt for an AI agent with the following role:\(metaHint)
+
+            Role description: \(desc)
+
+            Requirements:
+            - Start directly with the agent's role and responsibilities
+            - Include 4-6 concrete behavioral principles
+            - Be specific and actionable, not generic
+            - Use markdown headers (###) for sections if helpful
+            - Do NOT include any preamble, explanation, or meta-commentary — output only the system prompt text itself
+            """
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = ["-lc", "claude -p \(userPrompt.shellQuoted)"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+
+                await MainActor.run {
+                    isGenerating = false
+                    if process.terminationStatus == 0, let output = String(data: data, encoding: .utf8) {
+                        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            draft.promptBody = trimmed
+                            withAnimation { showAiPanel = false }
+                        } else {
+                            aiError = "Keine Antwort von Claude erhalten."
+                        }
+                    } else {
+                        aiError = "Claude CLI Fehler (Exit \(process.terminationStatus))."
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isGenerating = false
+                    aiError = "Fehler: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+}
+
+private extension String {
+    var shellQuoted: String {
+        "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

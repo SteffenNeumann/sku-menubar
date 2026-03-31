@@ -16,7 +16,9 @@ struct NotesView: View {
     @State private var searchText: String = ""
     @State private var filterType: NoteType? = nil
     @State private var showingDone: Bool = false
-    @State private var filterTag: String? = nil
+    @State private var filterTags: Set<String> = []
+    @State private var tagFilterAnd: Bool = false   // false = ODER, true = UND
+    @State private var showingTagManager = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -31,7 +33,14 @@ struct NotesView: View {
                 note.title.localizedCaseInsensitiveContains(searchText) ||
                 note.body.localizedCaseInsensitiveContains(searchText) ||
                 note.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-            let matchesTag    = filterTag == nil || note.tags.contains { $0 == filterTag }
+            let matchesTag: Bool
+            if filterTags.isEmpty {
+                matchesTag = true
+            } else if tagFilterAnd {
+                matchesTag = filterTags.allSatisfy { note.tags.contains($0) }
+            } else {
+                matchesTag = filterTags.contains { note.tags.contains($0) }
+            }
             return matchesType && matchesDone && matchesHide && matchesSearch && matchesTag
         }
         .sorted { $0.createdAt > $1.createdAt }
@@ -78,15 +87,27 @@ struct NotesView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showingTagManager) {
+            TagManagerSheet()
+                .environmentObject(state)
+                .environment(\.appTheme, theme)
+        }
     }
 
     // MARK: - Header
 
     private var headerBar: some View {
         HStack {
-            Text(lockedType == .task ? "Aufgaben" : lockedType == .note ? "Notizen" : "Notizen & Aufgaben")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.primaryText)
+            HStack(spacing: 6) {
+                if let t = lockedType {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(noteTypeColor(t))
+                        .frame(width: 4, height: 16)
+                }
+                Text(lockedType == .task ? "Aufgaben" : lockedType == .note ? "Notizen" : "Notizen & Aufgaben")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(lockedType != nil ? noteTypeColor(lockedType!) : theme.primaryText)
+            }
             Spacer()
             if lockedType == nil || lockedType == .note {
                 Button {
@@ -116,6 +137,18 @@ struct NotesView: View {
                 .buttonStyle(.plain)
                 .help("Neue Aufgabe")
             }
+            Button {
+                showingTagManager = true
+            } label: {
+                Image(systemName: "tag")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(accentColor)
+                    .frame(width: 28, height: 28)
+                    .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .help("Tags verwalten")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -184,21 +217,35 @@ struct NotesView: View {
                         Image(systemName: "tag")
                             .font(.system(size: 9))
                             .foregroundStyle(theme.tertiaryText)
-                        if filterTag != nil {
+                        if !filterTags.isEmpty {
                             Button {
-                                withAnimation(.easeInOut(duration: 0.12)) { filterTag = nil }
+                                withAnimation(.easeInOut(duration: 0.12)) { filterTags.removeAll() }
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 9))
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .buttonStyle(.plain)
+                            if filterTags.count >= 2 {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.12)) { tagFilterAnd.toggle() }
+                                } label: {
+                                    Text(tagFilterAnd ? "UND" : "ODER")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(accentColor)
+                                        .padding(.horizontal, 6).padding(.vertical, 3)
+                                        .background(accentColor.opacity(0.15), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(accentColor.opacity(0.35), lineWidth: 0.5))
+                                }
+                                .buttonStyle(.plain)
+                                .help(tagFilterAnd ? "Modus: Alle Tags müssen passen (klicken für ODER)" : "Modus: Mindestens ein Tag muss passen (klicken für UND)")
+                            }
                         }
                         ForEach(allTagsInList, id: \.self) { tag in
-                            let active = filterTag == tag
+                            let active = filterTags.contains(tag)
                             Button {
                                 withAnimation(.easeInOut(duration: 0.12)) {
-                                    filterTag = active ? nil : tag
+                                    if active { filterTags.remove(tag) } else { filterTags.insert(tag) }
                                 }
                             } label: {
                                 Text(tag)
@@ -283,8 +330,11 @@ struct NotesView: View {
                         toggleDone(note)
                     } label: {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 5)
+                            Circle()
                                 .fill(noteTypeColor(note.type).opacity(note.done ? 0.25 : 0.12))
+                                .frame(width: 22, height: 22)
+                            Circle()
+                                .strokeBorder(noteTypeColor(note.type).opacity(0.4), lineWidth: 1)
                                 .frame(width: 22, height: 22)
                             Image(systemName: noteTypeIcon(note))
                                 .font(.system(size: 10))
@@ -298,6 +348,9 @@ struct NotesView: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: 5)
                             .fill(noteTypeColor(note.type).opacity(0.15))
+                            .frame(width: 22, height: 22)
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(noteTypeColor(note.type).opacity(0.3), lineWidth: 0.5)
                             .frame(width: 22, height: 22)
                         Image(systemName: noteTypeIcon(note))
                             .font(.system(size: 10))
@@ -351,11 +404,12 @@ struct NotesView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 3) {
                                 ForEach(note.tags, id: \.self) { tag in
+                                    let highlighted = filterTags.contains(tag)
                                     Text(tag)
                                         .font(.system(size: 8))
-                                        .foregroundStyle(filterTag == tag ? accentColor : theme.tertiaryText)
+                                        .foregroundStyle(highlighted ? accentColor : theme.tertiaryText)
                                         .padding(.horizontal, 4).padding(.vertical, 1)
-                                        .background((filterTag == tag ? accentColor : theme.cardBorder).opacity(0.25), in: Capsule())
+                                        .background((highlighted ? accentColor : theme.cardBorder).opacity(0.25), in: Capsule())
                                 }
                             }
                         }
@@ -370,12 +424,23 @@ struct NotesView: View {
             .padding(.horizontal, 8).padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? accentColor.opacity(0.10) : Color.clear)
+                    .fill(isSelected
+                        ? accentColor.opacity(0.12)
+                        : noteTypeColor(note.type).opacity(0.05))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? accentColor.opacity(0.25) : Color.clear, lineWidth: 0.5)
+                    .strokeBorder(
+                        isSelected ? accentColor.opacity(0.3) : noteTypeColor(note.type).opacity(0.15),
+                        lineWidth: 0.5)
             )
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(noteTypeColor(note.type).opacity(note.done ? 0.25 : 0.65))
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 1)
+            }
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -571,7 +636,12 @@ struct NoteEditorView: View {
                     }
 
                     // Inline tag input
-                    TagInputView(tags: $note.tags, theme: theme, accent: accentColor)
+                    TagInputView(
+                        tags: $note.tags,
+                        theme: theme,
+                        accent: accentColor,
+                        allTags: Array(Set(state.notes.flatMap { $0.tags })).sorted()
+                    )
                 }
             }
 
@@ -606,8 +676,21 @@ private struct TagInputView: View {
     @Binding var tags: [String]
     let theme: AppTheme
     let accent: Color
+    let allTags: [String]
     @State private var input = ""
     @FocusState private var focused: Bool
+
+    private var suggestions: [String] {
+        guard !input.isEmpty else { return [] }
+        return allTags.filter { !tags.contains($0) && $0.localizedCaseInsensitiveContains(input) }.prefix(5).map { $0 }
+    }
+
+    private func addTag(_ tag: String) {
+        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && !tags.contains(trimmed) { tags.append(trimmed) }
+        input = ""
+        focused = false
+    }
 
     var body: some View {
         TextField("+Tag", text: $input)
@@ -616,15 +699,182 @@ private struct TagInputView: View {
             .textFieldStyle(.plain)
             .frame(width: focused ? 80 : 36)
             .focused($focused)
-            .onSubmit {
-                let tag = input.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !tag.isEmpty && !tags.contains(tag) {
-                    tags.append(tag)
-                }
-                input = ""
-                focused = false
-            }
+            .onSubmit { addTag(input) }
             .animation(.easeInOut(duration: 0.12), value: focused)
+            .popover(
+                isPresented: Binding(get: { focused && !suggestions.isEmpty }, set: { _ in }),
+                arrowEdge: .bottom
+            ) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(suggestions, id: \.self) { tag in
+                        Button { addTag(tag) } label: {
+                            Text(tag)
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+                .frame(minWidth: 120)
+                .background(theme.windowBg)
+            }
+    }
+}
+
+// MARK: - Tag Manager Sheet
+
+struct TagManagerSheet: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.appTheme) var theme
+    @Environment(\.dismiss) var dismiss
+
+    @State private var editingTag: String? = nil
+    @State private var editText: String = ""
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    private var allTagsWithCount: [(tag: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for note in state.notes {
+            for tag in note.tags { counts[tag, default: 0] += 1 }
+        }
+        return counts.map { (tag: $0.key, count: $0.value) }.sorted { $0.tag < $1.tag }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Tags verwalten")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            if allTagsWithCount.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "tag.slash")
+                        .font(.system(size: 28))
+                        .foregroundStyle(theme.tertiaryText)
+                    Text("Keine Tags vorhanden")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 1) {
+                        ForEach(allTagsWithCount, id: \.tag) { item in
+                            tagRow(item.tag, count: item.count)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+        .frame(width: 300, height: 360)
+        .background(theme.windowBg)
+    }
+
+    @ViewBuilder
+    private func tagRow(_ tag: String, count: Int) -> some View {
+        HStack(spacing: 8) {
+            if editingTag == tag {
+                TextField("Tag-Name", text: $editText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.primaryText)
+                    .textFieldStyle(.plain)
+                    .onSubmit { commitRename(from: tag) }
+
+                Button { commitRename(from: tag) } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(accentColor)
+                }
+                .buttonStyle(.plain)
+
+                Button { editingTag = nil } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Image(systemName: "tag.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(accentColor.opacity(0.7))
+
+                Text(tag)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.primaryText)
+
+                Text("·  \(count)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+
+                Spacer()
+
+                Button {
+                    editingTag = tag
+                    editText = tag
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Umbenennen")
+
+                Button { deleteTag(tag) } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red.opacity(0.65))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Tag löschen")
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(editingTag == tag ? accentColor.opacity(0.07) : Color.clear)
+        .contentShape(Rectangle())
+    }
+
+    private func commitRename(from oldTag: String) {
+        let newTag = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newTag.isEmpty, newTag != oldTag else { editingTag = nil; return }
+        for i in state.notes.indices {
+            if let idx = state.notes[i].tags.firstIndex(of: oldTag) {
+                if !state.notes[i].tags.contains(newTag) {
+                    state.notes[i].tags[idx] = newTag
+                } else {
+                    state.notes[i].tags.remove(at: idx)
+                }
+            }
+        }
+        editingTag = nil
+    }
+
+    private func deleteTag(_ tag: String) {
+        for i in state.notes.indices {
+            state.notes[i].tags.removeAll { $0 == tag }
+        }
     }
 }
 
