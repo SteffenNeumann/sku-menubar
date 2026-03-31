@@ -230,6 +230,58 @@ struct KnownModel: Identifiable {
     }
 }
 
+// MARK: - MCP Log Entry
+
+struct MCPLogEntry: Identifiable {
+    let id = UUID()
+    let timestamp: Date
+    let node: String
+    let event: String
+    let status: MCPLogStatus
+    let duration: String
+
+    enum MCPLogStatus {
+        case success, error, retriable, pending
+
+        var label: String {
+            switch self {
+            case .success:   return "SUCCESS"
+            case .error:     return "ERROR"
+            case .retriable: return "RETRIABLE"
+            case .pending:   return "PENDING"
+            }
+        }
+        var color: Color {
+            switch self {
+            case .success:   return .green
+            case .error:     return .red
+            case .retriable: return .orange
+            case .pending:   return .yellow
+            }
+        }
+    }
+}
+
+// MARK: - Sidebar Filter
+
+private enum MCPFilter: String, CaseIterable {
+    case all           = "All Servers"
+    case connected     = "Connected"
+    case authentication = "Authentication"
+    case errorLogs     = "Error Logs"
+    case systemHealth  = "System Health"
+
+    var icon: String {
+        switch self {
+        case .all:            return "server.rack"
+        case .connected:      return "link"
+        case .authentication: return "lock.shield"
+        case .errorLogs:      return "exclamationmark.triangle"
+        case .systemHealth:   return "heart.text.square"
+        }
+    }
+}
+
 // MARK: - MCPView
 
 struct MCPView: View {
@@ -240,35 +292,40 @@ struct MCPView: View {
     @State private var lastLoaded: Date?
     @State private var showAddSheet = false
     @State private var removingId: String?
+    @State private var selectedFilter: MCPFilter = .all
+    @State private var logs: [MCPLogEntry] = []
+    @State private var showAllLogs = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            headerBar
-            Divider().foregroundStyle(theme.cardBorder)
+    // Derived counts
+    private var connectedCount: Int { servers.filter { $0.status == .connected }.count }
+    private var authCount: Int { servers.filter { if case .needsAuth = $0.status { return true }; return false }.count }
+    private var errorCount: Int { servers.filter { if case .error = $0.status { return true }; return false }.count }
+    private var offlineCount: Int { servers.filter { if case .unknown = $0.status { return true }; return false }.count }
 
-            if isLoading {
-                Spacer()
-                ProgressView("MCP Server werden abgefragt…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.secondaryText)
-                Spacer()
-            } else if servers.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        summaryRow
-                        ForEach(servers) { server in
-                            serverCard(server)
-                        }
-                    }
-                    .padding(16)
-                }
-            }
+    private var uptimePercent: Double {
+        guard !servers.isEmpty else { return 0 }
+        return Double(connectedCount) / Double(servers.count) * 100
+    }
+
+    private var filteredServers: [MCPServer] {
+        switch selectedFilter {
+        case .all:            return servers
+        case .connected:      return servers.filter { $0.status == .connected }
+        case .authentication: return servers.filter { if case .needsAuth = $0.status { return true }; return false }
+        case .errorLogs:      return servers.filter { if case .error = $0.status { return true }; return false }
+        case .systemHealth:   return servers
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebarNav
+            Divider().foregroundStyle(theme.cardBorder)
+            mainContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await load() }
@@ -279,174 +336,615 @@ struct MCPView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Sidebar Navigation
 
-    private var headerBar: some View {
-        HStack {
+    private var sidebarNav: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Title
             VStack(alignment: .leading, spacing: 2) {
-                Text("MCP Server")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                if let t = lastLoaded {
-                    Text("Zuletzt: \(t.formatted(date: .omitted, time: .shortened))")
-                        .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
-                }
+                Text("COMMAND CENTER")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(accentColor)
+                    .tracking(1.5)
+                Text("LUMINOUS DEPTH v1")
+                    .font(.system(size: 7, weight: .medium, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+                    .tracking(0.8)
+            }
+            .padding(.bottom, 16)
+
+            ForEach(MCPFilter.allCases, id: \.self) { filter in
+                sidebarItem(filter)
             }
 
             Spacer()
 
+            // Deploy button
             Button {
                 showAddSheet = true
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus").font(.system(size: 11, weight: .medium))
-                    Text("Hinzufügen").font(.system(size: 11, weight: .medium))
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 10))
+                    Text("DEPLOY NEW SERVER").font(.system(size: 9, weight: .bold, design: .monospaced))
                 }
-                .foregroundStyle(accentColor)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(
+                    LinearGradient(colors: [accentColor, accentColor.opacity(0.7)], startPoint: .leading, endPoint: .trailing),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
             }
             .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 160)
+        .background(theme.sidebarBg)
+    }
 
-            Button {
-                Task { await load() }
-            } label: {
-                HStack(spacing: 4) {
-                    if isLoading { ProgressView().scaleEffect(0.6).frame(width: 12, height: 12) }
-                    else { Image(systemName: "arrow.clockwise").font(.system(size: 11)) }
-                    Text("Aktualisieren").font(.system(size: 11, weight: .medium))
+    private func sidebarItem(_ filter: MCPFilter) -> some View {
+        let active = selectedFilter == filter
+        let badgeCount: Int? = {
+            switch filter {
+            case .connected:      return connectedCount
+            case .authentication: return authCount > 0 ? authCount : nil
+            case .errorLogs:      return errorCount > 0 ? errorCount : nil
+            default:              return nil
+            }
+        }()
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selectedFilter = filter }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: filter.icon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(active ? accentColor : theme.secondaryText)
+                    .frame(width: 16)
+                Text(filter.rawValue)
+                    .font(.system(size: 11, weight: active ? .semibold : .regular))
+                    .foregroundStyle(active ? accentColor : theme.secondaryText)
+                Spacer()
+                if let count = badgeCount {
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(active ? accentColor : theme.tertiaryText)
                 }
-                .foregroundStyle(theme.secondaryText)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
-            .buttonStyle(.plain)
-            .disabled(isLoading)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(active ? accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
         }
-        .padding(16)
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Summary
+    // MARK: - Main Content
 
-    private var summaryRow: some View {
-        HStack(spacing: 12) {
-            summaryCard(
-                count: servers.filter { $0.status == .connected }.count,
-                label: "Verbunden", color: .green, icon: "checkmark.circle.fill"
-            )
-            summaryCard(
-                count: servers.filter {
-                    if case .needsAuth = $0.status { return true }; return false
-                }.count,
-                label: "Auth. nötig", color: .orange, icon: "lock.fill"
-            )
-            summaryCard(
-                count: servers.filter {
-                    if case .error = $0.status { return true }; return false
-                }.count,
-                label: "Fehler", color: .red, icon: "xmark.circle.fill"
-            )
-        }
-    }
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            commandCenterHeader
+            Divider().foregroundStyle(theme.cardBorder)
 
-    private func summaryCard(count: Int, label: String, color: Color, icon: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(count)").font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(theme.primaryText)
-                Text(label).font(.system(size: 10)).foregroundStyle(theme.secondaryText)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .mirrorCard()
-    }
-
-    // MARK: - Server card
-
-    private func serverCard(_ server: MCPServer) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(server.status.color.opacity(0.15))
-                    .frame(width: 36, height: 36)
-                Image(systemName: server.status.icon)
-                    .font(.system(size: 14))
-                    .foregroundStyle(server.status.color)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(server.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                    if server.type != "unknown" {
-                        Text(server.type.uppercased())
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(theme.tertiaryText)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(theme.primaryText.opacity(0.06), in: Capsule())
+            if isLoading && servers.isEmpty {
+                Spacer()
+                ProgressView("MCP Server werden abgefragt…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer()
+            } else if servers.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        statusDashboard
+                        serverGrid
+                        systemLogsSection
                     }
-                    Spacer()
-                    statusBadge(server.status)
+                    .padding(20)
                 }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-                Text(server.detail.isEmpty ? server.status.label : server.detail)
+    // MARK: - Command Center Header
+
+    private var commandCenterHeader: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("my MCP's")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(theme.primaryText)
+                Text("Orchestrate your Model Context Protocol nodes with ethereal precision.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.secondaryText)
             }
 
-            Button {
-                Task { await removeServer(server) }
-            } label: {
-                if removingId == server.id {
-                    ProgressView().scaleEffect(0.55).frame(width: 18, height: 18)
-                } else {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.red.opacity(0.6))
+            Spacer()
+
+            HStack(spacing: 8) {
+                Button {
+                    Task { await load() }
+                } label: {
+                    HStack(spacing: 5) {
+                        if isLoading { ProgressView().scaleEffect(0.55).frame(width: 12, height: 12) }
+                        else { Image(systemName: "arrow.clockwise").font(.system(size: 10)) }
+                        Text("Aktualisieren").font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(theme.primaryText)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
+
+                Button {
+                    showAddSheet = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus").font(.system(size: 10, weight: .bold))
+                        Text("Hinzufügen").font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 16)
+    }
+
+    // MARK: - Status Dashboard (3 large summary cards)
+
+    private var statusDashboard: some View {
+        HStack(spacing: 12) {
+            statusMetricCard(
+                header: "ACTIVE STATUS",
+                value: String(format: "%02d", connectedCount),
+                subtitle: "Nodes Online",
+                footnote: uptimePercent > 0
+                    ? String(format: "%.1f%% Uptime-Efficiency", uptimePercent)
+                    : nil,
+                footnoteColor: .green,
+                footnoteIcon: "circle.fill"
+            )
+            statusMetricCard(
+                header: "ATTENTION REQUIRED",
+                value: String(format: "%02d", authCount),
+                subtitle: "Auth Pending",
+                footnote: authCount > 0 ? "Immediate action recommended" : nil,
+                footnoteColor: .orange,
+                footnoteIcon: "exclamationmark.triangle.fill"
+            )
+            statusMetricCard(
+                header: "HEALTH ISSUES",
+                value: String(format: "%02d", errorCount + offlineCount),
+                subtitle: "Offline node\(errorCount + offlineCount == 1 ? "" : "s")",
+                footnote: errorCount > 0 ? "Cluster unresponsive" : nil,
+                footnoteColor: .red,
+                footnoteIcon: "circle.fill"
+            )
+        }
+    }
+
+    private func statusMetricCard(header: String, value: String, subtitle: String, footnote: String?, footnoteColor: Color, footnoteIcon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(header)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.tertiaryText)
+                .tracking(0.8)
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(value)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText)
+            }
+
+            if let note = footnote {
+                HStack(spacing: 4) {
+                    Image(systemName: footnoteIcon)
+                        .font(.system(size: 6))
+                        .foregroundStyle(footnoteColor)
+                    Text(note)
+                        .font(.system(size: 10))
+                        .foregroundStyle(footnoteColor.opacity(0.8))
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(removingId != nil)
-            .help("Server entfernen")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .mirrorCard()
+    }
+
+    // MARK: - Server Grid (2 columns)
+
+    private var serverGrid: some View {
+        let columns = [
+            GridItem(.flexible(), spacing: 12),
+            GridItem(.flexible(), spacing: 12)
+        ]
+
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(filteredServers) { server in
+                serverNodeCard(server)
+            }
+
+            // "Connect Node" placeholder card
+            if selectedFilter == .all {
+                connectNodePlaceholder
+            }
+        }
+    }
+
+    private func serverNodeCard(_ server: MCPServer) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Top row: icon + status badge
+            HStack {
+                // Server type icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(theme.cardBg)
+                        .frame(width: 34, height: 34)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                        )
+                    Image(systemName: serverIcon(for: server))
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.secondaryText)
+                }
+
+                Spacer()
+
+                statusPill(server.status)
+            }
+
+            // Server name + description
+            VStack(alignment: .leading, spacing: 3) {
+                Text(server.name)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+
+                Text(serverDescription(for: server))
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+            }
+
+            // Endpoint row
+            VStack(alignment: .leading, spacing: 4) {
+                Text("ENDPOINT")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+                    .tracking(0.6)
+
+                Text(serverEndpoint(for: server))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.windowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+
+            // Bottom: health + action
+            HStack {
+                healthIndicator(server.status)
+
+                Spacer()
+
+                if server.status == .needsAuth {
+                    Button {
+                        // re-authenticate action
+                        Task { await load() }
+                    } label: {
+                        Text("Re-authenticate")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Delete button
+                Button {
+                    Task { await removeServer(server) }
+                } label: {
+                    if removingId == server.id {
+                        ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.red.opacity(0.5))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(removingId != nil)
+                .help("Server entfernen")
+            }
         }
         .padding(14)
         .mirrorCard()
     }
 
-    private func statusBadge(_ status: MCPStatus) -> some View {
-        Text(status.label)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(status.color)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(status.color.opacity(0.12), in: Capsule())
+    private var connectNodePlaceholder: some View {
+        Button {
+            showAddSheet = true
+        } label: {
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(theme.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [4]))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Text("Connect Node")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+                Text("Add a custom MCP endpoint")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            .frame(maxWidth: .infinity, minHeight: 140)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(theme.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [6]))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Status Pill
+
+    private func statusPill(_ status: MCPStatus) -> some View {
+        Text(statusPillLabel(status))
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(status.color, in: Capsule())
+    }
+
+    private func statusPillLabel(_ status: MCPStatus) -> String {
+        switch status {
+        case .connected:  return "Connected"
+        case .needsAuth:  return "Auth Required"
+        case .error:      return "Offline"
+        case .unknown:    return "Unknown"
+        }
+    }
+
+    // MARK: - Health Indicator
+
+    private func healthIndicator(_ status: MCPStatus) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(healthColor(status))
+                .frame(width: 6, height: 6)
+            Text("Health: \(healthLabel(status))")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.secondaryText)
+        }
+    }
+
+    private func healthColor(_ status: MCPStatus) -> Color {
+        switch status {
+        case .connected:  return .green
+        case .needsAuth:  return .orange
+        case .error:      return .red
+        case .unknown:    return .yellow
+        }
+    }
+
+    private func healthLabel(_ status: MCPStatus) -> String {
+        switch status {
+        case .connected:  return "Optimal"
+        case .needsAuth:  return "Degraded"
+        case .error:      return "Critical"
+        case .unknown:    return "Pending"
+        }
+    }
+
+    // MARK: - Server Helpers
+
+    private func serverIcon(for server: MCPServer) -> String {
+        let n = server.name.lowercased()
+        if n.contains("github")     { return "cat.fill" }
+        if n.contains("gitlab")     { return "cat.fill" }
+        if n.contains("linear")     { return "list.bullet.rectangle" }
+        if n.contains("slack")      { return "number.square" }
+        if n.contains("notion")     { return "doc.text" }
+        if n.contains("postgres")   { return "cylinder" }
+        if n.contains("sqlite")     { return "cylinder" }
+        if n.contains("gmail") || n.contains("mail") || n.contains("email") { return "envelope.fill" }
+        if n.contains("filesystem") || n.contains("memory") { return "folder.fill" }
+        if n.contains("brave") || n.contains("fetch") || n.contains("playwright") || n.contains("puppeteer") { return "globe" }
+        if n.contains("sentry")     { return "ladybug.fill" }
+        if n.contains("gdrive") || n.contains("google") { return "externaldrive.fill" }
+        if n.contains("sequential") || n.contains("think") { return "brain" }
+        return "server.rack"
+    }
+
+    private func serverDescription(for server: MCPServer) -> String {
+        let n = server.name.lowercased()
+        if n.contains("github")     { return "Code context & PR management" }
+        if n.contains("gitlab")     { return "GitLab project orchestration" }
+        if n.contains("linear")     { return "Linear ticketing orchestration" }
+        if n.contains("slack")      { return "Channel monitoring & reporting" }
+        if n.contains("notion")     { return "Documentation & Wiki indexing" }
+        if n.contains("postgres")   { return "Production analytics cluster" }
+        if n.contains("sqlite")     { return "Local database access" }
+        if n.contains("gmail") || n.contains("mail") { return "Enterprise email retrieval" }
+        if n.contains("filesystem") { return "Local project filesystem indexing" }
+        if n.contains("memory")     { return "Persistent context storage" }
+        if n.contains("brave")      { return "Web search via Brave API" }
+        if n.contains("fetch")      { return "Direct web & API access" }
+        if n.contains("playwright") || n.contains("puppeteer") { return "Browser automation engine" }
+        if n.contains("sentry")     { return "Error tracking & monitoring" }
+        if n.contains("sequential") { return "Structured reasoning pipeline" }
+        return server.detail.isEmpty ? "MCP endpoint" : server.detail
+    }
+
+    private func serverEndpoint(for server: MCPServer) -> String {
+        let n = server.name.lowercased()
+        if server.type == "http" || server.type == "sse" {
+            return server.detail.isEmpty ? "https://\(server.name.lowercased()).endpoint" : server.detail
+        }
+        if n.contains("github")     { return "github.mcp.io/v3/au..." }
+        if n.contains("slack")      { return "https://hooks.slack..." }
+        if n.contains("notion")     { return "api.notion.com/v1/m..." }
+        if n.contains("postgres")   { return "localhost:5432/mcp_..." }
+        if n.contains("filesystem") { return "/Users/admin/projec..." }
+        if n.contains("linear")     { return "https://api.linear...." }
+        return "\(server.type)://\(server.name.lowercased())"
+    }
+
+    // MARK: - System Logs Section
+
+    private var systemLogsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Recent System Logs")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                if !logs.isEmpty {
+                    Button {
+                        showAllLogs.toggle()
+                    } label: {
+                        Text(showAllLogs ? "COLLAPSE" : "VIEW ALL LOGS")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(accentColor)
+                            .tracking(0.5)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if logs.isEmpty {
+                // Generate logs from server states
+                logTable(generateLogs())
+            } else {
+                logTable(showAllLogs ? logs : Array(logs.prefix(5)))
+            }
+        }
+    }
+
+    private func logTable(_ entries: [MCPLogEntry]) -> some View {
+        VStack(spacing: 0) {
+            // Header row
+            HStack(spacing: 0) {
+                Text("TIMESTAMP").frame(width: 100, alignment: .leading)
+                Text("NODE").frame(width: 130, alignment: .leading)
+                Text("EVENT").frame(maxWidth: .infinity, alignment: .leading)
+                Text("STATUS").frame(width: 80, alignment: .leading)
+                Text("DURATION").frame(width: 60, alignment: .trailing)
+            }
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundStyle(theme.tertiaryText)
+            .tracking(0.5)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            ForEach(entries) { entry in
+                HStack(spacing: 0) {
+                    Text(entry.timestamp.formatted(date: .omitted, time: .standard))
+                        .frame(width: 100, alignment: .leading)
+                    Text(entry.node)
+                        .fontWeight(.medium)
+                        .frame(width: 130, alignment: .leading)
+                    Text(entry.event)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(entry.status.label)
+                        .foregroundStyle(entry.status.color)
+                        .fontWeight(.bold)
+                        .frame(width: 80, alignment: .leading)
+                    Text(entry.duration)
+                        .frame(width: 60, alignment: .trailing)
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+
+                Divider().foregroundStyle(theme.cardBorder.opacity(0.5))
+            }
+        }
+        .mirrorCard()
+    }
+
+    // Generate mock logs from real server states
+    private func generateLogs() -> [MCPLogEntry] {
+        let now = Date()
+        return servers.enumerated().compactMap { index, server in
+            let offset = TimeInterval(-index * 97 - 23)
+            let ts = now.addingTimeInterval(offset)
+
+            let event: String
+            let status: MCPLogEntry.MCPLogStatus
+            let duration: String
+
+            switch server.status {
+            case .connected:
+                event = "Health check passed"
+                status = .success
+                duration = "\(Int.random(in: 80...450))ms"
+            case .needsAuth:
+                event = "Authentication handshake failed"
+                status = .retriable
+                duration = "\(Double.random(in: 1.2...4.8).formatted(.number.precision(.fractionLength(1))))s"
+            case .error:
+                event = "Connection timeout (TCP)"
+                status = .error
+                duration = "30.0s"
+            case .unknown:
+                event = "Status probe pending"
+                status = .pending
+                duration = "—"
+            }
+
+            return MCPLogEntry(timestamp: ts, node: server.name, event: event, status: status, duration: duration)
+        }
     }
 
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "network.slash")
-                .font(.system(size: 38)).foregroundStyle(theme.tertiaryText)
-            Text("Keine MCP Server gefunden")
-                .font(.system(size: 14, weight: .medium)).foregroundStyle(theme.secondaryText)
-            Text("Füge deinen ersten Server hinzu.")
-                .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .strokeBorder(theme.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [4]))
+                    .frame(width: 60, height: 60)
+                Image(systemName: "server.rack")
+                    .font(.system(size: 26))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            Text("No nodes deployed yet")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.secondaryText)
+            Text("Deploy your first MCP server to start orchestrating.")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.tertiaryText)
                 .multilineTextAlignment(.center)
 
             Button {
                 showAddSheet = true
             } label: {
-                Label("Server hinzufügen", systemImage: "plus.circle")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(accentColor)
-                    .padding(.horizontal, 14).padding(.vertical, 7)
-                    .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 11))
+                    Text("Deploy First Node").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(accentColor, in: RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
         }
@@ -465,6 +963,8 @@ struct MCPView: View {
                 : state.mcpService.servers
         }
         lastLoaded = .now
+        // Refresh logs
+        logs = generateLogs()
     }
 
     private func removeServer(_ server: MCPServer) async {
