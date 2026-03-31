@@ -247,13 +247,6 @@ struct SingleChatSessionView: View {
                 messages = tab.messages
                 selectedModel = tab.model
                 selectedAgent = tab.agentId
-
-                // Automatically open project picker for new empty chats
-                if messages.isEmpty, tab.sessionId == nil {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        openDirectoryPicker()
-                    }
-                }
             }
         }
         // Sync messages back to tab only when NOT streaming to avoid
