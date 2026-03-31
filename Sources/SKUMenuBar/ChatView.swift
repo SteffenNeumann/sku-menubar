@@ -1051,7 +1051,7 @@ struct SingleChatSessionView: View {
         model: String,
         isFallback: Bool
     ) async {
-        let source = inferredSource(from: model)
+        let source: ChatProviderSource = isFallback ? .copilot : inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
             messages[assistantIndex].source = source
             if messages[assistantIndex].model == nil || messages[assistantIndex].model?.isEmpty == true {

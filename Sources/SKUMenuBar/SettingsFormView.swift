@@ -219,10 +219,19 @@ struct SettingsFormView: View {
                                         }
                                         if draft.copilotFallbackEnabled {
                                             VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Fallback-Modell (Claude CLI Model-Name)")
-                                                TextField("github/claude-sonnet-4-5", text: $draft.copilotFallbackModel)
-                                                    .textFieldStyle(.plain)
-                                                    .styledInput(theme: theme)
+                                                fieldLabel("Fallback-Modell")
+                                                Picker("", selection: $draft.copilotFallbackModel) {
+                                                    ForEach(KnownModel.all, id: \.apiName) { model in
+                                                        Text("\(model.name) (\(model.provider))")
+                                                            .tag(model.apiName)
+                                                    }
+                                                }
+                                                .labelsHidden()
+                                                .pickerStyle(.menu)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(theme.cardBg.opacity(0.5))
+                                                .cornerRadius(6)
                                             }
                                             Text("Wird automatisch aktiviert wenn Claude einen Rate-Limit-Fehler zurückgibt. Indikator erscheint in der Seitenleiste.")
                                                 .font(.system(size: 10))
