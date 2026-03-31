@@ -158,9 +158,11 @@ struct StreamEvent: Decodable {
     let inputTokens: Int?
     let outputTokens: Int?
     let isError: Bool?
+    let result: String?    // text result in "result" events
+    let error: String?     // e.g. "rate_limit" in assistant events
 
     enum CodingKeys: String, CodingKey {
-        case type, subtype, message
+        case type, subtype, message, result, error
         case sessionId    = "session_id"
         case costUsd      = "cost_usd"
         case inputTokens  = "input_tokens"

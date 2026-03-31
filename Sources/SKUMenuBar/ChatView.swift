@@ -1099,6 +1099,41 @@ struct SingleChatSessionView: View {
                         messages[assistantIndex].outputTokens = usage.outputTokens ?? 0
                     }
 
+                    // Claude CLI sends error:"rate_limit" on the assistant event
+                    if event.error == "rate_limit", !isFallback, state.settings.copilotFallbackEnabled {
+                        state.claudeRateLimitActive = true
+                        if messages.indices.contains(assistantIndex) {
+                            messages[assistantIndex].content = ""
+                            messages[assistantIndex].toolCalls = []
+                            messages[assistantIndex].isStreaming = true
+                        }
+                        await performSend(
+                            message: message,
+                            assistantIndex: assistantIndex,
+                            model: state.settings.copilotFallbackModel,
+                            isFallback: true
+                        )
+                        return
+                    }
+
+                // Claude CLI 2.x sends rate_limit_event before the assistant/result events
+                case "rate_limit_event":
+                    if !isFallback, state.settings.copilotFallbackEnabled {
+                        state.claudeRateLimitActive = true
+                        if messages.indices.contains(assistantIndex) {
+                            messages[assistantIndex].content = ""
+                            messages[assistantIndex].toolCalls = []
+                            messages[assistantIndex].isStreaming = true
+                        }
+                        await performSend(
+                            message: message,
+                            assistantIndex: assistantIndex,
+                            model: state.settings.copilotFallbackModel,
+                            isFallback: true
+                        )
+                        return
+                    }
+
                 case "result":
                     messages[assistantIndex].costUsd = event.costUsd
                     if let sid = event.sessionId {
@@ -1111,12 +1146,14 @@ struct SingleChatSessionView: View {
                             ? messages[assistantIndex].content
                             : ""
                         let resultText = event.message?.content?.compactMap(\.text).joined() ?? ""
-                        let combined = (contentText + " " + resultText).lowercased()
+                        let eventResult = event.result ?? ""
+                        let combined = (contentText + " " + resultText + " " + eventResult).lowercased()
 
                         let isRateLimit = combined.contains("rate limit") ||
                                           combined.contains("ratelimit") ||
                                           combined.contains("usage limit") ||
                                           combined.contains("limit reached") ||
+                                          combined.contains("hit your limit") ||
                                           combined.contains("overloaded") ||
                                           combined.contains("quota") ||
                                           combined.contains("529") ||
@@ -1165,6 +1202,7 @@ struct SingleChatSessionView: View {
                               combinedErr.contains("ratelimit") ||
                               combinedErr.contains("usage limit") ||
                               combinedErr.contains("limit reached") ||
+                              combinedErr.contains("hit your limit") ||
                               combinedErr.contains("overloaded") ||
                               combinedErr.contains("quota") ||
                               combinedErr.contains("529") ||
@@ -1214,11 +1252,13 @@ struct SingleChatSessionView: View {
                 finalContent.contains("rate limit") ||
                 finalContent.contains("limit reached") ||
                 finalContent.contains("limit_reached") ||
+                finalContent.contains("hit your limit") ||
                 finalContent.contains("plan limit") ||
                 finalContent.contains("usagelimitreached") ||
                 finalContent.contains("overloaded") ||
                 finalContent.contains("quota exceeded") ||
-                (finalContent.contains("claude.ai") && finalContent.contains("limit"))
+                (finalContent.contains("claude.ai") && finalContent.contains("limit")) ||
+                (finalContent.contains("hit") && finalContent.contains("limit") && finalContent.contains("resets"))
             if isRateLimitContent {
                 state.claudeRateLimitActive = true
                 messages[assistantIndex].content = ""
