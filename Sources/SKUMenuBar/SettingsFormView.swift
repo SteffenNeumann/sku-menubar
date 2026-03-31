@@ -219,9 +219,14 @@ struct SettingsFormView: View {
                                         }
                                         if draft.copilotFallbackEnabled {
                                             VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Fallback-Modell")
+                                                fieldLabel("Fallback-Modell (muss github/... sein für Copilot-Routing)")
                                                 Picker("", selection: $draft.copilotFallbackModel) {
-                                                    ForEach(KnownModel.all, id: \.apiName) { model in
+                                                    ForEach(KnownModel.all.filter { $0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
+                                                        Text("\(model.name) (\(model.provider))")
+                                                            .tag(model.apiName)
+                                                    }
+                                                    Divider()
+                                                    ForEach(KnownModel.all.filter { !$0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
                                                         Text("\(model.name) (\(model.provider))")
                                                             .tag(model.apiName)
                                                     }

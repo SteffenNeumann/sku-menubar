@@ -1057,9 +1057,14 @@ struct SingleChatSessionView: View {
             }
         }
 
+        // For fallback: do NOT resume the old Claude session — start fresh so the
+        // github/ model is actually routed through Copilot (--resume overrides --model)
+        let sessionIdToUse: String? = isFallback ? nil : currentSessionId
+        if isFallback { currentSessionId = nil }
+
         let stream = state.cliService.send(
             message: message,
-            sessionId: currentSessionId,
+            sessionId: sessionIdToUse,
             agentName: selectedAgent.isEmpty ? nil : selectedAgent,
             model: model,
             workingDirectory: workingDirectory,
@@ -1191,20 +1196,15 @@ struct SingleChatSessionView: View {
             }
         } catch {
             let errText = error.localizedDescription.lowercased()
-            // Also check already-streamed content (error may have arrived via JSON before process exit)
-            let streamedContent = messages.indices.contains(assistantIndex)
-                ? messages[assistantIndex].content.lowercased()
-                : ""
-            let combinedErr = errText + " " + streamedContent
-            let isRateLimit = combinedErr.contains("rate limit") ||
-                              combinedErr.contains("ratelimit") ||
-                              combinedErr.contains("usage limit") ||
-                              combinedErr.contains("limit reached") ||
-                              combinedErr.contains("hit your limit") ||
-                              combinedErr.contains("overloaded") ||
-                              combinedErr.contains("quota") ||
-                              combinedErr.contains("529") ||
-                              combinedErr.contains("429")
+            let isRateLimit = errText.contains("rate limit") ||
+                              errText.contains("ratelimit") ||
+                              errText.contains("usage limit") ||
+                              errText.contains("limit reached") ||
+                              errText.contains("hit your limit") ||
+                              errText.contains("overloaded") ||
+                              errText.contains("quota") ||
+                              errText.contains("529") ||
+                              errText.contains("429")
 
             // Auto-switch to Copilot fallback on first rate-limit hit
             if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
@@ -1238,38 +1238,6 @@ struct SingleChatSessionView: View {
 
         if messages.indices.contains(assistantIndex) {
             messages[assistantIndex].isStreaming = false
-        }
-
-        // Check if Claude delivered a rate-limit / usage-limit message as normal text
-        // (Claude CLI often streams the error as content instead of throwing)
-        if !isFallback, state.settings.copilotFallbackEnabled,
-           messages.indices.contains(assistantIndex) {
-            let finalContent = messages[assistantIndex].content.lowercased()
-            let isRateLimitContent =
-                finalContent.contains("usage limit") ||
-                finalContent.contains("rate limit") ||
-                finalContent.contains("limit reached") ||
-                finalContent.contains("limit_reached") ||
-                finalContent.contains("hit your limit") ||
-                finalContent.contains("plan limit") ||
-                finalContent.contains("usagelimitreached") ||
-                finalContent.contains("overloaded") ||
-                finalContent.contains("quota exceeded") ||
-                (finalContent.contains("claude.ai") && finalContent.contains("limit")) ||
-                (finalContent.contains("hit") && finalContent.contains("limit") && finalContent.contains("resets"))
-            if isRateLimitContent {
-                state.claudeRateLimitActive = true
-                messages[assistantIndex].content = ""
-                messages[assistantIndex].toolCalls = []
-                messages[assistantIndex].isStreaming = true
-                await performSend(
-                    message: message,
-                    assistantIndex: assistantIndex,
-                    model: state.settings.copilotFallbackModel,
-                    isFallback: true
-                )
-                return
-            }
         }
 
         state.lastChatProvider = source

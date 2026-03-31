@@ -19,7 +19,7 @@ struct GitHubSettings: Codable {
     var claudeWeeklyCostLimit: Double = 0  // 0 = deaktiviert (USD pro Woche)
     // Copilot Fallback
     var copilotFallbackEnabled: Bool   = false
-    var copilotFallbackModel:   String = "claude-sonnet-4-5"
+    var copilotFallbackModel:   String = "github/claude-sonnet-4-5"
 
     init() {}
 
@@ -39,7 +39,10 @@ struct GitHubSettings: Codable {
         eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
         claudeWeeklyCostLimit   = (try? c.decodeIfPresent(Double.self, forKey: .claudeWeeklyCostLimit)) ?? 0
         copilotFallbackEnabled = (try? c.decodeIfPresent(Bool.self,   forKey: .copilotFallbackEnabled)) ?? false
-        copilotFallbackModel   = (try? c.decodeIfPresent(String.self, forKey: .copilotFallbackModel))   ?? "claude-sonnet-4-5"
+        var savedModel = (try? c.decodeIfPresent(String.self, forKey: .copilotFallbackModel)) ?? "github/claude-sonnet-4-5"
+        // Migrate old saved value that was missing github/ prefix
+        if savedModel == "claude-sonnet-4-5" { savedModel = "github/claude-sonnet-4-5" }
+        copilotFallbackModel = savedModel
     }
 }
 

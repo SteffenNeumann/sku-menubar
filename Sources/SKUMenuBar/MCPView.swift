@@ -162,6 +162,14 @@ struct KnownModel: Identifiable {
     }
 
     static let all: [KnownModel] = [
+        // GitHub Copilot (via Claude CLI --model github/...)
+        .init(name: "Claude Sonnet 4.5",        apiName: "github/claude-sonnet-4-5",        provider: "GitHub",    contextK: 200),
+        .init(name: "Claude Opus 4",            apiName: "github/claude-opus-4-5",          provider: "GitHub",    contextK: 200),
+        .init(name: "Claude 3.7 Sonnet",        apiName: "github/claude-3-7-sonnet",        provider: "GitHub",    contextK: 200),
+        .init(name: "Claude 3.5 Sonnet",        apiName: "github/claude-3-5-sonnet",        provider: "GitHub",    contextK: 200),
+        .init(name: "GPT-4.1",                  apiName: "github/gpt-4.1",                  provider: "GitHub",    contextK: 1000),
+        .init(name: "GPT-4o",                   apiName: "github/gpt-4o",                   provider: "GitHub",    contextK: 128),
+        .init(name: "o3",                       apiName: "github/o3",                       provider: "GitHub",    contextK: 200),
         // Anthropic
         .init(name: "Claude Opus 4",            apiName: "claude-opus-4-5",                provider: "Anthropic", contextK: 200),
         .init(name: "Claude Sonnet 4.5",        apiName: "claude-sonnet-4-5",              provider: "Anthropic", contextK: 200),
