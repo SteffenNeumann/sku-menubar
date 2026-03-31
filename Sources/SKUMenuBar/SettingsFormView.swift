@@ -1,5 +1,28 @@
 import SwiftUI
 
+// MARK: - Custom Toggle Style mit Theme-Akzentfarbe
+struct AccentToggleStyle: ToggleStyle {
+    let accentColor: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.label
+            ZStack {
+                Capsule()
+                    .fill(configuration.isOn ? accentColor : Color.primary.opacity(0.2))
+                    .frame(width: 36, height: 20)
+                Circle()
+                    .fill(.white)
+                    .shadow(radius: 1)
+                    .frame(width: 16, height: 16)
+                    .offset(x: configuration.isOn ? 8 : -8)
+                    .animation(.easeInOut(duration: 0.2), value: configuration.isOn)
+            }
+            .onTapGesture { configuration.isOn.toggle() }
+        }
+    }
+}
+
 struct SettingsFormView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var themeManager: ThemeManager
@@ -189,8 +212,7 @@ struct SettingsFormView: View {
                                     VStack(alignment: .leading, spacing: 12) {
                                         HStack(spacing: 10) {
                                             Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
-                                                .toggleStyle(.switch)
-                                                .tint(theme.accentFull)
+                                                .toggleStyle(AccentToggleStyle(accentColor: theme.accentFull))
                                                 .font(.system(size: 12))
                                                 .foregroundStyle(theme.primaryText)
                                             Spacer()

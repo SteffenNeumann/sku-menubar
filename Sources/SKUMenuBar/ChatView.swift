@@ -1104,6 +1104,49 @@ struct SingleChatSessionView: View {
                     if let sid = event.sessionId {
                         currentSessionId = sid
                     }
+
+                    // Handle error result (e.g. Claude rate-limit / usage-limit)
+                    if event.isError == true {
+                        let contentText = messages.indices.contains(assistantIndex)
+                            ? messages[assistantIndex].content
+                            : ""
+                        let resultText = event.message?.content?.compactMap(\.text).joined() ?? ""
+                        let combined = (contentText + " " + resultText).lowercased()
+
+                        let isRateLimit = combined.contains("rate limit") ||
+                                          combined.contains("ratelimit") ||
+                                          combined.contains("usage limit") ||
+                                          combined.contains("limit reached") ||
+                                          combined.contains("overloaded") ||
+                                          combined.contains("quota") ||
+                                          combined.contains("529") ||
+                                          combined.contains("429")
+
+                        if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
+                            state.claudeRateLimitActive = true
+                            let fallbackModel = state.settings.copilotFallbackModel
+                            if messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].content = ""
+                                messages[assistantIndex].toolCalls = []
+                                messages[assistantIndex].isStreaming = true
+                            }
+                            await performSend(
+                                message: message,
+                                assistantIndex: assistantIndex,
+                                model: fallbackModel,
+                                isFallback: true
+                            )
+                            return
+                        } else {
+                            errorMessage = contentText.isEmpty ? "Claude returned an error" : contentText
+                            if messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].isStreaming = false
+                            }
+                            isStreaming = false
+                            return
+                        }
+                    }
+
                     state.lastChatProvider = source
                     // Successful response — clear rate-limit flag
                     if state.claudeRateLimitActive { state.claudeRateLimitActive = false }
@@ -1113,12 +1156,19 @@ struct SingleChatSessionView: View {
             }
         } catch {
             let errText = error.localizedDescription.lowercased()
-            let isRateLimit = errText.contains("rate limit") ||
-                              errText.contains("ratelimit") ||
-                              errText.contains("usage limit") ||
-                              errText.contains("overloaded") ||
-                              errText.contains("quota") ||
-                              errText.contains("529")
+            // Also check already-streamed content (error may have arrived via JSON before process exit)
+            let streamedContent = messages.indices.contains(assistantIndex)
+                ? messages[assistantIndex].content.lowercased()
+                : ""
+            let combinedErr = errText + " " + streamedContent
+            let isRateLimit = combinedErr.contains("rate limit") ||
+                              combinedErr.contains("ratelimit") ||
+                              combinedErr.contains("usage limit") ||
+                              combinedErr.contains("limit reached") ||
+                              combinedErr.contains("overloaded") ||
+                              combinedErr.contains("quota") ||
+                              combinedErr.contains("529") ||
+                              combinedErr.contains("429")
 
             // Auto-switch to Copilot fallback on first rate-limit hit
             if isRateLimit, !isFallback, state.settings.copilotFallbackEnabled {
