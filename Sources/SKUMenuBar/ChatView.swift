@@ -1030,13 +1030,22 @@ struct SingleChatSessionView: View {
 
         isStreaming = true
 
+        // Auto-detect agent via trigger keywords if none is manually selected
+        let triggerAgent: String? = selectedAgent.isEmpty ? {
+            let lower = text.lowercased()
+            return state.agentService.agents.first { agent in
+                agent.effectiveTriggers.contains { lower.contains($0.lowercased()) }
+            }?.id
+        }() : nil
+
         Task { @MainActor in
             await performSend(
                 message: fullMessage,
                 assistantIndex: assistantIndex,
                 model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
                     ? state.settings.copilotFallbackModel
-                    : selectedModel
+                    : selectedModel,
+                agentOverride: triggerAgent
             )
         }
     }
@@ -1045,7 +1054,8 @@ struct SingleChatSessionView: View {
     private func performSend(
         message: String,
         assistantIndex: Int,
-        model: String
+        model: String,
+        agentOverride: String? = nil
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
@@ -1060,10 +1070,11 @@ struct SingleChatSessionView: View {
             ? state.settings.copilotFallbackModel
             : nil
 
+        let effectiveAgent = agentOverride ?? (selectedAgent.isEmpty ? nil : selectedAgent)
         let stream = state.cliService.send(
             message: message,
             sessionId: currentSessionId,
-            agentName: selectedAgent.isEmpty ? nil : selectedAgent,
+            agentName: effectiveAgent,
             model: model,
             fallbackModel: fallback,
             workingDirectory: workingDirectory,

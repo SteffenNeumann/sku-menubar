@@ -6,6 +6,7 @@ final class AgentService: ObservableObject {
     @Published var agents: [AgentDefinition] = []
     @Published var logs: [String: [ScheduledTaskLogEntry]] = [:]
     @Published var runningAgents: Set<String> = []
+    @Published var liveOutput: [String: String] = [:]
 
     private let home = NSHomeDirectory()
     private weak var cliService: ClaudeCLIService?
@@ -81,6 +82,8 @@ final class AgentService: ObservableObject {
         let model       = fields["model"] ?? "sonnet"
         let color       = fields["color"]
         let memory      = fields["memory"]
+        let portrait    = fields["portrait"].flatMap { $0.isEmpty ? nil : $0 }
+        let triggers    = fields["triggers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let schedule    = fields["schedule"].flatMap { $0.isEmpty ? nil : $0 }
         let isActive    = (fields["active"] ?? "false").lowercased() == "true"
 
@@ -93,6 +96,8 @@ final class AgentService: ObservableObject {
             model: model,
             color: color,
             memory: memory,
+            portrait: portrait,
+            triggers: triggers,
             promptBody: body,
             filePath: url.path,
             schedule: schedule,
@@ -109,7 +114,9 @@ final class AgentService: ObservableObject {
         lines.append("model: \(draft.model.isEmpty ? "sonnet" : draft.model)")
         if !draft.color.isEmpty    { lines.append("color: \(draft.color)") }
         if !draft.memory.isEmpty   { lines.append("memory: \(draft.memory)") }
-        if !draft.schedule.isEmpty { lines.append("schedule: \(draft.schedule)") }
+        if !draft.portrait.isEmpty  { lines.append("portrait: \(draft.portrait)") }
+        if !draft.triggers.isEmpty  { lines.append("triggers: \(draft.triggers)") }
+        if !draft.schedule.isEmpty  { lines.append("schedule: \(draft.schedule)") }
         if draft.isActive          { lines.append("active: true") }
         lines.append("---")
         if !draft.promptBody.isEmpty {
@@ -127,6 +134,13 @@ final class AgentService: ObservableObject {
 
         let agentId = draft.id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !agentId.isEmpty else { throw AgentError.invalidId }
+
+        // Auto-fill triggers if empty
+        var draft = draft
+        if draft.triggers.trimmingCharacters(in: .whitespaces).isEmpty {
+            let source = [draft.name, draft.description, draft.promptBody].joined(separator: " ")
+            draft.triggers = AgentDefinition.extractKeywords(from: source, limit: 6).joined(separator: ", ")
+        }
 
         let newURL = agentsDir.appendingPathComponent("\(agentId).md")
 
@@ -210,7 +224,17 @@ final class AgentService: ObservableObject {
         guard let data = try? Data(contentsOf: url) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([ScheduledTaskLogEntry].self, from: data)) ?? []
+        var entries = (try? decoder.decode([ScheduledTaskLogEntry].self, from: data)) ?? []
+        // Heal stale "running" entries left by a previous app crash/quit
+        var changed = false
+        for i in entries.indices where entries[i].status == .running {
+            entries[i].status = .failed
+            entries[i].error  = "Abgebrochen (App wurde beendet)"
+            entries[i].finishedAt = entries[i].startedAt
+            changed = true
+        }
+        if changed { saveLog(entries, agentId: agentId) }
+        return entries
     }
 
     private func saveLog(_ entries: [ScheduledTaskLogEntry], agentId: String) {
@@ -310,30 +334,54 @@ final class AgentService: ObservableObject {
         var entry = ScheduledTaskLogEntry(agentId: agent.id, startedAt: Date(), status: .running)
         appendEntry(entry)
         runningAgents.insert(agent.id)
+        liveOutput[agent.id] = ""
 
+        let timeoutSeconds: TimeInterval = 300  // 5 min max per agent run
         do {
+            let instructions = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
             let stream = cli.send(
-                message: "Führe deinen geplanten Task aus.",
-                agentName: agent.id
+                message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
+                systemPrompt: instructions.isEmpty ? nil : instructions,
+                model: agent.model.isEmpty ? nil : agent.model,
+                skipPermissions: true
             )
             var outputText = ""
+            var resultText = ""
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
             for try await event in stream {
-                if event.type == "assistant",
-                   let contents = event.message?.content {
-                    for c in contents where c.type == "text" {
-                        outputText += c.text ?? ""
+                if Date() > deadline {
+                    entry.status = .failed
+                    entry.error  = "Timeout nach \(Int(timeoutSeconds / 60)) Minuten."
+                    entry.finishedAt = Date()
+                    break
+                }
+                switch event.type {
+                case "assistant":
+                    if let contents = event.message?.content {
+                        for c in contents where c.type == "text" {
+                            let chunk = c.text ?? ""
+                            outputText += chunk
+                            liveOutput[agent.id] = outputText
+                        }
                     }
+                case "result":
+                    if let r = event.result, !r.isEmpty { resultText = r }
+                default:
+                    break
                 }
             }
-            entry.status = .success
-            entry.output = outputText
-            entry.finishedAt = Date()
+            if entry.status == .running {
+                entry.status = .success
+                entry.output = outputText.isEmpty ? resultText : outputText
+                entry.finishedAt = Date()
+            }
         } catch {
             entry.status = .failed
             entry.error  = error.localizedDescription
             entry.finishedAt = Date()
         }
 
+        liveOutput.removeValue(forKey: agent.id)
         runningAgents.remove(agent.id)
         updateEntry(entry)
     }

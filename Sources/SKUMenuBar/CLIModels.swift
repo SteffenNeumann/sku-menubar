@@ -335,11 +335,66 @@ struct AgentDefinition: Identifiable, Hashable {
     let model: String
     let color: String?
     let memory: String?
+    let portrait: String?       // e.g. "ap03"
+    let triggers: [String]      // trigger keywords
     let promptBody: String
     let filePath: String
     // Scheduling
     let schedule: String?       // "hourly", "daily", "weekly", "@HH:MM" (daily at time)
     let isActive: Bool          // scheduling enabled
+
+    /// Returns explicit triggers if set, otherwise auto-extracts keywords from content.
+    var effectiveTriggers: [String] {
+        if !triggers.isEmpty { return triggers }
+        return Self.extractKeywords(from: description + " " + promptBody, limit: 6)
+    }
+
+    private static let stopWords: Set<String> = [
+        "this","that","with","from","have","when","your","they","been","will","more",
+        "also","into","than","then","them","some","what","about","after","before",
+        "which","there","their","these","those","would","could","should","other",
+        "just","like","need","used","using","work","tasks","task","agent","agents",
+        "include","includes","including","such","both","each","were","make","made",
+        "take","over","only","very","much","many","most","well","even","time","here",
+        "where","while","through","without","between","user","users","help","helps",
+        "helping","best","high","level","based","build","create","ensure","provide",
+        "handle","follow","write","adds","added","adding","given","gives","allows",
+        "across","against","along","already","always","another","apply","applies",
+        "around","available","avoid","because","being","below","beyond","called",
+        "cases","certain","changes","check","checks","common","complex","contains",
+        "correct","current","directly","doing","during","either","ensures","errors",
+        "every","example","examples","existing","experience","file","files","first",
+        "focus","following","format","framework","full","further","general","getting",
+        "given","goes","good","handles","having","however","implement","important",
+        "instead","keep","keeps","large","later","less","logic","long","maintain",
+        "making","means","might","must","never","next","once","parts","pass","place",
+        "point","possible","rather","real","related","return","same","second","side",
+        "since","small","specific","still","style","support","system","three","toward",
+        "under","unless","until","upon","usually","various","want","whenever","whether",
+        "within","works","yet","your","zudem","auch","dass","damit","oder","wird",
+        "werden","nicht","eine","einen","einem","einer","eines","haben","sein","kann",
+        "kann","noch","aber","wenn","nach","beim","durch","über","unter","sowie",
+        "allen","immer","alle","kein","keine","keinen","schon","dann","hier","mehr"
+    ]
+
+    static func extractKeywords(from text: String, limit: Int) -> [String] {
+        let cleaned = text
+            .replacingOccurrences(of: #"[^\w\s\-]"#, with: " ", options: .regularExpression)
+            .lowercased()
+        let words = cleaned.components(separatedBy: .whitespacesAndNewlines)
+        var seen = Set<String>()
+        var result: [String] = []
+        for word in words {
+            let w = word.trimmingCharacters(in: .init(charactersIn: "-_"))
+            guard w.count >= 4,
+                  !stopWords.contains(w),
+                  !w.allSatisfy(\.isNumber),
+                  seen.insert(w).inserted else { continue }
+            result.append(w.prefix(1).uppercased() + w.dropFirst())
+            if result.count == limit { break }
+        }
+        return result
+    }
 
     var modelBadgeColor: Color {
         switch model.lowercased() {
@@ -376,6 +431,8 @@ struct AgentDraft {
     var model: String = "sonnet"
     var color: String = ""
     var memory: String = ""
+    var portrait: String = ""
+    var triggers: String = ""   // comma-separated
     var promptBody: String = ""
     var schedule: String = ""
     var isActive: Bool = false
@@ -389,6 +446,8 @@ struct AgentDraft {
         model       = agent.model
         color       = agent.color  ?? ""
         memory      = agent.memory ?? ""
+        portrait    = agent.portrait ?? ""
+        triggers    = agent.triggers.joined(separator: ", ")
         promptBody  = agent.promptBody
         schedule    = agent.schedule ?? ""
         isActive    = agent.isActive
@@ -436,6 +495,15 @@ struct ScheduledTaskLogEntry: Identifiable, Codable {
 }
 
 // MARK: - MCP Servers
+
+struct MCPServerConfig {
+    let name: String
+    let transport: String
+    let commandOrUrl: String
+    let args: [String]
+    let headers: [String]
+    let envVars: [String]
+}
 
 struct MCPServer: Identifiable, Hashable {
     let id: String
