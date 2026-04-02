@@ -866,7 +866,7 @@ struct AgentsView: View {
             theme: theme,
             accentColor: accentColor,
             lastRun: state.agentService.logs[agent.id]?.last?.startedAt,
-            lastOutput: state.agentService.logs[agent.id]?.reversed().first(where: { $0.status != .running && !$0.output.isEmpty })?.output,
+            lastOutput: state.agentService.logs[agent.id]?.reversed().first(where: { $0.status != .running })?.output,
             lastStatus: state.agentService.logs[agent.id]?.last?.status,
             isRunning: state.agentService.runningAgents.contains(agent.id),
             liveText: state.agentService.liveOutput[agent.id] ?? "",

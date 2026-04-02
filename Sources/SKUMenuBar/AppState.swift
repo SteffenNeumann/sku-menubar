@@ -97,20 +97,22 @@ final class AppState: ObservableObject {
     // Use named suite so settings persist across binary vs .app bundle changes
     private let ud      = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let key     = "gh_sku_settings_v2"
-    private let snippetsKey = "cli_snippets_v1"
-    private let notesKey    = "notes_v1"
+    private let snippetsKey       = "cli_snippets_v1"
+    private let notesKey          = "notes_v1"
+    private let claudeDailyKey    = "claude_daily_by_date_v1"
     private var timer:      Timer?
     private var usageTimer: Timer?
 
     // MARK: - Init
     init() {
         load()
+        loadClaudeDaily()
         loadSnippets()
         reschedule()
         if !settings.token.isEmpty && !settings.name.isEmpty {
             Task { await refresh() }
         }
-        if !settings.anthropicAdminKey.isEmpty && !settings.anthropicOrgId.isEmpty {
+        if !settings.anthropicAdminKey.isEmpty {
             Task { await refreshClaude() }
         }
         activeSessions = cliService.loadActiveSessions()
@@ -162,6 +164,19 @@ final class AppState: ObservableObject {
     private func persistNotes() {
         if let d = try? JSONEncoder().encode(notes) {
             ud.set(d, forKey: notesKey)
+        }
+    }
+
+    private func loadClaudeDaily() {
+        guard let d = ud.data(forKey: claudeDailyKey),
+              let dict = try? JSONDecoder().decode([String: Double].self, from: d)
+        else { return }
+        claudeYearDailyByDate = dict
+    }
+
+    private func persistClaudeDaily() {
+        if let d = try? JSONEncoder().encode(claudeYearDailyByDate) {
+            ud.set(d, forKey: claudeDailyKey)
         }
     }
 
@@ -446,10 +461,9 @@ final class AppState: ObservableObject {
     // MARK: - Claude usage fetch
 
     func refreshClaude(force: Bool = false) async {
-        let key   = settings.anthropicAdminKey
-        let orgId = settings.anthropicOrgId
-        guard !key.isEmpty, !orgId.isEmpty else {
-            claudeError = "Anthropic Admin Key und Org-ID in Einstellungen eintragen"
+        let key = settings.anthropicAdminKey
+        guard !key.isEmpty else {
+            claudeError = "Anthropic Admin Key in Einstellungen eintragen"
             return
         }
         // Rate-limit guard: max once per 15 minutes (Anthropic Admin API limit)
@@ -494,6 +508,7 @@ final class AppState: ObservableObject {
                 dailyByDate[dateKey, default: 0] += bucketCost
             }
             claudeYearDailyByDate = dailyByDate
+            persistClaudeDaily()
 
             func cost(_ buckets: [AnthropicUsageBucket]) -> Double {
                 buckets.flatMap { $0.results ?? [] }.map(\.estimatedCostUsd).reduce(0, +)

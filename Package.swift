@@ -15,7 +15,8 @@ let package = Package(
             ],
             path: "Sources/SKUMenuBar",
             resources: [
-                .process("Assets.xcassets")
+                .process("Assets.xcassets"),
+                .process("AgentPortraits")
             ]
         )
     ]

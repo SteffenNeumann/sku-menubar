@@ -17,6 +17,7 @@ final class ClaudeCLIService: ObservableObject {
         message: String,
         sessionId: String? = nil,
         agentName: String? = nil,
+        systemPrompt: String? = nil,
         model: String? = nil,
         fallbackModel: String? = nil,
         workingDirectory: String? = nil,
@@ -33,8 +34,8 @@ final class ClaudeCLIService: ObservableObject {
                 if let sid = sessionId, !sid.isEmpty {
                     args += ["--resume", sid]
                 }
-                if let a = agentName, !a.isEmpty {
-                    args += ["--agent", a]
+                if let sp = systemPrompt, !sp.isEmpty {
+                    args += ["--system-prompt", sp]
                 }
                 if let m = model, !m.isEmpty {
                     args += ["--model", m]
@@ -244,6 +245,64 @@ final class ClaudeCLIService: ObservableObject {
     func removeMCPServer(name: String) async -> (Bool, String) {
         let output = (try? await runCommand(["mcp", "remove", name])) ?? "Fehler"
         return (!output.lowercased().contains("error"), output)
+    }
+
+    /// Fetch full config of one MCP server via `claude mcp get <name>`.
+    func getMCPServerConfig(name: String) async -> MCPServerConfig? {
+        guard let output = try? await runCommand(["mcp", "get", name]) else { return nil }
+        return parseMCPGet(name: name, output: output)
+    }
+
+    private func parseMCPGet(name: String, output: String) -> MCPServerConfig? {
+        // Try JSON first (Claude CLI may output JSON)
+        if let data = output.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let transport = (json["transport"] as? String) ?? "stdio"
+            let command   = (json["command"] as? String) ?? ""
+            let args      = (json["args"] as? [String]) ?? []
+            let envDict   = (json["env"] as? [String: String]) ?? [:]
+            let envVars   = envDict.map { "\($0.key)=\($0.value)" }
+            let headers   = (json["headers"] as? [String: String])?.map { "\($0.key): \($0.value)" } ?? []
+            let url       = (json["url"] as? String) ?? command
+            return MCPServerConfig(name: name, transport: transport,
+                                   commandOrUrl: command.isEmpty ? url : command,
+                                   args: args, headers: headers, envVars: envVars)
+        }
+
+        // Fallback: parse text output line by line
+        var transport = "stdio"
+        var commandOrUrl = ""
+        var args: [String] = []
+        var envVars: [String] = []
+        var headers: [String] = []
+
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix("transport:") {
+                transport = trimmed.dropFirst("transport:".count).trimmingCharacters(in: .whitespaces)
+            } else if trimmed.lowercased().hasPrefix("command:") {
+                commandOrUrl = trimmed.dropFirst("command:".count).trimmingCharacters(in: .whitespaces)
+            } else if trimmed.lowercased().hasPrefix("url:") {
+                commandOrUrl = trimmed.dropFirst("url:".count).trimmingCharacters(in: .whitespaces)
+            } else if trimmed.lowercased().hasPrefix("args:") {
+                let raw = trimmed.dropFirst("args:".count).trimmingCharacters(in: .whitespaces)
+                args = raw.split(separator: " ").map(String.init)
+            } else if trimmed.lowercased().hasPrefix("env:") {
+                let raw = trimmed.dropFirst("env:".count).trimmingCharacters(in: .whitespaces)
+                if !raw.isEmpty { envVars.append(raw) }
+            } else if trimmed.lowercased().hasPrefix("header:") {
+                let raw = trimmed.dropFirst("header:".count).trimmingCharacters(in: .whitespaces)
+                if !raw.isEmpty { headers.append(raw) }
+            } else if trimmed.contains("=") && !trimmed.hasPrefix("#") && commandOrUrl.isEmpty {
+                // Bare KEY=VALUE lines
+                envVars.append(trimmed)
+            }
+        }
+
+        guard !commandOrUrl.isEmpty || !output.isEmpty else { return nil }
+        return MCPServerConfig(name: name, transport: transport,
+                               commandOrUrl: commandOrUrl,
+                               args: args, headers: headers, envVars: envVars)
     }
 
     // MARK: - Active sessions

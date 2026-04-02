@@ -97,9 +97,18 @@ struct DashboardView: View {
 
     // MARK: - Copilot chart data (from historicalMonths)
 
+    private var currentMonthId: String {
+        let cal = Calendar.current
+        let now = Date()
+        return String(format: "%04d-%02d",
+            cal.component(.year,  from: now),
+            cal.component(.month, from: now))
+    }
+
     private var copilotMonthlyData: [(id: String, label: String, value: Double)] {
-        state.historicalMonths
-            .filter { $0.total > 0 }
+        let cur = currentMonthId
+        return state.historicalMonths
+            .filter { $0.total > 0 || $0.id == cur }
             .map { m in
                 (id: m.id, label: m.shortName, value: m.total)
             }
@@ -129,7 +138,7 @@ struct DashboardView: View {
             let label = DateFormatter().shortMonthSymbols[Calendar.current.component(.month, from: date) - 1]
             return (id: monthId, label: label, value: value)
         }
-        .filter { $0.value > 0 }
+        .filter { $0.value > 0 || $0.id == currentMonthId }
         .sorted { $0.id < $1.id }
     }
 
@@ -142,9 +151,10 @@ struct DashboardView: View {
 
     // MARK: - Claude chart data (from claudeYearDailyByDate)
 
-    /// Prefers Anthropic Admin API daily data; falls back to local CLI JSONL data.
+    /// Local JSONL data for chart (consistent with sidebar estimates).
+    /// API data is used only for Today/Week/Month summary cards.
     private var claudeDailySource: [String: Double] {
-        state.claudeYearDailyByDate.isEmpty ? state.localDailyByDate : state.claudeYearDailyByDate
+        state.localDailyByDate
     }
 
     private var claudeIsLocalSource: Bool { state.claudeYearDailyByDate.isEmpty }
@@ -155,6 +165,10 @@ struct DashboardView: View {
             let monthId = String(dateStr.prefix(7))
             monthTotals[monthId, default: 0] += cost
         }
+        // Always include current month even if no data yet
+        let cur = currentMonthId
+        if monthTotals[cur] == nil { monthTotals[cur] = 0 }
+
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM"
         df.locale     = Locale(identifier: "de_DE")
@@ -165,7 +179,7 @@ struct DashboardView: View {
             let label = shortDf.shortMonthSymbols[Calendar.current.component(.month, from: date) - 1]
             return (id: monthId, label: label, value: value)
         }
-        .filter { $0.value > 0 }
+        .filter { $0.value > 0 || $0.id == cur }
         .sorted { $0.id < $1.id }
     }
 
@@ -326,14 +340,14 @@ struct DashboardView: View {
 
                         DrilldownChartCard(
                             title:       "Claude Code",
-                            subtitle:    claudeIsLocalSource ? "Nur Claude · CLI (lokal)" : "Nur Claude · Anthropic API",
+                            subtitle:    "Nur Claude · CLI (lokal)",
                             icon:        "sparkles",
                             accentColor: .purple,
                             monthlyData: claudeMonthlyData,
                             dailyData:   claudeDailySource,
                             fmtFn:       { state.fmt($0) },
                             isLoading:   state.claudeIsLoading,
-                            errorMsg:    claudeMonthlyData.isEmpty ? state.claudeError : nil
+                            errorMsg:    state.claudeError
                         )
                         .frame(maxWidth: .infinity)
                     }
