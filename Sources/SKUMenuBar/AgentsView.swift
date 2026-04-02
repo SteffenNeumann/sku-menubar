@@ -2,6 +2,33 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+// MARK: - Flow Layout (wrapping chip row)
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxW = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for sv in subviews {
+            let s = sv.sizeThatFits(.unspecified)
+            if x + s.width > maxW, x > 0 { y += rowH + spacing; x = 0; rowH = 0 }
+            rowH = max(rowH, s.height); x += s.width + spacing
+        }
+        return CGSize(width: maxW, height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for sv in subviews {
+            let s = sv.sizeThatFits(.unspecified)
+            if x + s.width > bounds.maxX, x > bounds.minX { y += rowH + spacing; x = bounds.minX; rowH = 0 }
+            sv.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            rowH = max(rowH, s.height); x += s.width + spacing
+        }
+    }
+}
+
 // MARK: - Agent Avatar (generated character portrait)
 
 private struct AgentAvatarView: View {
@@ -345,14 +372,21 @@ private struct AvatarNoiseView: View {
 
 private struct AgentBaseballCard: View {
     let agent: AgentDefinition
-    let isSelected: Bool
     let theme: AppTheme
     let accentColor: Color
+    let lastRun: Date?
+    let lastOutput: String?
+    let lastStatus: ScheduledTaskStatus?
+    let isRunning: Bool
+    let liveText: String
     let onEdit: () -> Void
     let onDelete: () -> Void
-    let onSelect: () -> Void
+    let onDuplicate: () -> Void
+    let onLogbook: () -> Void
+    let onRerun: () -> Void
 
     @State private var hovered = false
+    @State private var hoveredAction: String? = nil
 
     private var headerGradient: LinearGradient {
         let c1: Color, c2: Color
@@ -374,111 +408,310 @@ private struct AgentBaseballCard: View {
 
     private let φ: CGFloat = 1.618  // goldener Schnitt
 
-    private var simulatedLatency: Int {
-        20 + (abs(agent.id.hashValue) % 180)
+    private var lastRunLabel: String {
+        guard let date = lastRun else { return "Never run" }
+        let diff = Date().timeIntervalSince(date)
+        switch diff {
+        case ..<60:        return "Just now"
+        case ..<3600:      return "\(Int(diff / 60))m ago"
+        case ..<86400:     return "\(Int(diff / 3600))h ago"
+        default:           return "\(Int(diff / 86400))d ago"
+        }
     }
 
+    private let actionBarH: CGFloat = 36
+
+    private let headerH: CGFloat = 170
+
     var body: some View {
-        Button(action: onSelect) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                let headerH = h * 0.46
-                let iconSize = min(w * 0.52, headerH * 0.72)
+        VStack(spacing: 0) {
 
-                VStack(spacing: 0) {
-                    // Header: Gradient + Robot + role tag badge
-                    ZStack(alignment: .top) {
-                        headerGradient
-                        AvatarNoiseView(seed: abs(agent.id.hashValue)).opacity(0.09)
-                        RobotHeadIcon(size: iconSize)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // ── Header: gradient + avatar + ID badge ─────────
+            ZStack(alignment: .top) {
+                headerGradient
+                AvatarNoiseView(seed: abs(agent.id.hashValue)).opacity(0.09)
+                if let portrait = agent.portrait,
+                   let img = Self.loadBundlePortrait(portrait) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: headerH)
+                        .clipped()
+                } else {
+                    RobotHeadIcon(size: min(headerH * 0.75, 120))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
 
-                        // Role tag badge top-center
-                        Text(agent.id.uppercased())
-                            .font(.system(size: 6, weight: .bold))
-                            .foregroundStyle(agent.dotColor)
-                            .kerning(0.4)
-                            .lineLimit(1)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(agent.dotColor.opacity(0.18), in: Capsule())
-                            .overlay(Capsule().strokeBorder(agent.dotColor.opacity(0.45), lineWidth: 0.5))
-                            .padding(.top, 7)
-                    }
-                    .frame(width: w, height: headerH)
-                    .clipped()
+                // ID badge – top left
+                Text(agent.id.uppercased())
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .kerning(0.5)
+                    .lineLimit(1)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.black.opacity(0.28), in: Capsule())
+                    .padding(.top, 9).padding(.leading, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    // Accent divider
-                    Rectangle()
-                        .fill(agent.dotColor.opacity(0.38))
-                        .frame(width: w, height: 1)
+                // Status dot – top right
+                Circle()
+                    .fill(agent.isActive ? Color.green : Color.gray.opacity(0.6))
+                    .frame(width: 8, height: 8)
+                    .shadow(color: agent.isActive ? .green.opacity(0.7) : .clear, radius: 4)
+                    .padding(.top, 11).padding(.trailing, 11)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .frame(height: headerH)
+            .clipped()
 
-                    // Content
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(agent.name)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(theme.primaryText)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+            // Accent divider
+            Rectangle()
+                .fill(agent.dotColor.opacity(0.50))
+                .frame(height: 1)
 
-                        Text(agent.description.isEmpty ? "—" : agent.description)
-                            .font(.system(size: 9))
-                            .foregroundStyle(theme.secondaryText)
-                            .lineLimit(3)
-                            .multilineTextAlignment(.leading)
+            // ── Body: name + description + content ───────────
+            VStack(alignment: .leading, spacing: 7) {
+                Text(agent.name)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(2)
 
-                        Spacer(minLength: 0)
+                Text(agent.description.isEmpty ? "No description." : agent.description)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                        // Footer: model + latency
-                        HStack(spacing: 0) {
-                            modelBadge(agent.model)
-                            Spacer(minLength: 4)
-                            Text("LATENCY: \(simulatedLatency)ms")
-                                .font(.system(size: 7, weight: .medium))
-                                .foregroundStyle(theme.tertiaryText)
+                // ── Trigger words section ─────────────────────
+                VStack(alignment: .leading, spacing: 5) {
+                    sectionLabel(icon: "bolt.fill", title: "TRIGGERS")
+                    if agent.effectiveTriggers.isEmpty {
+                        Text("—")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.secondaryText.opacity(0.4))
+                    } else {
+                        FlowLayout(spacing: 4) {
+                            ForEach(agent.effectiveTriggers.prefix(6), id: \.self) { word in
+                                Text(word)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(agent.dotColor)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(agent.dotColor.opacity(0.14), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(agent.dotColor.opacity(0.35), lineWidth: 0.5))
+                                    .lineLimit(1)
+                            }
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                    .padding(.bottom, 7)
-                    .frame(width: w, height: h - headerH - 1, alignment: .topLeading)
+                }
+                .padding(.top, 5)
+
+                // ── Scheduled-only: output, status, last run ──
+                if !(agent.schedule ?? "").isEmpty {
+                    if let output = lastOutput, !output.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            sectionLabel(icon: "text.bubble", title: "LAST OUTPUT")
+                            Text(output)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(theme.secondaryText)
+                                .lineLimit(5)
+                                .truncationMode(.tail)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 9).padding(.vertical, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(agent.dotColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(agent.dotColor.opacity(0.22), lineWidth: 0.5))
+                        }
+                        .padding(.top, 5)
+                    }
+
+                    statusSection
+
+                    HStack(spacing: 6) {
+                        modelBadge(agent.model)
+                        Spacer(minLength: 0)
+                        HStack(spacing: 3) {
+                            Image(systemName: lastRun == nil ? "clock.badge.xmark" : "clock.badge.checkmark")
+                                .font(.system(size: 9))
+                                .foregroundStyle(lastRun == nil ? theme.secondaryText.opacity(0.4) : agent.dotColor.opacity(0.9))
+                            Text(lastRunLabel)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(lastRun == nil ? theme.secondaryText.opacity(0.4) : theme.secondaryText)
+                        }
+                    }
+                } else {
+                    modelBadge(agent.model)
                 }
             }
+            .padding(.horizontal, 13)
+            .padding(.top, 11)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            // ── Action bar ────────────────────────────────────
+            Rectangle()
+                .fill(theme.cardBorder.opacity(0.5))
+                .frame(height: 0.5)
+
+            HStack(spacing: 0) {
+                let isScheduled = !(agent.schedule ?? "").isEmpty
+                actionBarButton(id: "edit",    icon: "wand.and.stars",      action: onEdit)
+                if isScheduled {
+                    Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                    rerunButton
+                    Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                    actionBarButton(id: "logbook", icon: "book.pages",       action: onLogbook)
+                }
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                actionBarButton(id: "copy",    icon: "doc.on.clipboard",     action: onDuplicate)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                actionBarButton(id: "delete",  icon: "flame",                action: onDelete)
+            }
+            .frame(height: actionBarH)
+            .background(theme.cardBg.opacity(0.7))
         }
-        .buttonStyle(.plain)
-        .aspectRatio(1.0 / φ, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .background(RoundedRectangle(cornerRadius: 10).fill(isSelected ? theme.accent : theme.cardBg))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardBg))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(
-                    isSelected ? agent.dotColor.opacity(0.5) : theme.cardBorder,
-                    lineWidth: isSelected ? 1.5 : 0.5
-                )
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(hovered ? agent.dotColor.opacity(0.55) : theme.cardBorder,
+                              lineWidth: hovered ? 1.5 : 0.5)
         )
-        .shadow(color: .black.opacity(hovered || isSelected ? 0.10 : 0.04), radius: hovered ? 8 : 3, x: 0, y: 2)
-        .scaleEffect(hovered ? 1.01 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.75), value: hovered)
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(hovered ? 0.15 : 0.05), radius: hovered ? 14 : 4, x: 0, y: hovered ? 5 : 3)
+        .zIndex(hovered ? 1 : 0)
+        .animation(.easeInOut(duration: 0.18), value: hovered)
         .onHover { hovered = $0 }
     }
 
-    private func modelBadge(_ model: String) -> some View {
-        Text(model.lowercased())
-            .font(.system(size: 7, weight: .semibold))
-            .foregroundStyle(accentColor)
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .background(accentColor.opacity(0.15), in: Capsule())
+    private static func loadBundlePortrait(_ name: String) -> NSImage? {
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
     }
 
-    private func cardIconButton(icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 9, weight: .medium))
+    @ViewBuilder
+    private var statusSection: some View {
+        let (dot, label, color): (String, String, Color) = {
+            if isRunning {
+                let preview = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let snippet = preview.isEmpty ? "Arbeitet…" : String(preview.prefix(120))
+                return ("circle.fill", snippet, .green)
+            }
+            switch lastStatus {
+            case .success:
+                return ("checkmark.circle.fill", "Erfolgreich abgeschlossen", agent.dotColor)
+            case .failed:
+                return ("xmark.circle.fill", "Fehler beim letzten Lauf", .red)
+            case .running:
+                return ("circle.fill", "Läuft…", .green)
+            case nil:
+                return ("minus.circle", "Noch nie ausgeführt", theme.secondaryText.opacity(0.35))
+            }
+        }()
+
+        HStack(spacing: 5) {
+            Image(systemName: dot)
+                .font(.system(size: 8))
                 .foregroundStyle(color)
-                .frame(width: 20, height: 20)
-                .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
+                .opacity(isRunning ? 1 : 0.85)
+                .scaleEffect(isRunning ? 1.15 : 1.0)
+                .animation(isRunning
+                    ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                    : .default, value: isRunning)
+            Text(label)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(color)
+                .lineLimit(2)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(color.opacity(isRunning ? 0.4 : 0.18), lineWidth: 0.5))
+        .padding(.bottom, 6)
+        .animation(.easeInOut(duration: 0.3), value: isRunning)
+        .animation(.easeInOut(duration: 0.2), value: lastStatus)
+    }
+
+    @ViewBuilder
+    private var rerunButton: some View {
+        let isHovered = hoveredAction == "rerun"
+        Button(action: onRerun) {
+            ZStack {
+                if isRunning {
+                    // Pulsing green ring
+                    Circle()
+                        .stroke(Color.green.opacity(0.35), lineWidth: 6)
+                        .frame(width: 22, height: 22)
+                        .scaleEffect(isRunning ? 1.3 : 1.0)
+                        .opacity(isRunning ? 0 : 1)
+                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isRunning)
+                }
+                Image(systemName: isRunning ? "stop.circle.fill" : "play.circle")
+                    .font(.system(size: 13, weight: isHovered || isRunning ? .semibold : .regular))
+                    .foregroundStyle(isRunning ? Color.green : (isHovered ? accentColor : theme.secondaryText.opacity(0.55)))
+                    .shadow(color: isRunning ? Color.green.opacity(0.9) : (isHovered ? accentColor.opacity(0.85) : .clear), radius: 6)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
+        .help(isRunning ? "Agent läuft…" : "Agent jetzt ausführen")
+        .onHover { hoveredAction = $0 ? "rerun" : nil }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(.easeInOut(duration: 0.3), value: isRunning)
+    }
+
+    private func sectionLabel(icon: String, title: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(theme.secondaryText.opacity(0.6))
+            Text(title)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundStyle(theme.secondaryText.opacity(0.6))
+                .kerning(0.5)
+        }
+    }
+
+    private func modelBadge(_ model: String) -> some View {
+        let label: String = {
+            let m = model.lowercased()
+            if m.contains("opus")   { return "Opus" }
+            if m.contains("sonnet") { return "Sonnet" }
+            if m.contains("haiku")  { return "Haiku" }
+            return model.isEmpty ? "Sonnet" : model.capitalized
+        }()
+        return Text(label)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(accentColor)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(accentColor.opacity(0.13), in: Capsule())
+            .overlay(Capsule().strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5))
+    }
+
+    private static let tooltips: [String: String] = [
+        "edit":    "Agent bearbeiten",
+        "rerun":   "Agent jetzt ausführen",
+        "logbook": "Logbook in Sublime Text öffnen",
+        "copy":    "Agent duplizieren",
+        "delete":  "Agent löschen",
+    ]
+
+    private func actionBarButton(id: String, icon: String, action: @escaping () -> Void) -> some View {
+        let isHovered = hoveredAction == id
+        return Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: isHovered ? .semibold : .regular))
+                .foregroundStyle(isHovered ? accentColor : theme.secondaryText.opacity(0.55))
+                .shadow(color: isHovered ? accentColor.opacity(0.85) : .clear, radius: 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .help(Self.tooltips[id] ?? "")
+        .onHover { hoveredAction = $0 ? id : nil }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 }
 
@@ -487,13 +720,11 @@ private struct AgentBaseballCard: View {
 struct AgentsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
-    @State private var selectedAgent: AgentDefinition?
     @State private var searchText = ""
     @State private var showEditor = false
     @State private var editorDraft = AgentDraft()
     @State private var editingAgentId: String?
     @State private var editorError: String?
-    @State private var detailError: String?
     @State private var pendingDeleteAgent: AgentDefinition?
 
     private var accentColor: Color {
@@ -526,58 +757,51 @@ struct AgentsView: View {
             if filteredAgents.isEmpty {
                 agentPlaceholder
             } else {
-                HStack(spacing: 0) {
-                    // Card grid
-                    GeometryReader { gridProxy in
-                        ScrollView {
-                            let (cols, rowGap) = tableLayout(for: gridProxy.size.width)
-                            VStack(alignment: .leading, spacing: 0) {
-                                // Active agents section
-                                if !activeAgents.isEmpty {
-                                    agentSectionHeader(
-                                        title: "Aktive Agents",
-                                        count: activeAgents.count,
-                                        color: .green
-                                    )
-                                    LazyVGrid(columns: cols, spacing: rowGap) {
-                                        ForEach(activeAgents) { agent in
-                                            agentCard(agent)
-                                        }
+                GeometryReader { gridProxy in
+                    ScrollView {
+                        let (cols, rowGap, gridWidth) = tableLayout(for: gridProxy.size.width - 128)
+                        VStack(spacing: 0) {
+                            // Active agents section
+                            if !activeAgents.isEmpty {
+                                agentSectionHeader(
+                                    title: "Aktive Agents",
+                                    count: activeAgents.count,
+                                    color: .green,
+                                    gridWidth: gridWidth
+                                )
+                                LazyVGrid(columns: cols, spacing: rowGap) {
+                                    ForEach(activeAgents) { agent in
+                                        agentCard(agent)
                                     }
-                                    .padding(.horizontal, 14)
-                                    .padding(.bottom, 18)
                                 }
-
-                                // Inactive agents section
-                                if !inactiveAgents.isEmpty {
-                                    agentSectionHeader(
-                                        title: "Inaktive Agents",
-                                        count: inactiveAgents.count,
-                                        color: theme.tertiaryText
-                                    )
-                                    LazyVGrid(columns: cols, spacing: rowGap) {
-                                        ForEach(inactiveAgents) { agent in
-                                            agentCard(agent)
-                                        }
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.bottom, 14)
-                                }
+                                .frame(width: gridWidth)
+                                .frame(maxWidth: .infinity)
+                                .padding(.bottom, 22)
                             }
-                            .padding(.top, 14)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    // Detail panel (slides in when agent selected)
-                    if let agent = selectedAgent {
-                        Divider().foregroundStyle(theme.cardBorder)
-                        agentDetail(agent)
-                            .frame(minWidth: 380, idealWidth: 460, maxWidth: 560)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            // Inactive agents section
+                            if !inactiveAgents.isEmpty {
+                                agentSectionHeader(
+                                    title: "Inaktive Agents",
+                                    count: inactiveAgents.count,
+                                    color: theme.tertiaryText,
+                                    gridWidth: gridWidth
+                                )
+                                LazyVGrid(columns: cols, spacing: rowGap) {
+                                    ForEach(inactiveAgents) { agent in
+                                        agentCard(agent)
+                                    }
+                                }
+                                .frame(width: gridWidth)
+                                .frame(maxWidth: .infinity)
+                                .padding(.bottom, 18)
+                            }
+                        }
+                        .padding(.top, 18)
+                        .padding(.horizontal, 64)
                     }
                 }
-                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedAgent?.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -586,9 +810,8 @@ struct AgentsView: View {
                 await state.agentService.loadAgents()
             }
         }
-        .onChange(of: state.agentService.agents) { _, agents in
-            syncSelectedAgent(with: agents)
-        }
+        .onChange(of: state.agentService.agents) { _, _ in }
+        .onReceive(state.agentService.objectWillChange) { _ in }
         .sheet(isPresented: $showEditor) {
             AgentEditorSheet(
                 draft: $editorDraft,
@@ -623,37 +846,63 @@ struct AgentsView: View {
 
     // MARK: - Grid helpers
 
-    /// Berechnet Spalten + Abstände so dass Karten (feste Breite) sich wie auf einem Tisch verteilen.
-    private func tableLayout(for availableWidth: CGFloat) -> (columns: [GridItem], rowGap: CGFloat) {
-        let cardW: CGFloat = 178
-        let edgePad: CGFloat = 28          // 14 × 2
-        let usable = availableWidth - edgePad
-        let minGap: CGFloat = 24
-        let count = max(1, Int((usable + minGap) / (cardW + minGap)))
+    private let cardW: CGFloat = 345
+
+    /// Returns columns + row gap + total grid width for centered layout.
+    private func tableLayout(for availableWidth: CGFloat) -> (columns: [GridItem], rowGap: CGFloat, gridWidth: CGFloat) {
+        let minGap: CGFloat = 28
+        let count = max(1, Int((availableWidth + minGap) / (cardW + minGap)))
         let gap = count > 1
-            ? (usable - CGFloat(count) * cardW) / CGFloat(count - 1)
+            ? (availableWidth - CGFloat(count) * cardW) / CGFloat(count - 1)
             : 0
         let colGap = max(minGap, gap)
-        return (Array(repeating: GridItem(.fixed(cardW), spacing: colGap), count: count), colGap)
+        let gridWidth = CGFloat(count) * cardW + CGFloat(max(0, count - 1)) * colGap
+        return (Array(repeating: GridItem(.fixed(cardW), spacing: colGap), count: count), colGap, gridWidth)
     }
 
     private func agentCard(_ agent: AgentDefinition) -> some View {
         AgentBaseballCard(
             agent: agent,
-            isSelected: selectedAgent?.id == agent.id,
             theme: theme,
             accentColor: accentColor,
+            lastRun: state.agentService.logs[agent.id]?.last?.startedAt,
+            lastOutput: state.agentService.logs[agent.id]?.reversed().first(where: { $0.status != .running && !$0.output.isEmpty })?.output,
+            lastStatus: state.agentService.logs[agent.id]?.last?.status,
+            isRunning: state.agentService.runningAgents.contains(agent.id),
+            liveText: state.agentService.liveOutput[agent.id] ?? "",
             onEdit: { startEditingAgent(agent) },
-            onDelete: { detailError = nil; pendingDeleteAgent = agent },
-            onSelect: {
-                withAnimation(.spring(response: 0.3)) {
-                    selectedAgent = selectedAgent?.id == agent.id ? nil : agent
-                }
-            }
+            onDelete: { pendingDeleteAgent = agent },
+            onDuplicate: { duplicateAgent(agent) },
+            onLogbook: { openLogbook(for: agent) },
+            onRerun: { Task { await state.agentService.executeScheduledAgent(agent) } }
         )
     }
 
-    private func agentSectionHeader(title: String, count: Int, color: Color) -> some View {
+    private func openLogbook(for agent: AgentDefinition) {
+        let home = NSHomeDirectory()
+        // Prefer agent-written markdown logbook
+        let mdURL  = URL(fileURLWithPath: "\(home)/.claude/agents/\(agent.id)/logbook.md")
+        // Fallback: app execution log (JSON)
+        let jsonURL = URL(fileURLWithPath: "\(home)/.claude/agent-logs/\(agent.id).json")
+        let targetURL: URL
+        if FileManager.default.fileExists(atPath: mdURL.path) {
+            targetURL = mdURL
+        } else if FileManager.default.fileExists(atPath: jsonURL.path) {
+            targetURL = jsonURL
+        } else {
+            try? FileManager.default.createDirectory(at: mdURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? "# Logbook — \(agent.name)\n\n_(No entries yet)_\n".write(to: mdURL, atomically: true, encoding: .utf8)
+            targetURL = mdURL
+        }
+        let sublimeURL = URL(fileURLWithPath: "/Applications/Sublime Text.app")
+        if FileManager.default.fileExists(atPath: sublimeURL.path) {
+            NSWorkspace.shared.open([targetURL], withApplicationAt: sublimeURL, configuration: .init(), completionHandler: nil)
+        } else {
+            NSWorkspace.shared.open(targetURL)
+        }
+    }
+
+    private func agentSectionHeader(title: String, count: Int, color: Color, gridWidth: CGFloat) -> some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(color)
@@ -672,8 +921,9 @@ struct AgentsView: View {
                 .fill(theme.cardBorder)
                 .frame(height: 0.5)
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
+        .frame(width: gridWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Header
@@ -772,430 +1022,6 @@ struct AgentsView: View {
         .help(tooltip)
     }
 
-    // MARK: - Detail Panel
-
-    private func colorDisplayName(_ color: String?) -> String {
-        switch color?.lowercased() {
-        case "purple": return "Spectral Purple"
-        case "blue":   return "Neural Blue"
-        case "green":  return "Spectral Green"
-        case "orange": return "Amber Core"
-        case "red":    return "Alert Red"
-        case "cyan":   return "Cyan Stream"
-        default:       return "Neutral Gray"
-        }
-    }
-
-    private func modelDisplayName(_ model: String) -> String {
-        let m = model.lowercased()
-        if m.contains("opus")   { return "Claude Opus" }
-        if m.contains("sonnet") { return "Claude Sonnet" }
-        if m.contains("haiku")  { return "Claude Haiku" }
-        return model.isEmpty ? "Claude Sonnet" : model.capitalized
-    }
-
-    private func memoryDisplayName(_ memory: String?) -> String {
-        switch memory?.lowercased() {
-        case "user":    return "User Session"
-        case "project": return "Project Memory"
-        case "none", nil: return "None"
-        default:        return memory?.capitalized ?? "None"
-        }
-    }
-
-    private func promptWordCount(_ body: String) -> String {
-        let words = body.split(whereSeparator: { $0.isWhitespace }).count
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        return (formatter.string(from: NSNumber(value: words)) ?? "\(words)") + " words"
-    }
-
-    private func agentDetail(_ agent: AgentDefinition) -> some View {
-        VStack(spacing: 0) {
-            // Panel header: "Agent Settings"
-            HStack(spacing: 6) {
-                Text("Agent Settings")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-
-                Spacer()
-
-                Button { startEditingAgent(agent) } label: {
-                    Image(systemName: "pencil").font(.system(size: 11))
-                        .frame(width: 26, height: 26)
-                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(accentColor)
-                .help("Bearbeiten")
-
-                Button { duplicateAgent(agent) } label: {
-                    Image(systemName: "plus.square.on.square").font(.system(size: 11))
-                        .frame(width: 26, height: 26)
-                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.secondaryText)
-                .help("Duplizieren")
-
-                Button {
-                    detailError = nil
-                    pendingDeleteAgent = agent
-                } label: {
-                    Image(systemName: "trash").font(.system(size: 11))
-                        .frame(width: 26, height: 26)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.red)
-                .help("Loeschen")
-
-                Button {
-                    withAnimation(.spring(response: 0.3)) { selectedAgent = nil }
-                } label: {
-                    Image(systemName: "xmark").font(.system(size: 11))
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.tertiaryText)
-                .help("Schliessen")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-
-            Divider().foregroundStyle(theme.cardBorder)
-
-            // Scrollable content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Error banner
-                    if let detailError, !detailError.isEmpty {
-                        Text(detailError)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.red)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
-                    }
-
-                    // Avatar + name + ID
-                    HStack(spacing: 12) {
-                        ZStack {
-                            LinearGradient(
-                                colors: [agent.dotColor, agent.dotColor.opacity(0.45)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                            AvatarNoiseView(seed: abs(agent.id.hashValue)).opacity(0.09)
-                            RobotHeadIcon(size: 32)
-                        }
-                        .frame(width: 52, height: 52)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(agent.name)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(theme.primaryText)
-                                .lineLimit(2)
-                            Text("ID: \(agent.id.uppercased())")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                    }
-
-                    // 2×2 info tile grid
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                        infoTile(label: "NEURAL MODEL",
-                                 value: modelDisplayName(agent.model),
-                                 valueColor: accentColor)
-                        infoTile(label: "MEMORY POOL",
-                                 value: memoryDisplayName(agent.memory),
-                                 valueColor: accentColor)
-                        infoTile(label: "STATUS COLOR",
-                                 value: colorDisplayName(agent.color),
-                                 valueIcon: agent.dotColor)
-                        infoTile(label: "PROMPT SIZE",
-                                 value: promptWordCount(agent.promptBody),
-                                 valueColor: theme.primaryText)
-                    }
-
-                    // Schedule panel
-                    if let sched = agent.schedule, !sched.isEmpty {
-                        Divider().foregroundStyle(theme.cardBorder)
-                        schedulingInfoPanel(agent: agent, schedule: sched)
-                    }
-
-                    Divider().foregroundStyle(theme.cardBorder)
-
-                    // System prompt
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("SYSTEM PROMPT")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(theme.tertiaryText)
-                                .kerning(0.6)
-                            Spacer()
-                            Text("Markdown Enabled")
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundStyle(accentColor)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(accentColor.opacity(0.12), in: Capsule())
-                        }
-
-                        Text(agent.promptBody.isEmpty ? "(Kein Prompt)" : agent.promptBody)
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.primaryText.opacity(0.85))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    // Agent memory
-                    if let memory = state.agentService.loadAgentMemory(agentId: agent.id) {
-                        Divider().foregroundStyle(theme.cardBorder)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("AGENT MEMORY")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(theme.tertiaryText)
-                                .kerning(0.6)
-                            Text(memory)
-                                .font(.system(size: 10))
-                                .foregroundStyle(theme.secondaryText)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    // Logbook
-                    Divider().foregroundStyle(theme.cardBorder)
-                    logbookPanel(agent: agent)
-
-                    // Regenerate Credentials button
-                    Button {
-                        exportAgent(agent)
-                    } label: {
-                        Text("Regenerate Credentials")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(theme.primaryText)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Als Markdown exportieren")
-                }
-                .padding(12)
-            }
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func infoTile(label: String, value: String, valueColor: Color = .primary, valueIcon: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(theme.tertiaryText)
-                .kerning(0.5)
-            if let dot = valueIcon {
-                HStack(spacing: 5) {
-                    Circle().fill(dot).frame(width: 7, height: 7)
-                    Text(value)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                        .lineLimit(1)
-                }
-            } else {
-                Text(value)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(valueColor)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-    }
-
-    // MARK: - Scheduling info panel
-
-    private func schedulingInfoPanel(agent: AgentDefinition, schedule: String) -> some View {
-        let isRunning = state.agentService.runningAgents.contains(agent.id)
-        let lastEntry = state.agentService.logs[agent.id]?.last
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("SCHEDULE")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(theme.tertiaryText)
-                    .kerning(0.6)
-                Spacer()
-                if isRunning {
-                    Label("Läuft…", systemImage: "clock.badge.fill")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.orange)
-                } else {
-                    Button {
-                        Task { await state.agentService.executeScheduledAgent(agent) }
-                    } label: {
-                        Label("Jetzt ausführen", systemImage: "play.fill")
-                            .font(.system(size: 9, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    .tint(accentColor)
-                }
-            }
-
-            HStack(spacing: 10) {
-                scheduleChip(
-                    icon: agent.isActive ? "checkmark.circle.fill" : "pause.circle.fill",
-                    label: agent.isActive ? "Aktiv" : "Inaktiv",
-                    color: agent.isActive ? .green : theme.tertiaryText
-                )
-                scheduleChip(icon: "timer", label: schedule, color: accentColor)
-                if let last = lastEntry {
-                    scheduleChip(
-                        icon: last.status.icon,
-                        label: relativeTime(last.startedAt),
-                        color: last.status.color
-                    )
-                }
-            }
-        }
-    }
-
-    private func scheduleChip(icon: String, label: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .foregroundStyle(color)
-            Text(label)
-                .font(.system(size: 9))
-                .foregroundStyle(theme.secondaryText)
-        }
-        .padding(.horizontal, 7).padding(.vertical, 3)
-        .background(color.opacity(0.1), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.25), lineWidth: 0.5))
-    }
-
-    // MARK: - Logbook panel
-
-    private func logbookPanel(agent: AgentDefinition) -> some View {
-        let entries = (state.agentService.logs[agent.id] ?? []).reversed() as [ScheduledTaskLogEntry]
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("LOGBUCH")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(theme.tertiaryText)
-                    .kerning(0.6)
-                Text("\(entries.count)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(theme.tertiaryText)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(theme.cardBg, in: Capsule())
-                    .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
-                Spacer()
-                if !entries.isEmpty {
-                    Button {
-                        state.agentService.clearLog(agentId: agent.id)
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Logbuch leeren")
-                }
-            }
-
-            if entries.isEmpty {
-                Text("Noch keine Ausführungen aufgezeichnet.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(theme.tertiaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                VStack(spacing: 4) {
-                    ForEach(entries.prefix(20)) { entry in
-                        logbookRow(entry)
-                    }
-                }
-            }
-        }
-    }
-
-    private func logbookRow(_ entry: ScheduledTaskLogEntry) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Image(systemName: entry.status.icon)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(entry.status.color)
-                Text(entry.status.label)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(entry.status.color)
-                Spacer()
-                Text(shortDateTime(entry.startedAt))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(theme.tertiaryText)
-                if let fin = entry.finishedAt {
-                    Text("(\(durationString(from: entry.startedAt, to: fin)))")
-                        .font(.system(size: 9))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-            }
-            if !entry.output.isEmpty {
-                Text(entry.output.prefix(200) + (entry.output.count > 200 ? "…" : ""))
-                    .font(.system(size: 9))
-                    .foregroundStyle(theme.secondaryText)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-            }
-            if !entry.error.isEmpty {
-                Text(entry.error)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.red.opacity(0.8))
-                    .lineLimit(2)
-            }
-        }
-        .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(theme.windowBg.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder.opacity(0.6), lineWidth: 0.4))
-    }
-
-    private func relativeTime(_ date: Date) -> String {
-        let diff = Date().timeIntervalSince(date)
-        if diff < 60      { return "Gerade eben" }
-        if diff < 3600    { return "vor \(Int(diff/60)) Min." }
-        if diff < 86400   { return "vor \(Int(diff/3600)) Std." }
-        return "vor \(Int(diff/86400)) T."
-    }
-
-    private func shortDateTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "dd.MM HH:mm"
-        return f.string(from: date)
-    }
-
-    private func durationString(from start: Date, to end: Date) -> String {
-        let sec = Int(end.timeIntervalSince(start))
-        if sec < 60 { return "\(sec)s" }
-        return "\(sec/60)m \(sec%60)s"
-    }
-
-    private func metaTag(_ key: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(key.uppercased())
-                .font(.system(size: 7, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.4)
-            Text(value)
-                .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
-        }
-        .padding(.horizontal, 7).padding(.vertical, 4)
-        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-    }
-
     // MARK: - Placeholder
 
     private var agentPlaceholder: some View {
@@ -1240,7 +1066,6 @@ struct AgentsView: View {
         editingAgentId = nil
         editorDraft = AgentDraft()
         editorError = nil
-        detailError = nil
         showEditor = true
     }
 
@@ -1248,7 +1073,6 @@ struct AgentsView: View {
         editingAgentId = agent.id
         editorDraft = AgentDraft(agent: agent)
         editorError = nil
-        detailError = nil
         showEditor = true
     }
 
@@ -1259,10 +1083,8 @@ struct AgentsView: View {
         Task { @MainActor in
             do {
                 let saved = try await state.agentService.saveAgent(draft, previousId: previousId)
-                selectedAgent = saved
                 editingAgentId = saved.id
                 editorError = nil
-                detailError = nil
                 showEditor = false
             } catch {
                 editorError = error.localizedDescription
@@ -1278,13 +1100,7 @@ struct AgentsView: View {
 
     private func duplicateAgent(_ agent: AgentDefinition) {
         Task { @MainActor in
-            do {
-                let duplicated = try await state.agentService.duplicateAgent(agent)
-                selectedAgent = duplicated
-                detailError = nil
-            } catch {
-                detailError = error.localizedDescription
-            }
+            _ = try? await state.agentService.duplicateAgent(agent)
         }
     }
 
@@ -1299,17 +1115,8 @@ struct AgentsView: View {
         guard panel.runModal() == .OK else { return }
 
         Task { @MainActor in
-            do {
-                var lastImported: AgentDefinition?
-                for url in panel.urls {
-                    lastImported = try await state.agentService.importAgent(from: url)
-                }
-                if let lastImported {
-                    selectedAgent = lastImported
-                }
-                detailError = nil
-            } catch {
-                detailError = error.localizedDescription
+            for url in panel.urls {
+                _ = try? await state.agentService.importAgent(from: url)
             }
         }
     }
@@ -1322,34 +1129,14 @@ struct AgentsView: View {
         panel.isExtensionHidden = false
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        do {
-            try state.agentService.exportAgent(agent, to: url)
-            detailError = nil
-        } catch {
-            detailError = error.localizedDescription
-        }
+        try? state.agentService.exportAgent(agent, to: url)
     }
 
     private func deleteAgent(_ agent: AgentDefinition) {
         Task { @MainActor in
-            do {
-                try await state.agentService.deleteAgent(agentId: agent.id)
-                if selectedAgent?.id == agent.id {
-                    selectedAgent = state.agentService.agents.first
-                }
-                detailError = nil
-                pendingDeleteAgent = nil
-            } catch {
-                detailError = error.localizedDescription
-                pendingDeleteAgent = nil
-            }
+            try? await state.agentService.deleteAgent(agentId: agent.id)
+            pendingDeleteAgent = nil
         }
-    }
-
-    private func syncSelectedAgent(with agents: [AgentDefinition]) {
-        guard let selectedId = selectedAgent?.id else { return }
-        selectedAgent = agents.first(where: { $0.id == selectedId })
     }
 }
 
@@ -1369,6 +1156,8 @@ private struct AgentEditorSheet: View {
     @State private var aiDescription = ""
     @State private var isGenerating = false
     @State private var aiError: String?
+
+    private let portraitIds = (1...17).map { String(format: "ap%02d", $0) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1455,6 +1244,13 @@ private struct AgentEditorSheet: View {
                                     .textFieldStyle(.roundedBorder)
                             }
                         }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            editorField("Triggers", hint: "Kommagetrennte Schlüsselwörter") {
+                                TextField("code review, API, bug", text: $draft.triggers)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
                     }
                     .padding(16)
                     .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
@@ -1493,6 +1289,40 @@ private struct AgentEditorSheet: View {
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(16)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                    )
+
+                    // Portrait section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.square")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                            Text("Portrait")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                            if !draft.portrait.isEmpty {
+                                Button {
+                                    draft.portrait = ""
+                                } label: {
+                                    Text("Entfernen")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(80), spacing: 10), count: 5), spacing: 10) {
+                            ForEach(portraitIds, id: \.self) { pid in
+                                portraitThumb(pid)
+                            }
                         }
                     }
                     .padding(16)
@@ -1656,6 +1486,44 @@ private struct AgentEditorSheet: View {
                 .foregroundStyle(theme.tertiaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func portraitThumb(_ pid: String) -> some View {
+        let isSelected = draft.portrait == pid
+        let accentColor = Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+        return Button {
+            draft.portrait = isSelected ? "" : pid
+        } label: {
+            Group {
+                if let url = Bundle.module.url(forResource: pid, withExtension: "png"),
+                   let img = NSImage(contentsOf: url) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.gray.opacity(0.2))
+                        .overlay(Text(pid).font(.system(size: 8)).foregroundStyle(.secondary))
+                }
+            }
+            .frame(width: 80, height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? accentColor : Color.clear, lineWidth: 2)
+            )
+            .overlay(
+                isSelected ?
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(accentColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(3)
+                : nil
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func generatePromptWithAI() {

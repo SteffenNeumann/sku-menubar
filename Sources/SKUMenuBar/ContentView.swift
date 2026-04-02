@@ -173,6 +173,8 @@ struct DashboardView: View {
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
+            HStack {
+            Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 16) {
 
                 // -- Page title row --
@@ -376,7 +378,10 @@ struct DashboardView: View {
                 }
                 .padding(.top, 4)
             }
+            .frame(maxWidth: 900)
             .padding(20)
+            Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
