@@ -22,6 +22,12 @@ struct WindowConfigurator: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let window = nsView.window else { return }
         Self.style(window)
+        // Deferred second pass — NavigationSplitView may push a toolbar title
+        // after updateNSView returns; this clears it on the next run-loop tick.
+        DispatchQueue.main.async {
+            guard window.title != "" || window.titleVisibility != .hidden else { return }
+            Self.style(window)
+        }
     }
 
     // MARK: - Window styling
@@ -32,6 +38,7 @@ struct WindowConfigurator: NSViewRepresentable {
         // 1. Transparent title bar — the sidebar blur extends into this area
         window.titlebarAppearsTransparent = true
         window.titleVisibility            = .hidden
+        window.title                      = ""
 
         // 2. Content fills the entire window frame including the title bar strip
         window.styleMask.insert(.fullSizeContentView)

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MainWindowView: View {
     @EnvironmentObject var state: AppState
-    @Environment(\.appTheme) var theme
     @State private var selectedSection: AppSection = .dashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -19,9 +18,9 @@ struct MainWindowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .ignoresSafeArea(.all, edges: .top)
+            .navigationTitle("")  // suppress auto-generated toolbar title
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("")
         .frame(minWidth: 900, minHeight: 600)
         .onChange(of: state.pendingChatSession) {
             if state.pendingChatSession != nil {
@@ -29,9 +28,8 @@ struct MainWindowView: View {
                 selectedSection = .chat
             }
         }
-        // Uniform window toolbar background – matches sidebar's windowBg so
-        // both columns look consistent in the titlebar strip.
-        .toolbarBackground(theme.windowBg, for: .windowToolbar)
+        // Keep toolbar transparent — content extends behind it via fullSizeContentView.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         // Apply frameless window config (transparent title bar + fullSizeContentView)
         .background(WindowConfigurator().frame(width: 0, height: 0))
     }

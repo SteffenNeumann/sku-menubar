@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import PDFKit
 
 // MARK: - Chat View (Tab Container)
 
@@ -160,6 +161,12 @@ struct SingleChatSessionView: View {
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
     @State private var activeDiff: String?
+    @State private var showFilePanel: Bool = false
+    @State private var filePanelWidth: CGFloat = 220
+    @State private var diffPanelWidth: CGFloat = 500
+    @State private var filePreviewNode: ExplorerNode? = nil
+    @State private var filePreviewPanelWidth: CGFloat = 380
+    @State private var inputBarHeight: CGFloat = 56
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
 
     private func closeAllPickers() {
@@ -199,7 +206,51 @@ struct SingleChatSessionView: View {
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
-                // Left: Chat area
+                // Left: File Explorer Panel
+                if showFilePanel {
+                    ChatFilePanel(
+                        rootPath: workingDirectory ?? NSHomeDirectory(),
+                        onInsertPath: { path in
+                            if inputText.isEmpty { inputText = path }
+                            else { inputText += " \(path)" }
+                            inputFocused = true
+                        },
+                        onSelectNode: { node in
+                            withAnimation(.spring(response: 0.3)) { filePreviewNode = node }
+                        },
+                        onClose: {
+                            withAnimation(.spring(response: 0.3)) { showFilePanel = false }
+                        }
+                    )
+                    .frame(width: filePanelWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                    PanelResizeHandle(width: $filePanelWidth, minWidth: 160, maxWidth: 620, growsRight: true)
+                        .frame(width: 10)
+                }
+
+                // Left: File Preview Panel (appears next to file tree)
+                if let node = filePreviewNode, !node.isDirectory {
+                    FilePreviewPanel(
+                        node: node,
+                        bottomGap: inputBarHeight,
+                        onInsertPath: { path in
+                            if inputText.isEmpty { inputText = path }
+                            else { inputText += " \(path)" }
+                            inputFocused = true
+                        },
+                        onClose: {
+                            withAnimation(.spring(response: 0.3)) { filePreviewNode = nil }
+                        }
+                    )
+                    .frame(width: filePreviewPanelWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                    PanelResizeHandle(width: $filePreviewPanelWidth, minWidth: 240, maxWidth: 800, growsRight: true)
+                        .frame(width: 10)
+                }
+
+                // Center: Chat area
                 VStack(spacing: 0) {
                     if messages.isEmpty {
                         emptyState.onTapGesture { closeAllPickers() }
@@ -207,14 +258,19 @@ struct SingleChatSessionView: View {
                         messagesArea.onTapGesture { closeAllPickers() }
                     }
                     inputBar
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
+                        })
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
-                // Right: Diff side panel
+                // Right: Diff side panel (resizable)
                 if let diff = activeDiff {
-                    Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+                    PanelResizeHandle(width: $diffPanelWidth, minWidth: 320, maxWidth: 900, growsRight: false)
+                        .frame(width: 10)
                     diffSidePanel(diff)
-                        .frame(minWidth: 320, idealWidth: 400, maxWidth: 500)
+                        .frame(width: diffPanelWidth)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -608,6 +664,13 @@ struct SingleChatSessionView: View {
     // Minimal icon row at the very bottom of the input card
     private var controlStrip: some View {
         HStack(spacing: 0) {
+            // File panel toggle
+            stripButton(icon: "sidebar.left", active: showFilePanel, help: "File Explorer") {
+                withAnimation(.spring(response: 0.3)) { showFilePanel.toggle() }
+            }
+
+            stripSep
+
             // Attach file
             stripButton(icon: "paperclip", active: false, help: "Datei anhängen") {
                 openFilePicker()
@@ -907,30 +970,48 @@ struct SingleChatSessionView: View {
         let agents = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
         guard !agents.isEmpty else { return }
 
-        // Create one assistant placeholder per agent
-        var agentIndices: [String: Int] = [:]
-        for agent in agents {
-            var placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
-            placeholder.model = agent.name   // reuse model field as agent label
-            messages.append(placeholder)
-            agentIndices[agent.id] = messages.count - 1
-        }
-
         isStreaming = true
-        var remaining = agents.count
 
-        for agent in agents {
-            let agentId = agent.id
-            let agentName = agent.name
-            Task { @MainActor in
-                guard let idx = agentIndices[agentId] else { return }
-                // prepend agent header to output
-                messages[idx].content = "**[\(agentName)]**\n"
+        // Sequential orchestration: each agent receives the previous agents' outputs as context
+        Task { @MainActor in
+            var previousOutputs: [(name: String, output: String)] = []
+
+            for agent in agents {
+                var placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+                placeholder.model = agent.name
+                messages.append(placeholder)
+                let idx = messages.count - 1
+
+                // Build context-enriched message from prior agents
+                let contextMessage: String
+                if previousOutputs.isEmpty {
+                    contextMessage = text
+                } else {
+                    let prior = previousOutputs
+                        .map { "**\($0.name):**\n\($0.output)" }
+                        .joined(separator: "\n\n")
+                    contextMessage = """
+                    Aufgabe: \(text)
+
+                    ---
+                    Vorherige Agenten-Analysen:
+                    \(prior)
+
+                    ---
+                    Baue auf den obigen Ergebnissen auf und ergänze sie aus deiner Perspektive als \(agent.name).
+                    """
+                }
+
+                messages[idx].content = "**[\(agent.name)]**\n"
+
+                var agentOutput = ""
+                var pendingContent = ""
+                var tokenCount = 0
 
                 let stream = state.cliService.send(
-                    message: text,
+                    message: contextMessage,
                     sessionId: nil,
-                    agentName: agentId,
+                    agentName: agent.id,
                     model: selectedModel,
                     workingDirectory: workingDirectory
                 )
@@ -942,12 +1023,18 @@ struct SingleChatSessionView: View {
                                 switch block.type {
                                 case "text":
                                     if let t = block.text, !t.isEmpty {
-                                        messages[idx].content += t
+                                        agentOutput += t
+                                        pendingContent += t
+                                        tokenCount += 1
+                                        if tokenCount >= 10 {
+                                            messages[idx].content += pendingContent
+                                            pendingContent = ""
+                                            tokenCount = 0
+                                        }
                                     }
                                 case "tool_use":
                                     let name = block.name ?? "tool"
-                                    let tool = ToolCall(name: name, input: "")
-                                    messages[idx].toolCalls.append(tool)
+                                    messages[idx].toolCalls.append(ToolCall(name: name, input: ""))
                                 default: break
                                 }
                             }
@@ -956,10 +1043,14 @@ struct SingleChatSessionView: View {
                 } catch {
                     messages[idx].content += "\n\n⚠️ \(error.localizedDescription)"
                 }
+                if !pendingContent.isEmpty {
+                    messages[idx].content += pendingContent
+                }
                 messages[idx].isStreaming = false
-                remaining -= 1
-                if remaining == 0 { isStreaming = false }
+                previousOutputs.append((name: agent.name, output: agentOutput))
             }
+
+            isStreaming = false
         }
     }
 
@@ -1088,6 +1179,9 @@ struct SingleChatSessionView: View {
             skipPermissions: autoApprove
         )
 
+        var pendingContent = ""
+        var pendingTokenCount = 0
+
         do {
             for try await event in stream {
                 if let sid = event.sessionId, currentSessionId == nil {
@@ -1101,9 +1195,21 @@ struct SingleChatSessionView: View {
                             switch block.type {
                             case "text":
                                 if let t = block.text, !t.isEmpty {
-                                    messages[assistantIndex].content += t
+                                    pendingContent += t
+                                    pendingTokenCount += 1
+                                    if pendingTokenCount >= 10 {
+                                        messages[assistantIndex].content += pendingContent
+                                        pendingContent = ""
+                                        pendingTokenCount = 0
+                                    }
                                 }
                             case "tool_use":
+                                // Flush buffer before showing tool use
+                                if !pendingContent.isEmpty {
+                                    messages[assistantIndex].content += pendingContent
+                                    pendingContent = ""
+                                    pendingTokenCount = 0
+                                }
                                 let name = block.name ?? "tool"
                                 let tool = ToolCall(name: name, input: "")
                                 messages[assistantIndex].toolCalls.append(tool)
@@ -1180,6 +1286,11 @@ struct SingleChatSessionView: View {
             }
             isStreaming = false
             return
+        }
+
+        // Flush any remaining buffered tokens
+        if !pendingContent.isEmpty, messages.indices.contains(assistantIndex) {
+            messages[assistantIndex].content += pendingContent
         }
 
         if messages.indices.contains(assistantIndex) {
@@ -1362,6 +1473,673 @@ struct SingleChatSessionView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).padding(.vertical, 1)
             .background(bg)
+    }
+}
+
+// MARK: - Panel Resize Handle
+
+// NSViewRepresentable-based resize handle — survives SwiftUI re-renders during drag
+struct PanelResizeHandle: NSViewRepresentable {
+    @Binding var width: CGFloat
+    let minWidth: CGFloat
+    let maxWidth: CGFloat
+    /// true = rechte Kante des linken Panels (drag right → wider)
+    /// false = linke Kante des rechten Panels (drag left → wider)
+    let growsRight: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(width: $width, minWidth: minWidth, maxWidth: maxWidth, growsRight: growsRight)
+    }
+
+    func makeNSView(context: Context) -> ResizeDragNSView {
+        ResizeDragNSView(coordinator: context.coordinator)
+    }
+
+    func updateNSView(_ nsView: ResizeDragNSView, context: Context) {
+        context.coordinator.width    = $width
+        context.coordinator.minWidth = minWidth
+        context.coordinator.maxWidth = maxWidth
+        context.coordinator.growsRight = growsRight
+    }
+
+    // MARK: Coordinator — holds mutable state across re-renders
+    class Coordinator {
+        var width: Binding<CGFloat>
+        var minWidth: CGFloat
+        var maxWidth: CGFloat
+        var growsRight: Bool
+
+        init(width: Binding<CGFloat>, minWidth: CGFloat, maxWidth: CGFloat, growsRight: Bool) {
+            self.width = width
+            self.minWidth = minWidth
+            self.maxWidth = maxWidth
+            self.growsRight = growsRight
+        }
+    }
+}
+
+// MARK: AppKit view — mouse events bypass SwiftUI gestures entirely
+class ResizeDragNSView: NSView {
+    weak var coordinator: PanelResizeHandle.Coordinator?
+
+    init(coordinator: PanelResizeHandle.Coordinator) {
+        self.coordinator = coordinator
+        super.init(frame: .zero)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) { /* capture mouse */ }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let coord = coordinator else { return }
+        // deltaX: positive = moved right
+        let raw = coord.growsRight ? event.deltaX : -event.deltaX
+        let newW = max(coord.minWidth, min(coord.maxWidth, coord.width.wrappedValue + raw))
+        DispatchQueue.main.async { coord.width.wrappedValue = newW }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Skip the top 30px (panel header area) — don't draw into headers
+        let topSkip: CGFloat = 30
+        let drawH = max(0, bounds.height - topSkip)
+        guard drawH > 0 else { return }
+
+        // Center line
+        NSColor.separatorColor.withAlphaComponent(0.25).setFill()
+        NSRect(x: (bounds.width - 1) / 2, y: 0, width: 1, height: drawH).fill()
+
+        // Grip dots centered in visible region
+        let dotSize: CGFloat = 3
+        let dotGap: CGFloat = 5
+        let totalDots = 5
+        let totalH = CGFloat(totalDots) * dotSize + CGFloat(totalDots - 1) * dotGap
+        let startY = (drawH - totalH) / 2
+        let cx = (bounds.width - dotSize) / 2
+        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
+        for i in 0..<totalDots {
+            let y = startY + CGFloat(i) * (dotSize + dotGap)
+            NSBezierPath(ovalIn: NSRect(x: cx, y: y, width: dotSize, height: dotSize)).fill()
+        }
+    }
+}
+
+// MARK: - Chat File Panel
+
+struct ChatFilePanel: View {
+    let rootPath: String
+    let onInsertPath: (String) -> Void
+    let onSelectNode: (ExplorerNode?) -> Void
+    let onClose: () -> Void
+
+    @Environment(\.appTheme) var theme
+    @State private var rootNode: ExplorerNode?
+    @State private var selectedNode: ExplorerNode?
+    @State private var showHidden = false
+    @State private var currentRoot: String = ""
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(accentColor)
+                Text(URL(fileURLWithPath: rootPath).lastPathComponent)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                Spacer()
+                Button {
+                    showHidden.toggle()
+                    reload()
+                } label: {
+                    Image(systemName: showHidden ? "eye.fill" : "eye.slash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Versteckte Dateien")
+
+                Button {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: rootPath))
+                } label: {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Im Finder öffnen")
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Schließen")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background {
+                theme.windowBg
+                theme.cardSurface
+            }
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            // Tree only — preview is shown in the right panel
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let root = rootNode {
+                        ForEach(root.children ?? []) { node in
+                            ChatFilePanelRow(
+                                node: node,
+                                selectedId: selectedNode?.id,
+                                showHidden: showHidden,
+                                depth: 0,
+                                onSelect: selectNode,
+                                onInsert: { onInsertPath($0.url.path) }
+                            )
+                        }
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.windowBg)
+        .onAppear { load() }
+        .onChange(of: rootPath) { load() }
+    }
+
+    private func load() {
+        guard currentRoot != rootPath else { return }
+        currentRoot = rootPath
+        let node = ExplorerNode(url: URL(fileURLWithPath: rootPath))
+        node.loadChildren(showHidden: showHidden)
+        rootNode = node
+        selectedNode = nil
+        onSelectNode(nil)
+    }
+
+    private func reload() {
+        currentRoot = ""
+        load()
+    }
+
+    private func selectNode(_ node: ExplorerNode) {
+        selectedNode = node
+        onSelectNode(node.isDirectory ? nil : node)
+    }
+}
+
+// MARK: - PDF Preview
+
+struct PDFPreviewView: NSViewRepresentable {
+    let document: PDFDocument
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.document = document
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displaysPageBreaks = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateNSView(_ view: PDFView, context: Context) {
+        if view.document !== document {
+            view.document = document
+        }
+    }
+}
+
+// MARK: - Syntax Highlighter
+
+struct SyntaxHighlighter {
+    // One Dark Pro palette
+    static func highlight(_ text: String, fileExtension ext: String, isDark: Bool) -> AttributedString {
+        var result = AttributedString(text)
+        result.foregroundColor = isDark ? Color(white: 0.86) : Color(white: 0.12)
+        result.font = .system(size: 11, design: .monospaced)
+
+        // Colors
+        let cComment = Color(white: isDark ? 0.46 : 0.52)              // grey
+        let cString  = Color(red: 0.60, green: 0.76, blue: 0.47)      // #98c379 green
+        let cKeyword = Color(red: 0.78, green: 0.47, blue: 0.87)      // #c678dd purple
+        let cNumber  = Color(red: 0.82, green: 0.61, blue: 0.40)      // #d19a66 gold
+        let cFunc    = Color(red: 0.38, green: 0.69, blue: 0.94)      // #61afef blue
+        let cType    = Color(red: 0.90, green: 0.75, blue: 0.48)      // #e5c07b yellow
+        let cAttr    = Color(red: 0.94, green: 0.61, blue: 0.46)      // orange
+        let cProp    = Color(red: 0.89, green: 0.55, blue: 0.55)      // red-pink
+
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var painted: [NSRange] = []
+
+        func hits(_ r: NSRange) -> Bool { painted.contains { NSIntersectionRange($0, r).length > 0 } }
+        func paint(_ c: Color, _ r: NSRange) {
+            guard let sr = Range(r, in: text),
+                  let lo = AttributedString.Index(sr.lowerBound, within: result),
+                  let hi = AttributedString.Index(sr.upperBound, within: result) else { return }
+            result[lo..<hi].foregroundColor = c
+            painted.append(r)
+        }
+        func rx(_ pattern: String, _ color: Color, dot: Bool = false, skip: Bool = true) {
+            let opts: NSRegularExpression.Options = dot ? [.dotMatchesLineSeparators] : []
+            guard let re = try? NSRegularExpression(pattern: pattern, options: opts) else { return }
+            for m in re.matches(in: text, range: full) {
+                if skip && hits(m.range) { continue }
+                paint(color, m.range)
+            }
+        }
+
+        // ── Markdown fast path ──────────────────────────────────────────
+        if ext == "md" {
+            rx("^#{1,6} .+$", cType)
+            rx("\\*\\*[^*\\n]+\\*\\*", cKeyword)
+            rx("(?<!\\*)\\*(?!\\*)[^*\\n]+\\*(?!\\*)", cComment)
+            rx("`[^`\\n]+`", cString)
+            rx("^```[\\s\\S]*?^```", cString, dot: true)
+            rx("^([-*+]|\\d+\\.) ", cFunc)
+            rx("\\[[^\\]]+\\]\\([^)]+\\)", cAttr)
+            return result
+        }
+
+        // ── 1. Comments (no skip — highest priority) ─────────────────────
+        switch ext {
+        case "html","htm":        rx("<!--[\\s\\S]*?-->", cComment, dot: true, skip: false)
+        case "css","scss":        rx("/\\*[\\s\\S]*?\\*/", cComment, dot: true, skip: false)
+        case "py","sh","bash","zsh","yml","yaml","toml","rb":
+                                  rx("#[^\n]*", cComment, skip: false)
+        default:
+            rx("/\\*[\\s\\S]*?\\*/", cComment, dot: true, skip: false)
+            rx("//[^\n]*", cComment, skip: false)
+        }
+
+        // ── 2. Strings ───────────────────────────────────────────────────
+        switch ext {
+        case "html","htm":
+            rx("\"[^\"\\n]*\"", cString); rx("'[^'\\n]*'", cString)
+            rx("</?[a-zA-Z][a-zA-Z0-9-]*", cKeyword)
+            rx("\\b[a-z-]+=", cAttr)
+        case "json":
+            rx("\"(?:[^\"\\\\]|\\\\.)*\"\\s*:", cType)        // keys
+            rx(":\\s*\"(?:[^\"\\\\]|\\\\.)*\"", cString)      // string values
+        case "css","scss":
+            rx("\"[^\"\\n]*\"|'[^'\\n]*'", cString)
+            rx("[.#][a-zA-Z][a-zA-Z0-9_-]*", cFunc)
+            rx(":[a-zA-Z-]+", cAttr)
+            rx("\\b(\\d+)(px|em|rem|vh|vw|%|s|ms|deg)\\b", cNumber)
+        default:
+            rx("\"\"\"[\\s\\S]*?\"\"\"", cString, dot: true)  // triple-quoted
+            rx("\"(?:[^\"\\\\]|\\\\.)*\"", cString)
+            rx("'(?:[^'\\\\]|\\\\.)*'", cString)
+            if ext != "rs" { rx("`[^`\\n]*`", cString) }
+        }
+
+        // ── 3. Keywords ──────────────────────────────────────────────────
+        let kws: [String]
+        switch ext {
+        case "swift":
+            kws = ["import","class","struct","enum","protocol","extension","func","var","let",
+                   "if","else","guard","return","true","false","nil","self","super","init","deinit",
+                   "override","final","static","private","public","internal","open","fileprivate",
+                   "mutating","nonmutating","lazy","weak","unowned","throws","rethrows","throw",
+                   "try","catch","do","for","in","while","repeat","break","continue","switch",
+                   "case","default","where","as","is","any","some","async","await","actor",
+                   "nonisolated","typealias","associatedtype","subscript","inout","indirect",
+                   "willSet","didSet","get","set","consuming","borrowing"]
+        case "py":
+            kws = ["import","from","class","def","if","elif","else","for","while","return",
+                   "True","False","None","and","or","not","in","is","with","as","try","except",
+                   "finally","raise","pass","break","continue","lambda","yield","global",
+                   "nonlocal","del","assert","async","await","match","case","print","len","range"]
+        case "js","jsx":
+            kws = ["import","export","default","from","require","class","extends","const","let",
+                   "var","function","return","if","else","for","while","do","switch","case","break",
+                   "continue","new","this","typeof","instanceof","in","of","try","catch","finally",
+                   "throw","async","await","true","false","null","undefined","void","delete","yield",
+                   "static","super","get","set","debugger"]
+        case "ts","tsx":
+            kws = ["import","export","default","from","class","extends","implements","const","let",
+                   "var","function","return","if","else","for","while","do","switch","case","break",
+                   "continue","new","this","typeof","instanceof","in","of","try","catch","finally",
+                   "throw","async","await","true","false","null","undefined","void","delete","yield",
+                   "static","super","type","interface","enum","namespace","declare","abstract",
+                   "readonly","as","is","keyof","infer","satisfies","override","accessor"]
+        case "go":
+            kws = ["import","package","func","var","const","type","struct","interface","map",
+                   "chan","go","defer","return","if","else","for","range","switch","case","default",
+                   "break","continue","fallthrough","select","true","false","nil","make","new",
+                   "len","cap","append","copy","close","delete","panic","recover"]
+        case "rs":
+            kws = ["use","mod","pub","crate","fn","let","mut","const","static","ref","struct",
+                   "enum","impl","trait","type","for","in","if","else","loop","while","match",
+                   "return","break","continue","where","as","dyn","move","unsafe","extern",
+                   "true","false","self","Self","super","async","await"]
+        case "java":
+            kws = ["import","package","class","interface","enum","extends","implements","public",
+                   "private","protected","static","final","abstract","void","return","if","else",
+                   "for","while","do","switch","case","default","break","continue","new","this",
+                   "super","throws","throw","try","catch","finally","true","false","null",
+                   "synchronized","volatile","instanceof","record","sealed","permits"]
+        case "kt":
+            kws = ["import","package","class","interface","object","enum","fun","val","var",
+                   "return","if","else","when","for","while","do","break","continue","in","is",
+                   "as","try","catch","finally","throw","true","false","null","this","super",
+                   "companion","data","sealed","open","override","abstract","private","public",
+                   "internal","protected","inline","reified","suspend","by","init","constructor",
+                   "lazy","lateinit","const","typealias","tailrec"]
+        case "sh","bash","zsh":
+            kws = ["if","then","else","elif","fi","for","while","until","do","done","case","in",
+                   "esac","function","return","exit","break","continue","local","export","readonly",
+                   "source","echo","printf","read","true","false","unset"]
+        case "json":
+            kws = ["true","false","null"]
+        default:
+            kws = []
+        }
+        if !kws.isEmpty {
+            rx("\\b(" + kws.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|") + ")\\b", cKeyword)
+        }
+
+        // ── 4. Numbers ───────────────────────────────────────────────────
+        rx("\\b0x[0-9A-Fa-f]+\\b", cNumber)
+        rx("\\b\\d+\\.\\d+([eE][+-]?\\d+)?[fFdD]?\\b", cNumber)
+        rx("\\b\\d+[lLuU]?\\b", cNumber)
+
+        // ── 5. Decorators / compiler directives ─────────────────────────
+        if ["swift","py","kt","java","ts","tsx","js","jsx"].contains(ext) {
+            rx("@[A-Za-z_][A-Za-z0-9_]*", cAttr)
+        }
+        if ext == "swift" {
+            rx("#(if|else|elseif|endif|available|unavailable|selector|keyPath|warning|error|function|file|line)\\b", cAttr)
+        }
+
+        // ── 6. PascalCase types ─────────────────────────────────────────
+        if ["swift","kt","java","ts","tsx","rs","go"].contains(ext) {
+            rx("\\b[A-Z][A-Za-z0-9]{1,}\\b", cType)
+        }
+
+        // ── 7. Function/method calls ─────────────────────────────────────
+        if ["swift","py","js","jsx","ts","tsx","kt","java","go","rs"].contains(ext) {
+            rx("\\b([a-z_][a-zA-Z0-9_]*)(?=\\s*\\()", cFunc)
+        }
+
+        // ── 8. Object properties (dot access) ────────────────────────────
+        if ["swift","js","jsx","ts","tsx","kt"].contains(ext) {
+            rx("(?<=\\.)([a-z_][a-zA-Z0-9_]*)(?!\\s*\\()", cProp)
+        }
+
+        return result
+    }
+}
+
+// MARK: - File Preview Panel (right side)
+
+private struct InputBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 56
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+struct FilePreviewPanel: View {
+    let node: ExplorerNode
+    let bottomGap: CGFloat
+    let onInsertPath: (String) -> Void
+    let onClose: () -> Void
+
+    @Environment(\.appTheme) var theme
+    @State private var previewText: String? = nil
+    @State private var highlightedText: AttributedString? = nil
+    @State private var pdfDocument: PDFDocument? = nil
+    @State private var nsImage: NSImage? = nil
+    @State private var isLoading = false
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    private var isImageFile: Bool {
+        ["png","jpg","jpeg","gif","bmp","tiff","tif","webp","heic","ico"].contains(node.fileExtension)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // ── Header ───────────────────────────────────────────────────
+            HStack(spacing: 6) {
+                Image(systemName: node.icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(node.iconColor)
+                Text(node.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                Spacer()
+                Button { onInsertPath(node.url.path) } label: {
+                    Label("Einfügen", systemImage: "text.badge.plus")
+                        .font(.system(size: 10))
+                        .foregroundStyle(accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Pfad in Chat einfügen")
+                Button { NSWorkspace.shared.open(node.url) } label: {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Im Finder öffnen")
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Vorschau schließen")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background {
+                theme.windowBg
+                theme.cardSurface
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+            }
+
+            // ── Content ───────────────────────────────────────────────────
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if node.isPDF, let pdf = pdfDocument {
+                PDFPreviewView(document: pdf)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let img = nsImage {
+                ScrollView([.vertical, .horizontal]) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .padding(16)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let text = previewText {
+                ScrollView {
+                    Group {
+                        if let hl = highlightedText {
+                            Text(hl)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        } else {
+                            Text(text)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.primaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: node.icon)
+                        .font(.system(size: 32))
+                        .foregroundStyle(node.iconColor.opacity(0.4))
+                    Text("Keine Vorschau verfügbar")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            // ── Bottom gap matching input bar height ──────────────────────
+            theme.windowBg
+                .frame(height: bottomGap)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.windowBg)
+        .onAppear { loadContent() }
+        .onChange(of: node.id) { loadContent() }
+    }
+
+    private func loadContent() {
+        previewText = nil
+        highlightedText = nil
+        pdfDocument = nil
+        nsImage = nil
+        isLoading = false
+        if node.isPDF {
+            pdfDocument = PDFDocument(url: node.url)
+        } else if isImageFile {
+            isLoading = true
+            let url = node.url
+            Task.detached(priority: .userInitiated) {
+                let img = NSImage(contentsOf: url)
+                await MainActor.run { nsImage = img; isLoading = false }
+            }
+        } else if node.isTextFile {
+            isLoading = true
+            let ext = node.fileExtension
+            let url = node.url
+            let isDark = !theme.isLight
+            Task.detached(priority: .userInitiated) {
+                let text = (try? String(contentsOf: url, encoding: .utf8))
+                    ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+                let preview = text.map { t in
+                    t.components(separatedBy: "\n").prefix(500).joined(separator: "\n")
+                }
+                let highlighted = preview.map { SyntaxHighlighter.highlight($0, fileExtension: ext, isDark: isDark) }
+                await MainActor.run {
+                    previewText = preview
+                    highlightedText = highlighted
+                    isLoading = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Chat File Panel Row
+
+struct ChatFilePanelRow: View {
+    @ObservedObject var node: ExplorerNode
+    let selectedId: UUID?
+    let showHidden: Bool
+    let depth: Int
+    let onSelect: (ExplorerNode) -> Void
+    let onInsert: (ExplorerNode) -> Void
+
+    @Environment(\.appTheme) var theme
+    @State private var isHovered = false
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+    private var isSelected: Bool { selectedId == node.id }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if node.isExpanded, let children = node.children {
+                ForEach(children) { child in
+                    ChatFilePanelRow(
+                        node: child,
+                        selectedId: selectedId,
+                        showHidden: showHidden,
+                        depth: depth + 1,
+                        onSelect: onSelect,
+                        onInsert: onInsert
+                    )
+                }
+            }
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 8) {
+            Color.clear.frame(width: CGFloat(depth) * 14)
+            if node.isDirectory {
+                Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(width: 12)
+            } else {
+                Color.clear.frame(width: 12)
+            }
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
+                    .frame(width: 26, height: 26)
+                Image(systemName: node.icon)
+                    .font(.system(size: 11))
+                    .foregroundStyle(isSelected ? accentColor : node.iconColor)
+            }
+            Text(node.name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            if isHovered && !node.isDirectory {
+                Button { onInsert(node) } label: {
+                    Image(systemName: "text.badge.plus")
+                        .font(.system(size: 10))
+                        .foregroundStyle(accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("In Chat einfügen")
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? theme.cardSurface : Color.clear))
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            onSelect(node)
+            if node.isDirectory {
+                withAnimation(.easeInOut(duration: 0.12)) { node.isExpanded.toggle() }
+                if node.isExpanded && node.children == nil {
+                    node.loadChildren(showHidden: showHidden)
+                }
+            }
+        }
+        .padding(.horizontal, 4)
     }
 }
 
