@@ -111,9 +111,6 @@ final class ClaudeCLIService: ObservableObject {
                     if exitCode != 0 {
                         let detail = errText.isEmpty ? "exit code \(exitCode)" : errText
                         continuation.finish(throwing: CLIError.processError(exitCode: Int(exitCode), stderr: detail))
-                    } else if !errText.isEmpty {
-                        // Exit 0 but stderr has content — surface as an error for diagnosis
-                        continuation.finish(throwing: CLIError.processError(exitCode: 0, stderr: errText))
                     } else {
                         continuation.finish()
                     }

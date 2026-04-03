@@ -36,6 +36,11 @@ struct SidebarView: View {
 
                         sectionGroup(title: "Claude CLI", items: [.chat, .history, .agents, .mcp, .codeReview])
 
+                        if !state.historyService.projects.isEmpty {
+                            sectionDivider
+                            recentProjectsSection
+                        }
+
                         sectionDivider
 
                         sectionGroup(title: "Workspace", items: [.notes, .tasks])
@@ -63,6 +68,50 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    // MARK: - Recent Projects
+
+    @ViewBuilder
+    private var recentProjectsSection: some View {
+        Text("LETZTE PROJEKTE")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(theme.tertiaryText)
+            .kerning(0.8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
+        ForEach(state.historyService.projects.prefix(5)) { project in
+            Button {
+                state.pendingChatNewProject = project.path
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    selection = .chat
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(theme.primaryText.opacity(0.06))
+                            .frame(width: 26, height: 26)
+                        Image(systemName: "folder")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Text(project.displayName)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Divider

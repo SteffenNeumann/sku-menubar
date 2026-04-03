@@ -52,6 +52,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatSession: String? = nil
     @Published var pendingChatSessionTitle: String? = nil
     @Published var pendingChatWorkingDirectory: String? = nil
+    @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
@@ -83,6 +84,7 @@ final class AppState: ObservableObject {
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
 
     @Published var activeSessions: [ActiveCLISession] = []
+    @Published var historySelectedProjectId: String? = nil   // set by sidebar recent-projects tap
 
     @Published var snippets: [CommandSnippet] = [] {
         didSet { persistSnippets() }

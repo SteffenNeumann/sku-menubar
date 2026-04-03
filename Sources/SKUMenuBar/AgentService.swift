@@ -89,6 +89,23 @@ final class AgentService: ObservableObject {
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
+        // Extract research update date from "🔬 Research Updates" section
+        var researchUpdatedAt: String? = nil
+        for line in lines[bodyStart...] {
+            // Matches: _Last updated: 2026-04-02 by Researcher_
+            if line.contains("Last updated:"),
+               let start = line.range(of: "Last updated:")?.upperBound {
+                let raw = String(line[start...])
+                    .trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ").first ?? ""
+                let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "_*"))
+                if cleaned.count == 10, cleaned.contains("-") {
+                    researchUpdatedAt = cleaned
+                    break
+                }
+            }
+        }
+
         return AgentDefinition(
             id: url.deletingPathExtension().lastPathComponent,
             name: name,
@@ -101,7 +118,8 @@ final class AgentService: ObservableObject {
             promptBody: body,
             filePath: url.path,
             schedule: schedule,
-            isActive: isActive
+            isActive: isActive,
+            researchUpdatedAt: researchUpdatedAt
         )
     }
 
@@ -337,6 +355,8 @@ final class AgentService: ObservableObject {
         liveOutput[agent.id] = ""
 
         let timeoutSeconds: TimeInterval = 300  // 5 min max per agent run
+        var outputText = ""
+        var resultText = ""
         do {
             let instructions = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
             let stream = cli.send(
@@ -345,8 +365,6 @@ final class AgentService: ObservableObject {
                 model: agent.model.isEmpty ? nil : agent.model,
                 skipPermissions: true
             )
-            var outputText = ""
-            var resultText = ""
             let deadline = Date().addingTimeInterval(timeoutSeconds)
             for try await event in stream {
                 if Date() > deadline {
@@ -372,12 +390,30 @@ final class AgentService: ObservableObject {
             }
             if entry.status == .running {
                 entry.status = .success
-                entry.output = outputText.isEmpty ? resultText : outputText
+                // Check for a dedicated daily report file (agents can write to name/ or id/ directory)
+                let reportByName = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.name)/daily_report.txt")
+                let reportById   = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.id)/daily_report.txt")
+                let fm = FileManager.default
+                let reportURL = fm.fileExists(atPath: reportByName.path) ? reportByName : reportById
+                if let reportText = try? String(contentsOf: reportURL, encoding: .utf8),
+                   !reportText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let attrs = try? fm.attributesOfItem(atPath: reportURL.path),
+                   let modified = attrs[.modificationDate] as? Date,
+                   modified >= entry.startedAt {
+                    entry.output = reportText.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    entry.output = outputText.isEmpty ? resultText : outputText
+                }
                 entry.finishedAt = Date()
             }
         } catch {
             entry.status = .failed
             entry.error  = error.localizedDescription
+            // Preserve whatever output was collected before the failure
+            if !outputText.isEmpty {
+                let tail = outputText.count > 800 ? "…\n" + String(outputText.suffix(800)) : outputText
+                entry.output = tail
+            }
             entry.finishedAt = Date()
         }
 

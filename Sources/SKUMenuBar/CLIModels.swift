@@ -342,6 +342,8 @@ struct AgentDefinition: Identifiable, Hashable {
     // Scheduling
     let schedule: String?       // "hourly", "daily", "weekly", "@HH:MM" (daily at time)
     let isActive: Bool          // scheduling enabled
+    // Research
+    let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
 
     /// Returns explicit triggers if set, otherwise auto-extracts keywords from content.
     var effectiveTriggers: [String] {

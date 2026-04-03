@@ -262,6 +262,13 @@ struct SingleChatSessionView: View {
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
         .onChange(of: workingDirectory) { tab.workingDirectory = workingDirectory }
+        .onChange(of: state.pendingChatNewProject) {
+            guard let path = state.pendingChatNewProject else { return }
+            state.pendingChatNewProject = nil
+            newSession()
+            workingDirectory = path
+            tab.title = URL(fileURLWithPath: path).lastPathComponent
+        }
         .onDisappear { tab.inputText = inputText }
     }
 
@@ -786,9 +793,9 @@ struct SingleChatSessionView: View {
     private func stripButton(icon: String, active: Bool, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundStyle(active ? accentColor : theme.tertiaryText.opacity(0.6))
-                .frame(width: 26, height: 22)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(active ? accentColor : theme.secondaryText.opacity(0.75))
+                .frame(width: 28, height: 24)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -800,11 +807,11 @@ struct SingleChatSessionView: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "folder")
-                    .font(.system(size: 10))
-                    .foregroundStyle(workingDirectory != nil ? accentColor : theme.tertiaryText.opacity(0.6))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(workingDirectory != nil ? accentColor : theme.secondaryText.opacity(0.75))
                 Text(workingDirectory.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "~")
-                    .font(.system(size: 10))
-                    .foregroundStyle(workingDirectory != nil ? accentColor : theme.tertiaryText.opacity(0.6))
+                    .font(.system(size: 11))
+                    .foregroundStyle(workingDirectory != nil ? accentColor : theme.secondaryText.opacity(0.75))
                     .lineLimit(1)
                     .frame(maxWidth: 90)
             }

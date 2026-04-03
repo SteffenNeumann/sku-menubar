@@ -46,6 +46,12 @@ struct HistoryView: View {
                 await state.historyService.loadProjects()
             }
         }
+        .onChange(of: state.historySelectedProjectId) {
+            guard let id = state.historySelectedProjectId,
+                  let project = state.historyService.projects.first(where: { $0.id == id }) else { return }
+            selectedProject = project
+            state.historySelectedProjectId = nil
+        }
     }
 
     // MARK: - Project list

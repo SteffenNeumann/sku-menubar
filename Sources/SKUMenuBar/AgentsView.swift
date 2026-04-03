@@ -377,12 +377,14 @@ private struct AgentBaseballCard: View {
     let lastRun: Date?
     let lastOutput: String?
     let lastStatus: ScheduledTaskStatus?
+    let lastError: String?
     let isRunning: Bool
     let liveText: String
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onDuplicate: () -> Void
     let onLogbook: () -> Void
+    let onMemory: () -> Void
     let onRerun: () -> Void
 
     @State private var hovered = false
@@ -507,6 +509,23 @@ private struct AgentBaseballCard: View {
                 }
                 .padding(.top, 5)
 
+                // ── Research badge (non-researcher agents) ────
+                if agent.id != "researcher forweb and ui  design trends",
+                   let resDate = agent.researchUpdatedAt {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain.filled.head.profile")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Color.purple.opacity(0.85))
+                        Text("Wissen: \(resDate)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.purple.opacity(0.85))
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.purple.opacity(0.10), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.purple.opacity(0.30), lineWidth: 0.5))
+                    .padding(.top, 2)
+                }
+
                 // ── Scheduled-only: output, status, last run ──
                 if !(agent.schedule ?? "").isEmpty {
                     if let output = lastOutput, !output.isEmpty {
@@ -564,6 +583,8 @@ private struct AgentBaseballCard: View {
                     actionBarButton(id: "logbook", icon: "book.pages",       action: onLogbook)
                 }
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                actionBarButton(id: "memory",  icon: "brain.head.profile",   action: onMemory)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "copy",    icon: "doc.on.clipboard",     action: onDuplicate)
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "delete",  icon: "flame",                action: onDelete)
@@ -602,7 +623,9 @@ private struct AgentBaseballCard: View {
             case .success:
                 return ("checkmark.circle.fill", "Erfolgreich abgeschlossen", agent.dotColor)
             case .failed:
-                return ("xmark.circle.fill", "Fehler beim letzten Lauf", .red)
+                let errMsg = lastError.flatMap { $0.isEmpty ? nil : String($0.prefix(140)) }
+                    ?? "Fehler beim letzten Lauf"
+                return ("xmark.circle.fill", errMsg, .red)
             case .running:
                 return ("circle.fill", "Läuft…", .green)
             case nil:
@@ -694,6 +717,7 @@ private struct AgentBaseballCard: View {
         "edit":    "Agent bearbeiten",
         "rerun":   "Agent jetzt ausführen",
         "logbook": "Logbook in Sublime Text öffnen",
+        "memory":  "Agent Memory anzeigen",
         "copy":    "Agent duplizieren",
         "delete":  "Agent löschen",
     ]
@@ -726,6 +750,7 @@ struct AgentsView: View {
     @State private var editingAgentId: String?
     @State private var editorError: String?
     @State private var pendingDeleteAgent: AgentDefinition?
+    @State private var memoryAgent: AgentDefinition?
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -842,6 +867,10 @@ struct AgentsView: View {
         } message: { agent in
             Text("\"\(agent.name)\" wird aus ~/.claude/agents entfernt.")
         }
+        .sheet(item: $memoryAgent) { agent in
+            AgentMemorySheet(agent: agent, theme: theme)
+                .frame(minWidth: 600, minHeight: 500)
+        }
     }
 
     // MARK: - Grid helpers
@@ -868,26 +897,37 @@ struct AgentsView: View {
             lastRun: state.agentService.logs[agent.id]?.last?.startedAt,
             lastOutput: state.agentService.logs[agent.id]?.reversed().first(where: { $0.status != .running })?.output,
             lastStatus: state.agentService.logs[agent.id]?.last?.status,
+            lastError: {
+                let last = state.agentService.logs[agent.id]?.last
+                return last?.status == .failed ? last?.error : nil
+            }(),
             isRunning: state.agentService.runningAgents.contains(agent.id),
             liveText: state.agentService.liveOutput[agent.id] ?? "",
             onEdit: { startEditingAgent(agent) },
             onDelete: { pendingDeleteAgent = agent },
             onDuplicate: { duplicateAgent(agent) },
             onLogbook: { openLogbook(for: agent) },
+            onMemory: { memoryAgent = agent },
             onRerun: { Task { await state.agentService.executeScheduledAgent(agent) } }
         )
     }
 
     private func openLogbook(for agent: AgentDefinition) {
         let home = NSHomeDirectory()
-        // Prefer agent-written markdown logbook
-        let mdURL  = URL(fileURLWithPath: "\(home)/.claude/agents/\(agent.id)/logbook.md")
-        // Fallback: app execution log (JSON)
-        let jsonURL = URL(fileURLWithPath: "\(home)/.claude/agent-logs/\(agent.id).json")
+        let fm = FileManager.default
+        // Agent may write to agent-memory/{name}/ or agent-memory/{id}/
+        let reportByName = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.name)/daily_report.txt")
+        let reportById   = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.id)/daily_report.txt")
+        let mdURL        = URL(fileURLWithPath: "\(home)/.claude/agents/\(agent.id)/logbook.md")
+        let jsonURL      = URL(fileURLWithPath: "\(home)/.claude/agent-logs/\(agent.id).json")
         let targetURL: URL
-        if FileManager.default.fileExists(atPath: mdURL.path) {
+        if fm.fileExists(atPath: reportByName.path) {
+            targetURL = reportByName
+        } else if fm.fileExists(atPath: reportById.path) {
+            targetURL = reportById
+        } else if fm.fileExists(atPath: mdURL.path) {
             targetURL = mdURL
-        } else if FileManager.default.fileExists(atPath: jsonURL.path) {
+        } else if fm.fileExists(atPath: jsonURL.path) {
             targetURL = jsonURL
         } else {
             try? FileManager.default.createDirectory(at: mdURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1592,5 +1632,214 @@ private struct AgentEditorSheet: View {
 private extension String {
     var shellQuoted: String {
         "'" + replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+// MARK: - Agent Memory Sheet
+
+private struct AgentMemorySheet: View {
+    let agent: AgentDefinition
+    let theme: AppTheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var memoryFiles: [MemoryFileEntry] = []
+    @State private var selectedFile: MemoryFileEntry?
+    @State private var fileContent: String = ""
+    @State private var isLoading = true
+
+    private struct MemoryFileEntry: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let url: URL
+        let size: Int64
+        let modified: Date
+    }
+
+    private var memoryDirs: [URL] {
+        let home = NSHomeDirectory()
+        return [
+            URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.name)"),
+            URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.id)")
+        ]
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 14))
+                            .foregroundStyle(agent.dotColor)
+                        Text("Memory — \(agent.name)")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    Text("~/.claude/agent-memory/\(agent.id)/")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            if isLoading {
+                Spacer()
+                ProgressView().controlSize(.small)
+                Spacer()
+            } else if memoryFiles.isEmpty {
+                Spacer()
+                VStack(spacing: 10) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 32))
+                        .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                    Text("Keine Memory-Dateien")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                    Text("Dieser Agent hat noch keine Dateien in\n~/.claude/agent-memory/ gespeichert.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                        .multilineTextAlignment(.center)
+                }
+                Spacer()
+            } else {
+                HSplitView {
+                    // File list sidebar
+                    VStack(spacing: 0) {
+                        List(memoryFiles, selection: $selectedFile) { entry in
+                            HStack(spacing: 6) {
+                                Image(systemName: fileIcon(for: entry.name))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(agent.dotColor)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(theme.primaryText)
+                                        .lineLimit(1)
+                                    Text(formatSize(entry.size) + " · " + formatDate(entry.modified))
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                            .tag(entry)
+                        }
+                        .listStyle(.sidebar)
+                    }
+                    .frame(minWidth: 160, idealWidth: 190, maxWidth: 240)
+
+                    // File content viewer
+                    VStack(spacing: 0) {
+                        if let selected = selectedFile {
+                            HStack(spacing: 6) {
+                                Text(selected.name)
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(theme.primaryText)
+                                Spacer()
+                                Button {
+                                    openInEditor(selected.url)
+                                } label: {
+                                    Image(systemName: "square.and.pencil")
+                                        .font(.system(size: 10))
+                                }
+                                .buttonStyle(.plain)
+                                .help("In Editor öffnen")
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(theme.cardBg)
+
+                            Divider().foregroundStyle(theme.cardBorder)
+
+                            ScrollView {
+                                Text(fileContent)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .foregroundStyle(theme.primaryText)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .padding(12)
+                            }
+                        } else {
+                            Spacer()
+                            Text("Datei auswählen")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                            Spacer()
+                        }
+                    }
+                    .frame(minWidth: 300)
+                }
+            }
+        }
+        .background(theme.windowBg)
+        .task { loadMemoryFiles() }
+        .onChange(of: selectedFile) { _, newFile in
+            guard let file = newFile else { fileContent = ""; return }
+            fileContent = (try? String(contentsOf: file.url, encoding: .utf8)) ?? "(Datei konnte nicht gelesen werden)"
+        }
+    }
+
+    private func loadMemoryFiles() {
+        let fm = FileManager.default
+        var entries: [MemoryFileEntry] = []
+        var seenPaths = Set<String>()
+
+        for dir in memoryDirs {
+            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+            for item in items {
+                guard !item.lastPathComponent.hasPrefix("."),
+                      seenPaths.insert(item.lastPathComponent).inserted else { continue }
+                let attrs = try? item.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                entries.append(MemoryFileEntry(
+                    id: item.path,
+                    name: item.lastPathComponent,
+                    url: item,
+                    size: Int64(attrs?.fileSize ?? 0),
+                    modified: attrs?.contentModificationDate ?? Date.distantPast
+                ))
+            }
+        }
+
+        memoryFiles = entries.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        isLoading = false
+
+        // Auto-select first file
+        if selectedFile == nil, let first = memoryFiles.first {
+            selectedFile = first
+        }
+    }
+
+    private func fileIcon(for name: String) -> String {
+        if name.hasSuffix(".md") { return "doc.richtext" }
+        if name.hasSuffix(".txt") { return "doc.text" }
+        if name.hasSuffix(".json") { return "curlybraces" }
+        return "doc"
+    }
+
+    private func formatSize(_ bytes: Int64) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        return String(format: "%.1f KB", Double(bytes) / 1024)
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "dd.MM.yy HH:mm"
+        return fmt.string(from: date)
+    }
+
+    private func openInEditor(_ url: URL) {
+        let sublimeURL = URL(fileURLWithPath: "/Applications/Sublime Text.app")
+        if FileManager.default.fileExists(atPath: sublimeURL.path) {
+            NSWorkspace.shared.open([url], withApplicationAt: sublimeURL, configuration: .init(), completionHandler: nil)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
