@@ -86,6 +86,7 @@ final class AgentService: ObservableObject {
         let triggers    = fields["triggers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let schedule    = fields["schedule"].flatMap { $0.isEmpty ? nil : $0 }
         let isActive    = (fields["active"] ?? "false").lowercased() == "true"
+        let timeoutMins = fields["timeout"].flatMap { Int($0) } ?? 30
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
@@ -119,6 +120,7 @@ final class AgentService: ObservableObject {
             filePath: url.path,
             schedule: schedule,
             isActive: isActive,
+            timeoutMinutes: timeoutMins,
             researchUpdatedAt: researchUpdatedAt
         )
     }
@@ -135,6 +137,7 @@ final class AgentService: ObservableObject {
         if !draft.portrait.isEmpty  { lines.append("portrait: \(draft.portrait)") }
         if !draft.triggers.isEmpty  { lines.append("triggers: \(draft.triggers)") }
         if !draft.schedule.isEmpty  { lines.append("schedule: \(draft.schedule)") }
+        if !draft.timeoutMinutes.isEmpty { lines.append("timeout: \(draft.timeoutMinutes)") }
         if draft.isActive          { lines.append("active: true") }
         lines.append("---")
         if !draft.promptBody.isEmpty {
@@ -452,7 +455,7 @@ final class AgentService: ObservableObject {
         runningAgents.insert(agent.id)
         liveOutput[agent.id] = ""
 
-        let timeoutSeconds: TimeInterval = 300  // 5 min max per agent run
+        let timeoutSeconds: TimeInterval = TimeInterval(agent.timeoutMinutes * 60)
         var outputText = ""
         var resultText = ""
         do {

@@ -342,6 +342,7 @@ struct AgentDefinition: Identifiable, Hashable {
     // Scheduling
     let schedule: String?       // "hourly", "daily", "weekly", "@HH:MM" (daily at time)
     let isActive: Bool          // scheduling enabled
+    let timeoutMinutes: Int     // max run time in minutes (default 30)
     // Research
     let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
 
@@ -438,6 +439,7 @@ struct AgentDraft {
     var promptBody: String = ""
     var schedule: String = ""
     var isActive: Bool = false
+    var timeoutMinutes: String = ""  // empty = default (30 min)
 
     init() {}
 
@@ -453,6 +455,7 @@ struct AgentDraft {
         promptBody  = agent.promptBody
         schedule    = agent.schedule ?? ""
         isActive    = agent.isActive
+        timeoutMinutes = agent.timeoutMinutes == 30 ? "" : String(agent.timeoutMinutes)
     }
 }
 

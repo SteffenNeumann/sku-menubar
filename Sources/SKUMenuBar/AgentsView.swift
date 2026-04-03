@@ -1316,6 +1316,11 @@ private struct AgentEditorSheet: View {
                                     .textFieldStyle(.roundedBorder)
                             }
 
+                            editorField("Timeout", hint: "Minuten (Standard: 30)") {
+                                TextField("30", text: $draft.timeoutMinutes)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("AKTIV".uppercased())
                                     .font(.system(size: 9, weight: .semibold))
