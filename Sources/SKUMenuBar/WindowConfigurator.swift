@@ -1,55 +1,61 @@
 import SwiftUI
 import AppKit
 
-/// Configures the host NSWindow for a seamless frameless look:
-/// - Transparent title bar (inherits the sidebar's visual-effect material)
-/// - Content extends behind the traffic lights via fullSizeContentView
-/// - Title text hidden — identity lives in the sidebar branding
-///
-/// Applied as a zero-size background so it fires as soon as the window exists.
+/// Configures the host NSWindow for a seamless frameless look.
+/// Uses a persistent Coordinator with KVO observers so SwiftUI's
+/// NavigationSplitView cannot re-inject a visible title after we clear it.
 struct WindowConfigurator: NSViewRepresentable {
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        // Defer until the view is in a window
         DispatchQueue.main.async {
             guard let window = view.window else { return }
-            Self.style(window)
+            context.coordinator.attach(to: window)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let window = nsView.window else { return }
-        Self.style(window)
-        // Deferred second pass — NavigationSplitView may push a toolbar title
-        // after updateNSView returns; this clears it on the next run-loop tick.
-        DispatchQueue.main.async {
-            guard window.title != "" || window.titleVisibility != .hidden else { return }
-            Self.style(window)
-        }
+        context.coordinator.attach(to: window)
     }
 
-    // MARK: - Window styling
+    // MARK: - Coordinator (persistent KVO owner)
 
-    static func style(_ window: NSWindow) {
-        guard window.styleMask.contains(.titled) else { return }
+    class Coordinator: NSObject {
+        private var titleObs: NSKeyValueObservation?
+        private var visObs:   NSKeyValueObservation?
+        private var attached  = false
 
-        // 1. Transparent title bar — the sidebar blur extends into this area
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility            = .hidden
-        window.title                      = ""
+        func attach(to window: NSWindow) {
+            Self.style(window)
+            guard !attached else { return }
+            attached = true
 
-        // 2. Content fills the entire window frame including the title bar strip
-        window.styleMask.insert(.fullSizeContentView)
-
-        // 3. Remove the toolbar so no extra strip appears above the sidebar
-        //    (The sidebar toggle is handled inside our own SidebarView)
-        if let toolbar = window.toolbar, toolbar.items.isEmpty {
-            window.toolbar = nil
+            // Watch title — SwiftUI NavigationSplitView may set it after we clear it.
+            titleObs = window.observe(\.title, options: [.new]) { win, _ in
+                guard win.title != "" else { return }
+                DispatchQueue.main.async { win.title = "" }
+            }
+            // Watch titleVisibility — NavigationSplitView resets it to .visible.
+            visObs = window.observe(\.titleVisibility, options: [.new]) { win, _ in
+                guard win.titleVisibility != .hidden else { return }
+                DispatchQueue.main.async { win.titleVisibility = .hidden }
+            }
         }
 
-        // 4. Allow minimum size
-        window.minSize = NSSize(width: 900, height: 600)
+        static func style(_ window: NSWindow) {
+            guard window.styleMask.contains(.titled) else { return }
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility            = .hidden
+            window.titlebarSeparatorStyle     = .none
+            window.title                      = ""
+            window.styleMask.insert(.fullSizeContentView)
+            window.minSize = NSSize(width: 900, height: 600)
+        }
+
+        deinit { titleObs = nil; visObs = nil }
     }
 }
