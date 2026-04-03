@@ -583,7 +583,7 @@ private struct AgentBaseballCard: View {
                     actionBarButton(id: "logbook", icon: "book.pages",       action: onLogbook)
                 }
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
-                actionBarButton(id: "memory",  icon: "brain.head.profile",   action: onMemory)
+                actionBarButton(id: "memory",  icon: "memorychip",           action: onMemory)
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "copy",    icon: "doc.on.clipboard",     action: onDuplicate)
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
@@ -1668,14 +1668,14 @@ private struct AgentMemorySheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Image(systemName: "brain.head.profile")
+                        Image(systemName: "memorychip")
                             .font(.system(size: 14))
                             .foregroundStyle(agent.dotColor)
                         Text("Memory — \(agent.name)")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(theme.primaryText)
                     }
-                    Text("~/.claude/agent-memory/\(agent.id)/")
+                    Text("~/.claude/agent-memory/\(agent.name)/")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                 }
