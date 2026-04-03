@@ -1311,25 +1311,25 @@ private struct AgentEditorSheet: View {
                         }
 
                         HStack(alignment: .top, spacing: 16) {
-                            editorField("Schedule", hint: "hourly · daily · weekly · every:N (Minuten)") {
-                                TextField("daily", text: $draft.schedule)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            .frame(maxWidth: 220)
+                            VStack(alignment: .leading, spacing: 12) {
+                                editorField("Schedule", hint: "hourly · daily · weekly · every:N (Minuten)") {
+                                    TextField("daily", text: $draft.schedule)
+                                        .textFieldStyle(.roundedBorder)
+                                }
 
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("TIMEOUT".uppercased())
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(theme.tertiaryText)
-                                    .kerning(0.5)
-                                TextField("30", text: $draft.timeoutMinutes)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
-                                Text("Minuten")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(theme.tertiaryText)
+                                HStack(spacing: 8) {
+                                    Text("TIMEOUT")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(theme.tertiaryText)
+                                        .kerning(0.5)
+                                    TextField("30", text: $draft.timeoutMinutes)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 60)
+                                    Text("Min.")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
                             }
-                            .frame(width: 100, alignment: .leading)
 
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("AKTIV".uppercased())
