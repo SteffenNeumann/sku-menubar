@@ -222,11 +222,109 @@ final class AgentService: ObservableObject {
         try FileManager.default.copyItem(at: src, to: url)
     }
 
-    // MARK: - Agent memory
+    // MARK: - Agent memory & learning log
 
     func loadAgentMemory(agentId: String) -> String? {
         let memPath = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agentId)/MEMORY.md")
         return try? String(contentsOf: memPath, encoding: .utf8)
+    }
+
+    /// Directories for an agent's memory files (name-based first, id-based second).
+    private func memoryDirs(for agent: AgentDefinition) -> (primary: URL, secondary: URL) {
+        let base = URL(fileURLWithPath: "\(home)/.claude/agent-memory")
+        return (base.appendingPathComponent(agent.name),
+                base.appendingPathComponent(agent.id))
+    }
+
+    /// Returns the writable memory directory (creates the name-based dir if needed).
+    private func writableMemoryDir(for agent: AgentDefinition) -> URL {
+        let dir = memoryDirs(for: agent).primary
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Reads a named file from the first existing memory directory.
+    private func readMemoryFile(named filename: String, for agent: AgentDefinition) -> String? {
+        let (primary, secondary) = memoryDirs(for: agent)
+        for dir in [primary, secondary] {
+            let url = dir.appendingPathComponent(filename)
+            if let content = try? String(contentsOf: url, encoding: .utf8),
+               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return content
+            }
+        }
+        return nil
+    }
+
+    /// Builds a context preamble from MEMORY.md + learning_log.txt to inject before the system prompt.
+    private func buildContextPreamble(for agent: AgentDefinition) -> String {
+        var parts: [String] = []
+
+        // Persistent MEMORY.md (researcher writes this; other agents may have one too)
+        if let mem = readMemoryFile(named: "MEMORY.md", for: agent) {
+            parts.append("## Your Persistent Memory\n\(mem.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+
+        // Learning log — last 20 entries
+        if let logContent = readMemoryFile(named: "learning_log.txt", for: agent) {
+            let lines = logContent
+                .components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let recent = Array(lines.suffix(20))
+            if !recent.isEmpty {
+                parts.append("## Your Learning Log (last \(recent.count) entries)\n" + recent.joined(separator: "\n"))
+            }
+        }
+
+        return parts.isEmpty ? "" : parts.joined(separator: "\n\n")
+    }
+
+    /// Appends one timestamped entry to the agent's learning_log.txt.
+    private func appendLearningEntry(for agent: AgentDefinition, status: ScheduledTaskStatus, learned: String) {
+        let dir = writableMemoryDir(for: agent)
+        let logURL = dir.appendingPathComponent("learning_log.txt")
+
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let timestamp = fmt.string(from: Date())
+        let statusLabel = status == .success ? "OK" : "FEHLER"
+
+        // Sanitize: collapse newlines, trim, limit to 300 chars
+        let cleaned = learned
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let summary = String(cleaned.prefix(300))
+        let line = "\(timestamp) | \(statusLabel) | \(summary)\n"
+
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            handle.seekToEndOfFile()
+            handle.write(data)
+        } else {
+            try? data.write(to: logURL)
+        }
+    }
+
+    /// Extracts the `LEARNED:` line from agent output, or falls back to a short snippet.
+    private func extractLearnedLine(from output: String) -> String {
+        for line in output.components(separatedBy: "\n").reversed() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.lowercased().hasPrefix("learned:") {
+                let value = t.dropFirst(8).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { return String(value) }
+            }
+        }
+        // Fallback: last meaningful line, capped at 200 chars
+        for line in output.components(separatedBy: "\n").reversed() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.count > 10 { return String(t.prefix(200)) }
+        }
+        let preview = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return preview.isEmpty ? "No output" : String(preview.prefix(200))
     }
 
     // MARK: - Logbook
@@ -358,7 +456,23 @@ final class AgentService: ObservableObject {
         var outputText = ""
         var resultText = ""
         do {
-            let instructions = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Build enriched system prompt: preamble (memory + learning log) + body + LEARNED instruction
+            let preamble = buildContextPreamble(for: agent)
+            let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            let learnedInstruction = """
+
+
+---
+At the very end of your response, write exactly one line in this format (do not omit this):
+LEARNED: <what went well or was important> | <what failed or should be avoided next time>
+"""
+            var instructions: String
+            if preamble.isEmpty {
+                instructions = body.isEmpty ? "" : body + learnedInstruction
+            } else {
+                instructions = preamble + "\n\n---\n\n" + (body.isEmpty ? "Execute your role." : body) + learnedInstruction
+            }
+
             let stream = cli.send(
                 message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
                 systemPrompt: instructions.isEmpty ? nil : instructions,
@@ -416,6 +530,10 @@ final class AgentService: ObservableObject {
             }
             entry.finishedAt = Date()
         }
+
+        // Write learning log entry regardless of success/failure
+        let learned = extractLearnedLine(from: outputText)
+        appendLearningEntry(for: agent, status: entry.status, learned: learned)
 
         liveOutput.removeValue(forKey: agent.id)
         runningAgents.remove(agent.id)
