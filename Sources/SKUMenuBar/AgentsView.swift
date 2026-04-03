@@ -1315,11 +1315,21 @@ private struct AgentEditorSheet: View {
                                 TextField("daily", text: $draft.schedule)
                                     .textFieldStyle(.roundedBorder)
                             }
+                            .frame(maxWidth: 220)
 
-                            editorField("Timeout", hint: "Minuten (Standard: 30)") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("TIMEOUT".uppercased())
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .kerning(0.5)
                                 TextField("30", text: $draft.timeoutMinutes)
                                     .textFieldStyle(.roundedBorder)
+                                    .frame(width: 80)
+                                Text("Minuten")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(theme.tertiaryText)
                             }
+                            .frame(width: 100, alignment: .leading)
 
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("AKTIV".uppercased())
