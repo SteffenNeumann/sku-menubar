@@ -1311,24 +1311,9 @@ private struct AgentEditorSheet: View {
                         }
 
                         HStack(alignment: .top, spacing: 16) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                editorField("Schedule", hint: "hourly · daily · weekly · every:N (Minuten)") {
-                                    TextField("daily", text: $draft.schedule)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-
-                                HStack(spacing: 8) {
-                                    Text("TIMEOUT")
-                                        .font(.system(size: 9, weight: .semibold))
-                                        .foregroundStyle(theme.tertiaryText)
-                                        .kerning(0.5)
-                                    TextField("30", text: $draft.timeoutMinutes)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: 60)
-                                    Text("Min.")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(theme.tertiaryText)
-                                }
+                            editorField("Schedule", hint: "hourly · daily · weekly · every:N (Minuten)") {
+                                TextField("daily", text: $draft.schedule)
+                                    .textFieldStyle(.roundedBorder)
                             }
 
                             VStack(alignment: .leading, spacing: 6) {
@@ -1344,6 +1329,21 @@ private struct AgentEditorSheet: View {
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Divider().foregroundStyle(theme.cardBorder)
+
+                        HStack(spacing: 8) {
+                            Text("TIMEOUT")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                                .kerning(0.5)
+                            TextField("30", text: $draft.timeoutMinutes)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                            Text("Minuten (Standard: 30)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
                         }
                     }
                     .padding(16)
