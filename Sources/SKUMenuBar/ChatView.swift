@@ -1627,10 +1627,7 @@ struct ChatFilePanel: View {
                 .help("Schließen")
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background {
-                theme.windowBg
-                theme.cardSurface
-            }
+            .background(theme.windowBg)
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
@@ -1950,10 +1947,7 @@ struct FilePreviewPanel: View {
                 .help("Vorschau schließen")
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background {
-                theme.windowBg
-                theme.cardSurface
-            }
+            .background(theme.windowBg)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(theme.cardBorder).frame(height: 0.5)
             }

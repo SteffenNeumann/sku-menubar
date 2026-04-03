@@ -34,12 +34,12 @@ struct WindowConfigurator: NSViewRepresentable {
             guard !attached else { return }
             attached = true
 
-            // Watch title — SwiftUI NavigationSplitView may set it after we clear it.
+            // Watch title — NavigationSplitView may re-inject it after we clear it.
             titleObs = window.observe(\.title, options: [.new]) { win, _ in
                 guard win.title != "" else { return }
-                DispatchQueue.main.async { win.title = "" }
+                DispatchQueue.main.async { win.title = ""; win.toolbar = nil }
             }
-            // Watch titleVisibility — NavigationSplitView resets it to .visible.
+            // Watch titleVisibility — NavigationSplitView may reset it to .visible.
             visObs = window.observe(\.titleVisibility, options: [.new]) { win, _ in
                 guard win.titleVisibility != .hidden else { return }
                 DispatchQueue.main.async { win.titleVisibility = .hidden }
@@ -53,6 +53,9 @@ struct WindowConfigurator: NSViewRepresentable {
             window.titlebarSeparatorStyle     = .none
             window.title                      = ""
             window.styleMask.insert(.fullSizeContentView)
+            // Unconditionally remove toolbar — SwiftUI's NavigationSplitView adds
+            // one with the window title; removing it eliminates the title strip.
+            window.toolbar = nil
             window.minSize = NSSize(width: 900, height: 600)
         }
 

@@ -13,7 +13,7 @@ struct SKUMenuBarApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("") {
             MainWindowView()
                 .environmentObject(state)
                 .environmentObject(themeManager)

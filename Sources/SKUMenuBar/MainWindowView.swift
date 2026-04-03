@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MainWindowView: View {
     @EnvironmentObject var state: AppState
-    @Environment(\.appTheme) var theme
     @State private var selectedSection: AppSection = .dashboard
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -12,18 +11,15 @@ struct MainWindowView: View {
                 .navigationSplitViewColumnWidth(min: 160, ideal: 210, max: 280)
         } detail: {
             ZStack {
-                // GlowBackground without ignoresSafeArea — stays in content area
-                // so the titlebar strip remains the solid windowBg from the base below.
                 GlowBackground()
+                    .ignoresSafeArea()
 
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("")  // suppress auto-generated toolbar title
+            .ignoresSafeArea(.all, edges: .top)
+            .navigationTitle("")
         }
-        // Solid base visible through the transparent toolbar — both sidebar and
-        // detail columns show the same windowBg in the titlebar strip.
-        .background(theme.windowBg.ignoresSafeArea())
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 900, minHeight: 600)
         .onChange(of: state.pendingChatSession) {
