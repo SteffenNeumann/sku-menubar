@@ -719,48 +719,54 @@ struct FileExplorerView: View {
         gitLog = ""
         gitHadError = false
 
-        Task { @MainActor in
+        // Capture values needed inside the detached task
+        let doPullNow = doPull
+        let doPushNow = doPush
+        let message = commitMessage
+        let fileURL = node.url
+        let svc = gitService
+
+        Task.detached(priority: .userInitiated) {
             var log = ""
 
             func append(_ r: GitShellService.GitResult, label: String) {
                 log += "→ \(label)\n"
-                if !r.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    log += r.output
-                }
-                if !r.error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    log += r.error
-                }
+                let out = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                let err = r.error.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !out.isEmpty { log += out + "\n" }
+                if !err.isEmpty { log += err + "\n" }
                 log += "\n"
             }
 
             // Pull
-            if doPull {
-                let r = await gitService.pull(in: repo)
+            if doPullNow {
+                let r = svc.run(["pull"], in: repo)
                 append(r, label: "git pull")
-                if !r.success { finish(log: log, error: true); return }
+                if !r.success { await self.finish(log: log, error: true); return }
             }
 
             // Add
-            let addR = await gitService.add(node.url, in: repo)
+            let addR = svc.run(["add", fileURL.path], in: repo)
             append(addR, label: "git add")
-            if !addR.success { finish(log: log, error: true); return }
+            if !addR.success { await self.finish(log: log, error: true); return }
 
             // Commit
-            let commitR = await gitService.commit(message: commitMessage, in: repo)
+            let commitR = svc.run(["commit", "-m", message], in: repo)
             append(commitR, label: "git commit")
-            if !commitR.success { finish(log: log, error: true); return }
+            if !commitR.success { await self.finish(log: log, error: true); return }
 
             // Push
-            if doPush {
-                let pushR = await gitService.push(in: repo)
+            if doPushNow {
+                let pushR = svc.run(["push"], in: repo)
                 append(pushR, label: "git push")
-                if !pushR.success { finish(log: log, error: true); return }
+                if !pushR.success { await self.finish(log: log, error: true); return }
             }
 
-            finish(log: log, error: false)
+            await self.finish(log: log, error: false)
         }
     }
 
+    @MainActor
     private func finish(log: String, error: Bool) {
         gitLog = log
         gitHadError = error

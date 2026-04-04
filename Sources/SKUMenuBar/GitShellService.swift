@@ -11,9 +11,9 @@ final class GitShellService {
         var combined: String { [output, error].filter { !$0.isEmpty }.joined(separator: "\n") }
     }
 
-    // MARK: - Private runner
+    // MARK: - Internal runner (called directly for background execution)
 
-    private func run(_ args: [String], in directory: URL) -> GitResult {
+    func run(_ args: [String], in directory: URL) -> GitResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = args
