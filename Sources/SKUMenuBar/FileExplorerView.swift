@@ -823,7 +823,7 @@ struct FileExplorerView: View {
         isEditing = false
         isDirty = false
         selectedNode = node
-        previewText = nil
+        // Don't nil previewText here — keep old content visible until new one loads
 
         if node.isDirectory {
             if node.children == nil {
@@ -831,15 +831,20 @@ struct FileExplorerView: View {
             }
         } else if node.isTextFile {
             isLoadingPreview = true
+            let targetURL = node.url
             Task.detached(priority: .userInitiated) {
-                // Load full file (bounded by isTextFile check: < 500 KB)
-                let text = (try? String(contentsOf: node.url, encoding: .utf8))
-                    ?? (try? String(contentsOf: node.url, encoding: .isoLatin1))
+                let text = (try? String(contentsOf: targetURL, encoding: .utf8))
+                    ?? (try? String(contentsOf: targetURL, encoding: .isoLatin1))
                 await MainActor.run {
-                    previewText = text
-                    isLoadingPreview = false
+                    // Only apply if this node is still selected
+                    if self.selectedNode?.url == targetURL {
+                        self.previewText = text
+                        self.isLoadingPreview = false
+                    }
                 }
             }
+        } else {
+            previewText = nil
         }
     }
 
@@ -972,13 +977,13 @@ struct ExplorerTreeRow: View {
                 Color.clear.frame(width: 12)
             }
 
-            // Icon (matching Verlauf: 11pt inside 26×26 rounded box)
+            // Icon
             ZStack {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
-                    .frame(width: 26, height: 26)
+                    .frame(width: 20, height: 20)
                 Image(systemName: node.icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(isSelected ? accentColor : node.iconColor)
             }
 
@@ -1015,7 +1020,7 @@ struct ExplorerTreeRow: View {
                 }
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 7)
+        .padding(.horizontal, 8).padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? theme.cardSurface : Color.clear))
