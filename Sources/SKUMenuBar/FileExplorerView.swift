@@ -801,19 +801,11 @@ struct FileExplorerView: View {
     }
 
     private func loadInitialDirectory() {
-        // Restore security-scoped bookmark if available
-        if let bookmark = UserDefaults.standard.data(forKey: "fileExplorerBookmark") {
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: bookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                _ = url.startAccessingSecurityScopedResource()
-                loadRoot(path: url.path)
-                return
-            }
+        // Restore last used directory (simple path storage; no sandbox so no security-scope needed)
+        if let saved = UserDefaults.standard.string(forKey: "fileExplorerLastPath"),
+           FileManager.default.fileExists(atPath: saved) {
+            loadRoot(path: saved)
+            return
         }
         // Prefer the working directory of the current chat tab
         let chatWd = state.chatTabs.indices.contains(state.selectedChatTabIndex)
@@ -849,15 +841,8 @@ struct FileExplorerView: View {
             panel.allowsMultipleSelection = false
         }
         if panel.runModal() == .OK, let url = panel.url {
-            // Persist a security-scoped bookmark so the app remembers access
-            if let bookmark = try? url.bookmarkData(
-                options: .withSecurityScope,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            ) {
-                UserDefaults.standard.set(bookmark, forKey: "fileExplorerBookmark")
-            }
-            _ = url.startAccessingSecurityScopedResource()
+            // Persist path for next launch (app is not sandboxed, no security-scope needed)
+            UserDefaults.standard.set(url.path, forKey: "fileExplorerLastPath")
             loadRoot(path: url.path)
         }
     }
