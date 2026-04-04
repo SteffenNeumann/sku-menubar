@@ -140,13 +140,14 @@ struct FileExplorerView: View {
     // Commit sheet
     @State private var showCommitSheet: Bool = false
     @State private var commitMessage: String = ""
-    @State private var doPull: Bool = true
     @State private var doPush: Bool = true
     @State private var gitLog: String = ""
     @State private var isGitRunning: Bool = false
     @State private var gitDone: Bool = false
     @State private var gitHadError: Bool = false
     @State private var gitRepoURL: URL? = nil
+    @State private var gitBranch: String = ""
+    @State private var gitPRURL: URL? = nil
 
     private let gitService = GitShellService()
 
@@ -556,14 +557,27 @@ struct FileExplorerView: View {
             previewText = editText
             isDirty = false
             isEditing = false
-            // Detect git repo and show commit sheet
-            if let repo = gitService.repoRoot(for: node.url) {
-                gitRepoURL = repo
-                commitMessage = "Edit: \(node.name)"
-                gitLog = ""
-                gitDone = false
-                gitHadError = false
-                showCommitSheet = true
+            // Prepare commit sheet values, then show immediately
+            commitMessage = "Edit: \(node.name)"
+            gitLog = ""
+            gitDone = false
+            gitHadError = false
+            gitRepoURL = nil
+            gitBranch = ""
+            gitPRURL = nil
+            showCommitSheet = true
+            // Detect repo + branch in background (non-blocking)
+            let svc = gitService
+            let fileURL = node.url
+            Task.detached(priority: .userInitiated) {
+                let repo = svc.repoRoot(for: fileURL)
+                let branch = repo.map { svc.currentBranch(in: $0) } ?? ""
+                let prURL = repo.flatMap { svc.prURL(in: $0) }
+                await MainActor.run {
+                    self.gitRepoURL = repo
+                    self.gitBranch = branch
+                    self.gitPRURL = prURL
+                }
             }
         } catch {
             errorMsg = error.localizedDescription
@@ -584,15 +598,14 @@ struct FileExplorerView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                 Spacer()
-                if let repo = gitRepoURL {
-                    let branch = gitService.currentBranch(in: repo)
-                    if !branch.isEmpty {
-                        Text(branch)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 4))
-                    }
+                if !gitBranch.isEmpty {
+                    Text(gitBranch)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 4))
+                } else {
+                    ProgressView().scaleEffect(0.5).frame(width: 16, height: 16)
                 }
             }
             .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 14)
@@ -618,21 +631,16 @@ struct FileExplorerView: View {
 
                     // Options
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: $doPull) {
-                            Text("Vorher pullen (git pull)")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.secondaryText)
-                        }
-                        .toggleStyle(.checkbox)
-                        .disabled(gitDone || isGitRunning)
-
                         Toggle(isOn: $doPush) {
-                            Text("Danach pushen (git push)")
+                            Text("Nach Commit pushen (git push)")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.secondaryText)
                         }
                         .toggleStyle(.checkbox)
                         .disabled(gitDone || isGitRunning)
+                        Text("Vor dem Commit wird automatisch git pull ausgeführt.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
                     }
 
                     // Log output
@@ -655,8 +663,7 @@ struct FileExplorerView: View {
                     }
 
                     // PR button (shown after successful push)
-                    if gitDone && !gitHadError && doPush, let repo = gitRepoURL,
-                       let prURL = gitService.prURL(in: repo) {
+                    if gitDone && !gitHadError && doPush, let prURL = gitPRURL {
                         Button {
                             NSWorkspace.shared.open(prURL)
                         } label: {
@@ -720,7 +727,6 @@ struct FileExplorerView: View {
         gitHadError = false
 
         // Capture values needed inside the detached task
-        let doPullNow = doPull
         let doPushNow = doPush
         let message = commitMessage
         let fileURL = node.url
@@ -738,12 +744,10 @@ struct FileExplorerView: View {
                 log += "\n"
             }
 
-            // Pull
-            if doPullNow {
-                let r = svc.run(["pull"], in: repo)
-                append(r, label: "git pull")
-                if !r.success { await self.finish(log: log, error: true); return }
-            }
+            // Pull (always)
+            let r = svc.run(["pull"], in: repo)
+            append(r, label: "git pull")
+            if !r.success { await self.finish(log: log, error: true); return }
 
             // Add
             let addR = svc.run(["add", fileURL.path], in: repo)
