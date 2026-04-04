@@ -342,6 +342,9 @@ struct SidebarView: View {
                 Text("Nicht geladen").font(.system(size: 10))
             }
             Spacer()
+            Text(BuildInfo.label)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(theme.tertiaryText.opacity(0.6))
         }
         .foregroundStyle(theme.tertiaryText)
         .padding(.horizontal, 12)
