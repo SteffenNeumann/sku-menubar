@@ -287,7 +287,7 @@ struct FileExplorerView: View {
 
     private var treePanel: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 if let root = rootNode {
                     ForEach(root.children ?? []) { node in
                         ExplorerTreeRow(
