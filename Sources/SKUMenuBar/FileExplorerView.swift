@@ -861,6 +861,9 @@ struct FileExplorerView: View {
                     // Only apply if this node is still selected
                     if self.selectedNode?.url == targetURL {
                         self.previewText = text
+                        self.editText = text ?? ""
+                        self.isEditing = true
+                        self.isDirty = false
                         self.isLoadingPreview = false
                     }
                 }
