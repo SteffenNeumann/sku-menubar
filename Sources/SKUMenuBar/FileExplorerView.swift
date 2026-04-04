@@ -801,6 +801,20 @@ struct FileExplorerView: View {
     }
 
     private func loadInitialDirectory() {
+        // Restore security-scoped bookmark if available
+        if let bookmark = UserDefaults.standard.data(forKey: "fileExplorerBookmark") {
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                _ = url.startAccessingSecurityScopedResource()
+                loadRoot(path: url.path)
+                return
+            }
+        }
         // Prefer the working directory of the current chat tab
         let chatWd = state.chatTabs.indices.contains(state.selectedChatTabIndex)
             ? state.chatTabs[state.selectedChatTabIndex].workingDirectory
@@ -830,7 +844,20 @@ struct FileExplorerView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = "Auswählen"
         panel.directoryURL = URL(fileURLWithPath: rootPath)
+        // Request persistent access so macOS stops asking every session
+        if #available(macOS 13.0, *) {
+            panel.allowsMultipleSelection = false
+        }
         if panel.runModal() == .OK, let url = panel.url {
+            // Persist a security-scoped bookmark so the app remembers access
+            if let bookmark = try? url.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            ) {
+                UserDefaults.standard.set(bookmark, forKey: "fileExplorerBookmark")
+            }
+            _ = url.startAccessingSecurityScopedResource()
             loadRoot(path: url.path)
         }
     }
@@ -1053,7 +1080,6 @@ struct ExplorerTreeRow: View {
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onTapGesture {
-            onSelect(node)
             if node.isDirectory {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     node.isExpanded.toggle()
@@ -1062,6 +1088,7 @@ struct ExplorerTreeRow: View {
                     node.loadChildren(showHidden: showHidden)
                 }
             }
+            onSelect(node)
         }
         .padding(.horizontal, 4)
     }
