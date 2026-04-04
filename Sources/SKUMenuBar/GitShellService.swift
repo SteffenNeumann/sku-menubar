@@ -11,14 +11,30 @@ final class GitShellService {
         var combined: String { [output, error].filter { !$0.isEmpty }.joined(separator: "\n") }
     }
 
+    // MARK: - Git binary discovery
+
+    static let gitPath: String = {
+        let candidates = [
+            "/opt/homebrew/bin/git",   // Apple Silicon Homebrew
+            "/usr/local/bin/git",       // Intel Homebrew
+            "/usr/bin/git",             // Xcode CLT stub
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/usr/bin/git"
+    }()
+
     // MARK: - Internal runner (called directly for background execution)
 
     func run(_ args: [String], in directory: URL) -> GitResult {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.executableURL = URL(fileURLWithPath: Self.gitPath)
         process.arguments = args
         process.currentDirectoryURL = directory
-        process.environment = ProcessInfo.processInfo.environment
+
+        // Ensure Homebrew path is included
+        var env = ProcessInfo.processInfo.environment
+        let extraPaths = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "")
+        process.environment = env
 
         let outPipe = Pipe()
         let errPipe = Pipe()

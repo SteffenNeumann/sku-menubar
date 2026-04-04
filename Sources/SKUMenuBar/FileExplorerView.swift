@@ -727,7 +727,7 @@ struct FileExplorerView: View {
         let svc = gitService
 
         Task.detached(priority: .userInitiated) {
-            var log = ""
+            var log = "Git: \(GitShellService.gitPath)\nRepo: \(repo.path)\n\n"
 
             func append(_ r: GitShellService.GitResult, label: String) {
                 log += "→ \(label)\n"
