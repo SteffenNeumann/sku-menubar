@@ -6,7 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_BUNDLE="$HOME/Applications/myClaude.app/Contents/MacOS/myClaude"
+APP_MACOS_DIR="$HOME/Applications/myClaude.app/Contents/MacOS"
 BINARY="$REPO_ROOT/.build/arm64-apple-macosx/debug/myClaude"
+BUNDLE="$REPO_ROOT/.build/arm64-apple-macosx/debug/Highlightr_Highlightr.bundle"
 
 echo "🔨 Building..."
 cd "$REPO_ROOT"
@@ -19,6 +21,13 @@ sleep 1
 if [ -f "$APP_BUNDLE" ]; then
     echo "📦 Deploying to $APP_BUNDLE..."
     cp "$BINARY" "$APP_BUNDLE"
+    # Copy Highlightr resource bundle (required — without it the app crashes on file select)
+    if [ -d "$BUNDLE" ]; then
+        cp -R "$BUNDLE" "$APP_MACOS_DIR/"
+        echo "📦 Copied Highlightr_Highlightr.bundle"
+    else
+        echo "⚠️  Highlightr bundle not found at $BUNDLE"
+    fi
     echo "🚀 Launching from Dock app..."
     open "$HOME/Applications/myClaude.app"
 else
