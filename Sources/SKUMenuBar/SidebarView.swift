@@ -41,6 +41,10 @@ struct SidebarView: View {
 
                         sectionGroup(title: "Claude CLI", items: [.chat, .history, .agents, .mcp, .codeReview])
 
+                        sectionDivider
+
+                        sectionGroup(title: "Dateien", items: [.files])
+
                         if !state.historyService.projects.isEmpty {
                             sectionDivider
                             recentProjectsSection
