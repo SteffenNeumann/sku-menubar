@@ -19,14 +19,17 @@ struct SidebarView: View {
             theme.windowBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Traffic-light spacer + current time
-                HStack {
-                    Spacer()
+                // Traffic-light spacer + current date & time
+                HStack(spacing: 5) {
+                    Text(Date(), style: .date)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
                     Text(Date(), style: .time)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
-                        .padding(.trailing, 12)
+                    Spacer()
                 }
+                .padding(.leading, 12)
                 .frame(height: 28)
 
                 // Navigation
