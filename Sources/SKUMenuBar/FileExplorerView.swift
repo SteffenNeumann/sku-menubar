@@ -143,6 +143,7 @@ struct FileExplorerView: View {
                 treePanel
             }
             .frame(minWidth: 280, idealWidth: 340, maxWidth: 440)
+            .background(theme.windowBg)
 
             Rectangle().fill(theme.cardBorder).frame(width: 0.5)
 
@@ -151,6 +152,7 @@ struct FileExplorerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.windowBg)
         .onAppear { loadInitialDirectory() }
         .onChange(of: showHidden) { reload() }
         .alert("Löschen bestätigen", isPresented: Binding(

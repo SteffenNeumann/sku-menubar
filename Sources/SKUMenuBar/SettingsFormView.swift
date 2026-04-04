@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Custom Toggle Style mit Theme-Akzentfarbe
 struct AccentToggleStyle: ToggleStyle {
     let accentColor: Color
+    @Environment(\.appTheme) var theme
 
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 8) {
@@ -12,8 +13,8 @@ struct AccentToggleStyle: ToggleStyle {
                     .fill(configuration.isOn ? accentColor : Color.primary.opacity(0.2))
                     .frame(width: 36, height: 20)
                 Circle()
-                    .fill(.white)
-                    .shadow(radius: 1)
+                    .fill(theme.isLight ? Color(white: 0.98) : Color.white)
+                    .shadow(color: .black.opacity(theme.isLight ? 0.25 : 0.15), radius: 1.5)
                     .frame(width: 16, height: 16)
                     .offset(x: configuration.isOn ? 8 : -8)
                     .animation(.easeInOut(duration: 0.2), value: configuration.isOn)

@@ -77,7 +77,7 @@ struct MarkdownTextView: View {
 
     @ViewBuilder
     private func codeBlock(language: String, code: String) -> some View {
-        let isDark = colorScheme == .dark
+        let isDark = !theme.isLight
         let trimmed = code.hasSuffix("\n") ? String(code.dropLast()) : code
         let lang = language.lowercased()
 

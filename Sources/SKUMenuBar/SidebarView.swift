@@ -236,17 +236,17 @@ struct SidebarView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.isLight ? Color.black.opacity(0.7) : .white)
                     Text("Copilot Fallback aktiv")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.isLight ? Color.black.opacity(0.7) : .white)
                     Spacer()
                     Button {
                         state.claudeRateLimitActive = false
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(theme.isLight ? Color.black.opacity(0.5) : Color.white.opacity(0.8))
                     }
                     .buttonStyle(.plain)
                     .help("Fallback zurücksetzen")

@@ -105,7 +105,7 @@ struct HabitGridView: View {
                 .strokeBorder(
                     isToday
                         ? AnyShapeStyle(Color.accentColor)
-                        : AnyShapeStyle(Color.white.opacity(0.12)),
+                        : AnyShapeStyle(theme.isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.12)),
                     lineWidth: isToday ? 1.5 : 0.5
                 )
 

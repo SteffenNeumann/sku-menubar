@@ -1435,7 +1435,7 @@ struct AddMCPServerSheet: View {
                                 }
                                 Text("Ask AI").font(.system(size: 11, weight: .semibold))
                             }
-                            .foregroundStyle(.white)
+                            .foregroundStyle((aiPrompt.trimmingCharacters(in: .whitespaces).isEmpty || isAIAssisting) ? theme.primaryText.opacity(0.4) : .white)
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .background(aiPrompt.trimmingCharacters(in: .whitespaces).isEmpty || isAIAssisting ? theme.tertiaryText : accentColor,
                                         in: RoundedRectangle(cornerRadius: 7))
@@ -1572,7 +1572,7 @@ struct AddMCPServerSheet: View {
                         Text(isEditing ? "Speichern" : "Hinzufügen")
                             .font(.system(size: 12, weight: .semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(canAdd ? .white : theme.primaryText.opacity(0.4))
                     .padding(.horizontal, 14).padding(.vertical, 7)
                     .background(canAdd ? accentColor : theme.tertiaryText, in: RoundedRectangle(cornerRadius: 7))
                 }

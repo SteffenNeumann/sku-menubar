@@ -35,6 +35,14 @@ enum ReviewMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Foreground color for the active pill — dark text on light colors (yellow), white on dark colors.
+    var activeForeground: Color {
+        switch self {
+        case .explain: return Color.black.opacity(0.75)
+        default:       return .white
+        }
+    }
+
     var prompt: String {
         switch self {
         case .general:
@@ -448,7 +456,7 @@ struct CodeReviewView: View {
                     Text(isReviewing ? "Analysiere…" : "Review starten")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(canReview ? .white : theme.tertiaryText)
                 .padding(.horizontal, 14).padding(.vertical, 6)
                 .background(
                     canReview
@@ -476,10 +484,10 @@ struct CodeReviewView: View {
             HStack(spacing: 5) {
                 Image(systemName: mode.icon)
                     .font(.system(size: 10))
-                    .foregroundStyle(isActive ? .white : mode.color)
+                    .foregroundStyle(isActive ? mode.activeForeground : mode.color)
                 Text(mode.rawValue)
                     .font(.system(size: 11, weight: isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? .white : theme.secondaryText)
+                    .foregroundStyle(isActive ? mode.activeForeground : theme.secondaryText)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(isActive ? mode.color : theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
@@ -651,7 +659,7 @@ struct CodeReviewView: View {
                 HighlightedCodeView(
                     code: previewContent,
                     fileURL: previewFile,
-                    isDark: colorScheme == .dark
+                    isDark: !theme.isLight
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

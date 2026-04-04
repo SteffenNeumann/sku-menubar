@@ -21,6 +21,7 @@ final class ClaudeCLIService: ObservableObject {
         model: String? = nil,
         fallbackModel: String? = nil,
         workingDirectory: String? = nil,
+        addDirs: [String] = [],
         skipPermissions: Bool = false
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
@@ -42,6 +43,9 @@ final class ClaudeCLIService: ObservableObject {
                 }
                 if let fb = fallbackModel, !fb.isEmpty {
                     args += ["--fallback-model", fb]
+                }
+                for dir in addDirs where !dir.isEmpty {
+                    args += ["--add-dir", dir]
                 }
                 args.append(message)
 

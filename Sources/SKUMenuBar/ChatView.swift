@@ -19,15 +19,22 @@ struct ChatView: View {
         VStack(spacing: 0) {
             tabBar
 
-            // Render selected tab content, keyed by tab id to force recreation on switch
-            if state.chatTabs.indices.contains(state.selectedChatTabIndex) {
-                SingleChatSessionView(tab: Binding(
-                    get: { state.chatTabs.indices.contains(state.selectedChatTabIndex) ? state.chatTabs[state.selectedChatTabIndex] : ChatTab() },
-                    set: { if state.chatTabs.indices.contains(state.selectedChatTabIndex) { state.chatTabs[state.selectedChatTabIndex] = $0 } }
-                ))
-                .id(state.chatTabs[state.selectedChatTabIndex].id)
-                .environmentObject(state)
+            // Render ALL tabs in a ZStack; show/hide via opacity to preserve @State on tab switch
+            ZStack {
+                ForEach(Array(state.chatTabs.enumerated()), id: \.element.id) { index, _ in
+                    SingleChatSessionView(
+                        tab: Binding(
+                            get: { state.chatTabs.indices.contains(index) ? state.chatTabs[index] : ChatTab() },
+                            set: { if state.chatTabs.indices.contains(index) { state.chatTabs[index] = $0 } }
+                        ),
+                        isActive: state.selectedChatTabIndex == index
+                    )
+                    .opacity(state.selectedChatTabIndex == index ? 1 : 0)
+                    .allowsHitTesting(state.selectedChatTabIndex == index)
+                    .environmentObject(state)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -131,9 +138,11 @@ struct ChatView: View {
 
 struct SingleChatSessionView: View {
     @Binding var tab: ChatTab
+    var isActive: Bool = true
 
-    init(tab: Binding<ChatTab>) {
+    init(tab: Binding<ChatTab>, isActive: Bool = true) {
         self._tab = tab
+        self.isActive = isActive
     }
 
     @EnvironmentObject var state: AppState
@@ -311,6 +320,8 @@ struct SingleChatSessionView: View {
             if !isStreaming { tab.messages = messages }
         }
         .onChange(of: isStreaming) {
+            // Sync streaming indicator to tab (shown in tab bar)
+            tab.isStreaming = isStreaming
             // Flush final messages when streaming ends
             if !isStreaming { tab.messages = messages }
         }
@@ -324,6 +335,14 @@ struct SingleChatSessionView: View {
             newSession()
             workingDirectory = path
             tab.title = URL(fileURLWithPath: path).lastPathComponent
+        }
+        // Save inputText and sync messages when switching away from this tab (opacity approach
+        // keeps views alive, so onDisappear won't fire on tab switch)
+        .onChange(of: isActive) {
+            if !isActive {
+                tab.inputText = inputText
+                if isStreaming { tab.messages = messages }
+            }
         }
         .onDisappear { tab.inputText = inputText }
     }
@@ -495,7 +514,11 @@ struct SingleChatSessionView: View {
                 }
             }
             .onAppear { scrollProxy = proxy }
-            .onChange(of: messages.count) { scrollToBottom(proxy) }
+            .onChange(of: messages.count) {
+                // Don't scroll mid-stream (new message added = user sent or placeholder inserted)
+                // Streaming scroll handled by isStreaming onChange below
+                if !isStreaming { scrollToBottom(proxy) }
+            }
             // Only scroll on content change when NOT streaming to avoid
             // calling scrollTo on every single streaming token
             .onChange(of: messages.last?.content) {
@@ -1026,7 +1049,7 @@ struct SingleChatSessionView: View {
                                         agentOutput += t
                                         pendingContent += t
                                         tokenCount += 1
-                                        if tokenCount >= 10 {
+                                        if tokenCount >= 50 {
                                             messages[idx].content += pendingContent
                                             pendingContent = ""
                                             tokenCount = 0
@@ -1075,6 +1098,24 @@ struct SingleChatSessionView: View {
                 let ext = file.url.pathExtension.lowercased()
                 let lang = ext.isEmpty ? "" : ext
                 parts.append("**\(file.name)**\n```\(lang)\n\(content)\n```")
+            } else if file.url.pathExtension.lowercased() == "pdf",
+                      let pdf = PDFDocument(url: file.url) {
+                // Extract text content from PDF pages
+                var pdfText = ""
+                for i in 0..<pdf.pageCount {
+                    if let page = pdf.page(at: i),
+                       let pageText = page.string, !pageText.isEmpty {
+                        pdfText += pageText + "\n"
+                    }
+                }
+                if !pdfText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten)\n```\n\(pdfText.trimmingCharacters(in: .whitespacesAndNewlines))\n```")
+                } else {
+                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten — kein extrahierbarer Text, Pfad: `\(file.url.path)`)")
+                }
+            } else if file.isImage {
+                // Images: pass path and directory access so Claude can reference the file
+                parts.append("**\(file.name)** (Bild, Pfad: `\(file.url.path)`)")
             } else {
                 parts.append("**\(file.name)** (Pfad: `\(file.url.path)`)")
             }
@@ -1137,13 +1178,16 @@ struct SingleChatSessionView: View {
         }() : nil
 
         Task { @MainActor in
+            // Collect unique directories of image/binary attachments so Claude's tools can access them
+            let imageDirs = Array(Set(sentFiles.filter { $0.isImage }.map { $0.url.deletingLastPathComponent().path }))
             await performSend(
                 message: fullMessage,
                 assistantIndex: assistantIndex,
                 model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
                     ? state.settings.copilotFallbackModel
                     : selectedModel,
-                agentOverride: triggerAgent
+                agentOverride: triggerAgent,
+                addDirs: imageDirs
             )
         }
     }
@@ -1153,7 +1197,8 @@ struct SingleChatSessionView: View {
         message: String,
         assistantIndex: Int,
         model: String,
-        agentOverride: String? = nil
+        agentOverride: String? = nil,
+        addDirs: [String] = []
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
@@ -1185,6 +1230,7 @@ struct SingleChatSessionView: View {
             model: model,
             fallbackModel: fallback,
             workingDirectory: workingDirectory,
+            addDirs: addDirs,
             skipPermissions: autoApprove
         )
 
@@ -1206,7 +1252,7 @@ struct SingleChatSessionView: View {
                                 if let t = block.text, !t.isEmpty {
                                     pendingContent += t
                                     pendingTokenCount += 1
-                                    if pendingTokenCount >= 10 {
+                                    if pendingTokenCount >= 50 {
                                         messages[assistantIndex].content += pendingContent
                                         pendingContent = ""
                                         pendingTokenCount = 0

@@ -25,9 +25,10 @@ struct WindowConfigurator: NSViewRepresentable {
     // MARK: - Coordinator (persistent KVO owner)
 
     class Coordinator: NSObject {
-        private var titleObs: NSKeyValueObservation?
-        private var visObs:   NSKeyValueObservation?
-        private var attached  = false
+        private var titleObs:   NSKeyValueObservation?
+        private var visObs:     NSKeyValueObservation?
+        private var toolbarObs: NSKeyValueObservation?
+        private var attached    = false
 
         func attach(to window: NSWindow) {
             Self.style(window)
@@ -37,12 +38,18 @@ struct WindowConfigurator: NSViewRepresentable {
             // Watch title — NavigationSplitView may re-inject it after we clear it.
             titleObs = window.observe(\.title, options: [.new]) { win, _ in
                 guard win.title != "" else { return }
-                DispatchQueue.main.async { win.title = ""; win.toolbar = nil }
+                DispatchQueue.main.async { win.title = "" }
             }
             // Watch titleVisibility — NavigationSplitView may reset it to .visible.
             visObs = window.observe(\.titleVisibility, options: [.new]) { win, _ in
                 guard win.titleVisibility != .hidden else { return }
                 DispatchQueue.main.async { win.titleVisibility = .hidden }
+            }
+            // Watch toolbar — NavigationSplitView re-injects it; remove it immediately
+            // so it cannot render the "myClaude" title chip or block click events.
+            toolbarObs = window.observe(\.toolbar, options: [.new]) { win, _ in
+                guard win.toolbar != nil else { return }
+                DispatchQueue.main.async { win.toolbar = nil }
             }
         }
 
@@ -59,6 +66,6 @@ struct WindowConfigurator: NSViewRepresentable {
             window.minSize = NSSize(width: 900, height: 600)
         }
 
-        deinit { titleObs = nil; visObs = nil }
+        deinit { titleObs = nil; visObs = nil; toolbarObs = nil }
     }
 }
