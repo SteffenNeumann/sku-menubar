@@ -10,6 +10,7 @@ final class ExplorerNode: Identifiable, ObservableObject {
     let isDirectory: Bool
     @Published var children: [ExplorerNode]? = nil   // nil = not yet loaded
     @Published var isExpanded: Bool = false
+    @Published var loadFailed: Bool = false   // true = last loadChildren failed (allow retry)
     weak var parent: ExplorerNode?
 
     init(url: URL, parent: ExplorerNode? = nil) {
@@ -30,9 +31,13 @@ final class ExplorerNode: Identifiable, ObservableObject {
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
             options: showHidden ? [] : .skipsHiddenFiles
         ) else {
-            // Leave children = nil so the user can retry; don't lock into an empty state
+            // Show as expanded but empty so the folder doesn't snap back shut.
+            // loadFailed = true lets the tap handler retry on next click.
+            children = []
+            loadFailed = true
             return false
         }
+        loadFailed = false
         children = contents
             .sorted { a, b in
                 let aDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
@@ -1071,9 +1076,9 @@ struct ExplorerTreeRow: View {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     node.isExpanded.toggle()
                 }
-                if node.isExpanded && node.children == nil {
-                    let ok = node.loadChildren(showHidden: showHidden)
-                    if !ok { node.isExpanded = false }  // revert if access denied
+                // Load (or retry after failure) when expanding
+                if node.isExpanded && (node.children == nil || node.loadFailed) {
+                    node.loadChildren(showHidden: showHidden)
                 }
             }
             onSelect(node)

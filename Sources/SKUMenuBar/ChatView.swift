@@ -2172,9 +2172,9 @@ struct ChatFilePanelRow: View {
             onSelect(node)
             if node.isDirectory {
                 withAnimation(.easeInOut(duration: 0.12)) { node.isExpanded.toggle() }
-                if node.isExpanded && node.children == nil {
-                    let ok = node.loadChildren(showHidden: showHidden)
-                    if !ok { node.isExpanded = false }  // revert if access denied
+                // Load (or retry after failure) when expanding
+                if node.isExpanded && (node.children == nil || node.loadFailed) {
+                    node.loadChildren(showHidden: showHidden)
                 }
             }
         }

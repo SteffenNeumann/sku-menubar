@@ -52,7 +52,20 @@ struct HighlightedCodeView: NSViewRepresentable {
     /// Called whenever the user changes the text (only when isEditable = true).
     var onTextChange: ((String) -> Void)? = nil
 
-    private static let highlightr: Highlightr? = Highlightr()
+    private static let highlightr: Highlightr? = {
+        // Guard against missing Highlightr_Highlightr.bundle.
+        // NSBundle.module accessor checks Bundle.main.bundleURL first,
+        // then a hardcoded .build/ path. If neither exists it calls fatalError.
+        let bundleInApp = Bundle.main.bundleURL
+            .appendingPathComponent("Highlightr_Highlightr.bundle").path
+        let bundleInResources = (Bundle.main.resourceURL ?? Bundle.main.bundleURL)
+            .appendingPathComponent("Highlightr_Highlightr.bundle").path
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: bundleInApp) || fm.fileExists(atPath: bundleInResources) else {
+            return nil
+        }
+        return Highlightr()
+    }()
 
     // MARK: Coordinator
 

@@ -6,7 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_BUNDLE="$HOME/Applications/myClaude.app/Contents/MacOS/myClaude"
-APP_RESOURCES_DIR="$HOME/Applications/myClaude.app/Contents/Resources"
+# NSBundle.module accessor searches Bundle.main.bundleURL (= app root, sibling to Contents/)
+APP_BUNDLE_ROOT="$HOME/Applications/myClaude.app"
 BINARY="$REPO_ROOT/.build/arm64-apple-macosx/debug/myClaude"
 BUNDLE="$REPO_ROOT/.build/arm64-apple-macosx/debug/Highlightr_Highlightr.bundle"
 
@@ -21,16 +22,16 @@ sleep 1
 if [ -f "$APP_BUNDLE" ]; then
     echo "📦 Deploying to $APP_BUNDLE..."
     cp "$BINARY" "$APP_BUNDLE"
-    # Copy Highlightr resource bundle into Resources/ (NSBundle.module searches there)
+    # Copy Highlightr resource bundle to app root (NSBundle.module: Bundle.main.bundleURL/Highlightr_Highlightr.bundle)
     if [ -d "$BUNDLE" ]; then
-        mkdir -p "$APP_RESOURCES_DIR"
-        cp -R "$BUNDLE" "$APP_RESOURCES_DIR/"
-        echo "📦 Copied Highlightr_Highlightr.bundle → Resources/"
+        cp -R "$BUNDLE" "$APP_BUNDLE_ROOT/"
+        echo "📦 Copied Highlightr_Highlightr.bundle → app root"
     else
         echo "⚠️  Highlightr bundle not found at $BUNDLE"
     fi
-    # Remove stale copy from MacOS/ if present (from previous broken deploy)
+    # Remove stale copies from previous wrong locations
     rm -rf "$HOME/Applications/myClaude.app/Contents/MacOS/Highlightr_Highlightr.bundle"
+    rm -rf "$HOME/Applications/myClaude.app/Contents/Resources/Highlightr_Highlightr.bundle"
     echo "🚀 Launching from Dock app..."
     open "$HOME/Applications/myClaude.app"
 else
