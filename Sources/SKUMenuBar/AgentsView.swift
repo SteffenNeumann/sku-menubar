@@ -380,6 +380,7 @@ private struct AgentBaseballCard: View {
     let lastError: String?
     let isRunning: Bool
     let liveText: String
+    let todayLearningsCount: Int
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onDuplicate: () -> Void
@@ -523,6 +524,22 @@ private struct AgentBaseballCard: View {
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Color.purple.opacity(0.10), in: Capsule())
                     .overlay(Capsule().strokeBorder(Color.purple.opacity(0.30), lineWidth: 0.5))
+                    .padding(.top, 2)
+                }
+
+                // ── Today's learnings badge ───────────────────
+                if todayLearningsCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Color.yellow.opacity(0.9))
+                        Text("\(todayLearningsCount) gelernt heute")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.yellow.opacity(0.9))
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.yellow.opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.30), lineWidth: 0.5))
                     .padding(.top, 2)
                 }
 
@@ -844,6 +861,7 @@ struct AgentsView: View {
                 theme: theme,
                 errorMessage: editorError,
                 previewContent: state.agentService.previewAgentFile(editorDraft),
+                recentProjects: state.historyService.projects,
                 onCancel: {
                     editorError = nil
                     showEditor = false
@@ -903,6 +921,7 @@ struct AgentsView: View {
             }(),
             isRunning: state.agentService.runningAgents.contains(agent.id),
             liveText: state.agentService.liveOutput[agent.id] ?? "",
+            todayLearningsCount: state.agentService.todaysLearnings(for: agent).count,
             onEdit: { startEditingAgent(agent) },
             onDelete: { pendingDeleteAgent = agent },
             onDuplicate: { duplicateAgent(agent) },
@@ -1188,6 +1207,7 @@ private struct AgentEditorSheet: View {
     let theme: AppTheme
     let errorMessage: String?
     let previewContent: String
+    let recentProjects: [ProjectHistory]
     let onCancel: () -> Void
     let onCopyPreview: () -> Void
     let onSave: () -> Void
@@ -1329,6 +1349,41 @@ private struct AgentEditorSheet: View {
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Divider().foregroundStyle(theme.cardBorder)
+
+                        // Project directory picker
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("PROJEKT (Arbeitsverzeichnis)")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                                .kerning(0.5)
+                            HStack(spacing: 8) {
+                                TextField("/Users/…/mein-projekt", text: $draft.projectDirectory)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11, design: .monospaced))
+                                if !recentProjects.isEmpty {
+                                    Menu {
+                                        Button("Keins (leer)") { draft.projectDirectory = "" }
+                                        Divider()
+                                        ForEach(recentProjects) { project in
+                                            Button(project.displayName) {
+                                                draft.projectDirectory = project.path
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "folder.badge.plus")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .fixedSize()
+                                }
+                            }
+                            Text("Der Agent startet in diesem Verzeichnis — Memories werden dort abgelegt.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
                         }
 
                         Divider().foregroundStyle(theme.cardBorder)
@@ -1655,11 +1710,13 @@ private extension String {
 private struct AgentMemorySheet: View {
     let agent: AgentDefinition
     let theme: AppTheme
+    @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var memoryFiles: [MemoryFileEntry] = []
     @State private var selectedFile: MemoryFileEntry?
     @State private var fileContent: String = ""
     @State private var isLoading = true
+    @State private var todayEntries: [String] = []
 
     private struct MemoryFileEntry: Identifiable, Hashable {
         let id: String
@@ -1703,6 +1760,52 @@ private struct AgentMemorySheet: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+
+            // ── Heute gelernt ────────────────────────────────
+            if !todayEntries.isEmpty {
+                Divider().foregroundStyle(theme.cardBorder)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.yellow.opacity(0.9))
+                        Text("HEUTE GELERNT")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.yellow.opacity(0.9))
+                            .kerning(0.5)
+                        Text("(\(todayEntries.count))")
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(todayEntries, id: \.self) { entry in
+                            let parts = entry.components(separatedBy: " | ")
+                            let time = parts.indices.contains(0) ? String(parts[0].suffix(8)) : ""
+                            let source = parts.indices.contains(1) ? parts[1] : ""
+                            let text = parts.indices.contains(2) ? parts[2] : entry
+                            HStack(alignment: .top, spacing: 6) {
+                                Text(source == "CHAT" ? "💬" : "⏱")
+                                    .font(.system(size: 10))
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(text)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(theme.primaryText)
+                                        .lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(time)
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+                        }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(Color.yellow.opacity(0.05))
+            }
 
             Divider().foregroundStyle(theme.cardBorder)
 
@@ -1829,6 +1932,9 @@ private struct AgentMemorySheet: View {
         if selectedFile == nil, let first = memoryFiles.first {
             selectedFile = first
         }
+
+        // Load today's learning entries
+        todayEntries = state.agentService.todaysLearnings(for: agent)
     }
 
     private func fileIcon(for name: String) -> String {

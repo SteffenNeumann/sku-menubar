@@ -342,6 +342,7 @@ struct AgentDefinition: Identifiable, Hashable {
     let triggers: [String]      // trigger keywords
     let promptBody: String
     let filePath: String
+    let projectDirectory: String?  // working directory when running
     // Scheduling
     let schedule: String?       // "hourly", "daily", "weekly", "@HH:MM" (daily at time)
     let isActive: Bool          // scheduling enabled
@@ -443,6 +444,7 @@ struct AgentDraft {
     var schedule: String = ""
     var isActive: Bool = false
     var timeoutMinutes: String = ""  // empty = default (30 min)
+    var projectDirectory: String = ""
 
     init() {}
 
@@ -459,6 +461,7 @@ struct AgentDraft {
         schedule    = agent.schedule ?? ""
         isActive    = agent.isActive
         timeoutMinutes = agent.timeoutMinutes == 30 ? "" : String(agent.timeoutMinutes)
+        projectDirectory = agent.projectDirectory ?? ""
     }
 }
 

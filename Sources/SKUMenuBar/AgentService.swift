@@ -84,9 +84,10 @@ final class AgentService: ObservableObject {
         let memory      = fields["memory"]
         let portrait    = fields["portrait"].flatMap { $0.isEmpty ? nil : $0 }
         let triggers    = fields["triggers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
-        let schedule    = fields["schedule"].flatMap { $0.isEmpty ? nil : $0 }
-        let isActive    = (fields["active"] ?? "false").lowercased() == "true"
-        let timeoutMins = fields["timeout"].flatMap { Int($0) } ?? 30
+        let schedule        = fields["schedule"].flatMap { $0.isEmpty ? nil : $0 }
+        let isActive        = (fields["active"] ?? "false").lowercased() == "true"
+        let timeoutMins     = fields["timeout"].flatMap { Int($0) } ?? 30
+        let projectDir      = fields["project"].flatMap { $0.isEmpty ? nil : $0 }
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
@@ -118,6 +119,7 @@ final class AgentService: ObservableObject {
             triggers: triggers,
             promptBody: body,
             filePath: url.path,
+            projectDirectory: projectDir,
             schedule: schedule,
             isActive: isActive,
             timeoutMinutes: timeoutMins,
@@ -134,6 +136,7 @@ final class AgentService: ObservableObject {
         lines.append("model: \(draft.model.isEmpty ? "sonnet" : draft.model)")
         if !draft.color.isEmpty    { lines.append("color: \(draft.color)") }
         if !draft.memory.isEmpty   { lines.append("memory: \(draft.memory)") }
+        if !draft.projectDirectory.isEmpty { lines.append("project: \(draft.projectDirectory)") }
         if !draft.portrait.isEmpty  { lines.append("portrait: \(draft.portrait)") }
         if !draft.triggers.isEmpty  { lines.append("triggers: \(draft.triggers)") }
         if !draft.schedule.isEmpty  { lines.append("schedule: \(draft.schedule)") }
@@ -295,6 +298,49 @@ Do not ask for confirmation. Just write the file silently as part of your work.
         parts.append(memInstruction)
 
         return parts.joined(separator: "\n\n")
+    }
+
+    /// Records a completed chat session in the agent's learning log.
+    func recordChatSession(agentId: String, output: String) {
+        guard let agent = agents.first(where: { $0.id == agentId }) else { return }
+        let learned = extractLearnedLine(from: output)
+        let dir = writableMemoryDir(for: agent)
+        let logURL = dir.appendingPathComponent("learning_log.txt")
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let summary = String(
+            learned.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+                .prefix(300)
+        )
+        let line = "\(fmt.string(from: Date())) | CHAT | \(summary)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            handle.seekToEndOfFile()
+            handle.write(data)
+        } else {
+            try? data.write(to: logURL)
+        }
+    }
+
+    /// Returns today's learning log entries for an agent (all sources).
+    func todaysLearnings(for agent: AgentDefinition) -> [String] {
+        guard let log = readMemoryFile(named: "learning_log.txt", for: agent) else { return [] }
+        let today = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date()) }()
+        return log.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix(today) }
+    }
+
+    /// Returns the full system prompt for an agent (preamble + promptBody).
+    /// Used by the chat flow to inject agent identity and memory context.
+    func fullSystemPrompt(for agent: AgentDefinition) -> String {
+        let preamble = buildContextPreamble(for: agent)
+        let body = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.isEmpty { return preamble }
+        return preamble + "\n\n---\n\n" + body
     }
 
     /// Appends one timestamped entry to the agent's learning_log.txt.
@@ -487,6 +533,7 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
                 systemPrompt: instructions.isEmpty ? nil : instructions,
                 model: agent.model.isEmpty ? nil : agent.model,
+                workingDirectory: agent.projectDirectory,
                 skipPermissions: true
             )
             let deadline = Date().addingTimeInterval(timeoutSeconds)

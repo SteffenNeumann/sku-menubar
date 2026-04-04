@@ -1169,10 +1169,19 @@ struct SingleChatSessionView: View {
             : nil
 
         let effectiveAgent = agentOverride ?? (selectedAgent.isEmpty ? nil : selectedAgent)
+
+        // Inject agent system prompt (memory + write instruction + promptBody) on the first message of a session.
+        // On resume (currentSessionId != nil) the session already carries the context — skip.
+        let agentSystemPrompt: String? = (currentSessionId == nil)
+            ? effectiveAgent.flatMap { agentId in
+                state.agentService.agents.first { $0.id == agentId }
+              }.map { state.agentService.fullSystemPrompt(for: $0) }
+            : nil
+
         let stream = state.cliService.send(
             message: message,
             sessionId: currentSessionId,
-            agentName: effectiveAgent,
+            systemPrompt: agentSystemPrompt,
             model: model,
             fallbackModel: fallback,
             workingDirectory: workingDirectory,
@@ -1299,6 +1308,13 @@ struct SingleChatSessionView: View {
 
         state.lastChatProvider = source
         isStreaming = false
+
+        // Record session learnings in agent memory log
+        if let agentId = effectiveAgent,
+           messages.indices.contains(assistantIndex) {
+            let output = messages[assistantIndex].content
+            state.agentService.recordChatSession(agentId: agentId, output: output)
+        }
 
         // If tool calls were made, fetch git diff to show changed files
         if messages.indices.contains(assistantIndex),
