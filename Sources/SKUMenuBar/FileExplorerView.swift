@@ -155,6 +155,10 @@ struct FileExplorerView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    @State private var treePanelWidth: CGFloat = 300
+    private let treePanelMinWidth: CGFloat = 180
+    private let treePanelMaxWidth: CGFloat = 600
+
     var body: some View {
         HStack(spacing: 0) {
             // Left: tree panel
@@ -163,10 +167,25 @@ struct FileExplorerView: View {
                 Divider().foregroundStyle(theme.cardBorder)
                 treePanel
             }
-            .frame(minWidth: 280, idealWidth: 340, maxWidth: 440)
+            .frame(width: treePanelWidth)
             .background(theme.windowBg)
 
-            Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+            // Draggable divider
+            Rectangle()
+                .fill(theme.cardBorder)
+                .frame(width: 4)
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            let newWidth = treePanelWidth + value.translation.width
+                            treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
+                        }
+                )
+                .background(Color.clear)
 
             // Right: preview / info panel
             previewPanel
