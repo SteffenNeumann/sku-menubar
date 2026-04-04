@@ -397,67 +397,68 @@ final class AppState: ObservableObject {
     // MARK: - Local CLI usage (reads ~/.claude/projects/**/*.jsonl)
 
     func loadLocalCLIUsage() async {
-        let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".claude/projects")
+        // Run all file I/O off the main thread
+        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, [String: Double]) in
+            let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent(".claude/projects")
 
-        // Sonnet 4.6 pricing per token
-        let inputPrice:  Double = 3.0  / 1_000_000
-        let outputPrice: Double = 15.0 / 1_000_000
+            let inputPrice:  Double = 3.0  / 1_000_000
+            let outputPrice: Double = 15.0 / 1_000_000
 
-        let cal  = Calendar.current
-        let now  = Date()
-        let startOfToday = cal.startOfDay(for: now)
-        // Weekly reset on Tuesday (like Claude's plan)
-        let weekday = cal.component(.weekday, from: now) // 1=Sun 2=Mon 3=Tue
-        let daysFromTue = (weekday - 3 + 7) % 7
-        let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
+            let cal  = Calendar.current
+            let now  = Date()
+            let startOfToday = cal.startOfDay(for: now)
+            let weekday = cal.component(.weekday, from: now)
+            let daysFromTue = (weekday - 3 + 7) % 7
+            let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
 
-        var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
-        var dailyByDate: [String: Double] = [:]
+            var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
+            var dailyByDate: [String: Double] = [:]
 
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: projectsDir,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]) else { return }
+            let fm = FileManager.default
+            guard let enumerator = fm.enumerator(at: projectsDir,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]) else {
+                return (0, 0, 0, 0, [:])
+            }
 
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let dayFmt = DateFormatter()
-        dayFmt.dateFormat = "yyyy-MM-dd"
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let dayFmt = DateFormatter()
+            dayFmt.dateFormat = "yyyy-MM-dd"
 
-        for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "jsonl" else { continue }
-            guard let data = try? Data(contentsOf: fileURL),
-                  let text = String(data: data, encoding: .utf8) else { continue }
-            for line in text.components(separatedBy: "\n") where !line.isEmpty {
-                guard let lineData = line.data(using: .utf8),
-                      let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                      let tsStr = obj["timestamp"] as? String,
-                      let dt = iso.date(from: tsStr) else { continue }
-                let msg    = obj["message"] as? [String: Any]
-                let usage  = msg?["usage"] as? [String: Any]
-                let inp    = usage?["input_tokens"]  as? Int ?? 0
-                let out    = usage?["output_tokens"] as? Int ?? 0
-                if dt >= startOfToday { inToday += inp; outToday += out }
-                if dt >= startOfWeek  { inWeek  += inp; outWeek  += out }
-                let lineCost = Double(inp) * inputPrice + Double(out) * outputPrice
-                if lineCost > 0 {
-                    let dateKey = dayFmt.string(from: dt)
-                    dailyByDate[dateKey, default: 0] += lineCost
+            for case let fileURL as URL in enumerator {
+                guard fileURL.pathExtension == "jsonl" else { continue }
+                guard let data = try? Data(contentsOf: fileURL),
+                      let text = String(data: data, encoding: .utf8) else { continue }
+                for line in text.components(separatedBy: "\n") where !line.isEmpty {
+                    guard let lineData = line.data(using: .utf8),
+                          let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                          let tsStr = obj["timestamp"] as? String,
+                          let dt = iso.date(from: tsStr) else { continue }
+                    let msg   = obj["message"] as? [String: Any]
+                    let usage = msg?["usage"] as? [String: Any]
+                    let inp   = usage?["input_tokens"]  as? Int ?? 0
+                    let out   = usage?["output_tokens"] as? Int ?? 0
+                    if dt >= startOfToday { inToday += inp; outToday += out }
+                    if dt >= startOfWeek  { inWeek  += inp; outWeek  += out }
+                    let lineCost = Double(inp) * inputPrice + Double(out) * outputPrice
+                    if lineCost > 0 {
+                        dailyByDate[dayFmt.string(from: dt), default: 0] += lineCost
+                    }
                 }
             }
-        }
+            return (inToday, outToday, inWeek, outWeek, dailyByDate)
+        }.value
 
-        let costToday = Double(inToday) * inputPrice + Double(outToday) * outputPrice
-        let costWeek  = Double(inWeek)  * inputPrice + Double(outWeek)  * outputPrice
-
-        await MainActor.run {
-            localTodayTokens = inToday + outToday
-            localWeekTokens  = inWeek  + outWeek
-            localTodayCost   = costToday
-            localWeekCost    = costWeek
-            localDailyByDate = dailyByDate
-        }
+        let inputPrice:  Double = 3.0  / 1_000_000
+        let outputPrice: Double = 15.0 / 1_000_000
+        let (inToday, outToday, inWeek, outWeek, dailyByDate) = result
+        localTodayTokens = inToday + outToday
+        localWeekTokens  = inWeek  + outWeek
+        localTodayCost   = Double(inToday) * inputPrice + Double(outToday) * outputPrice
+        localWeekCost    = Double(inWeek)  * inputPrice + Double(outWeek)  * outputPrice
+        localDailyByDate = dailyByDate
     }
 
     // MARK: - Claude usage fetch
