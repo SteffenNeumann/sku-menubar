@@ -1677,7 +1677,7 @@ struct ChatFilePanel: View {
 
             // Tree only — preview is shown in the right panel
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     if let root = rootNode {
                         ForEach(root.children ?? []) { node in
                             ChatFilePanelRow(
@@ -2173,7 +2173,8 @@ struct ChatFilePanelRow: View {
             if node.isDirectory {
                 withAnimation(.easeInOut(duration: 0.12)) { node.isExpanded.toggle() }
                 if node.isExpanded && node.children == nil {
-                    node.loadChildren(showHidden: showHidden)
+                    let ok = node.loadChildren(showHidden: showHidden)
+                    if !ok { node.isExpanded = false }  // revert if access denied
                 }
             }
         }

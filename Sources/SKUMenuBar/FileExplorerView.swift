@@ -21,16 +21,17 @@ final class ExplorerNode: Identifiable, ObservableObject {
         self.isDirectory = isDir.boolValue
     }
 
-    func loadChildren(showHidden: Bool) {
-        guard isDirectory else { return }
+    @discardableResult
+    func loadChildren(showHidden: Bool) -> Bool {
+        guard isDirectory else { return false }
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
             options: showHidden ? [] : .skipsHiddenFiles
         ) else {
-            children = []
-            return
+            // Leave children = nil so the user can retry; don't lock into an empty state
+            return false
         }
         children = contents
             .sorted { a, b in
@@ -40,6 +41,7 @@ final class ExplorerNode: Identifiable, ObservableObject {
                 return a.lastPathComponent.localizedCaseInsensitiveCompare(b.lastPathComponent) == .orderedAscending
             }
             .map { ExplorerNode(url: $0, parent: self) }
+        return true
     }
 
     var fileSize: Int64 {
@@ -1070,7 +1072,8 @@ struct ExplorerTreeRow: View {
                     node.isExpanded.toggle()
                 }
                 if node.isExpanded && node.children == nil {
-                    node.loadChildren(showHidden: showHidden)
+                    let ok = node.loadChildren(showHidden: showHidden)
+                    if !ok { node.isExpanded = false }  // revert if access denied
                 }
             }
             onSelect(node)
