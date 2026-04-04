@@ -20,6 +20,8 @@ struct SKUMenuBarApp: App {
                 .environment(\.appTheme, themeManager.current)
                 .environment(\.colorScheme, themeManager.current.isLight ? .light : .dark)
         }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
         .defaultSize(width: 1200, height: 800)
 
         Settings {

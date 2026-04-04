@@ -263,7 +263,10 @@ final class AgentService: ObservableObject {
     private func buildContextPreamble(for agent: AgentDefinition) -> String {
         var parts: [String] = []
 
-        // Persistent MEMORY.md (researcher writes this; other agents may have one too)
+        let memDir = writableMemoryDir(for: agent)
+        let memPath = memDir.appendingPathComponent("MEMORY.md").path
+
+        // Persistent MEMORY.md
         if let mem = readMemoryFile(named: "MEMORY.md", for: agent) {
             parts.append("## Your Persistent Memory\n\(mem.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
@@ -280,7 +283,18 @@ final class AgentService: ObservableObject {
             }
         }
 
-        return parts.isEmpty ? "" : parts.joined(separator: "\n\n")
+        // Memory maintenance instruction — agent updates its own MEMORY.md autonomously
+        let memInstruction = """
+## Memory Maintenance
+Your persistent memory file is at: `\(memPath)`
+During or after your work in this session, update this file autonomously using your write tools.
+Track what worked well, what failed, and what to avoid next time.
+Keep it concise — short bullet points under `## What Worked` and `## What to Avoid`.
+Do not ask for confirmation. Just write the file silently as part of your work.
+"""
+        parts.append(memInstruction)
+
+        return parts.joined(separator: "\n\n")
     }
 
     /// Appends one timestamped entry to the agent's learning_log.txt.
@@ -462,18 +476,11 @@ final class AgentService: ObservableObject {
             // Build enriched system prompt: preamble (memory + learning log) + body + LEARNED instruction
             let preamble = buildContextPreamble(for: agent)
             let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
-            let learnedInstruction = """
-
-
----
-At the very end of your response, write exactly one line in this format (do not omit this):
-LEARNED: <what went well or was important> | <what failed or should be avoided next time>
-"""
-            var instructions: String
-            if preamble.isEmpty {
-                instructions = body.isEmpty ? "" : body + learnedInstruction
+            let instructions: String
+            if body.isEmpty {
+                instructions = preamble
             } else {
-                instructions = preamble + "\n\n---\n\n" + (body.isEmpty ? "Execute your role." : body) + learnedInstruction
+                instructions = preamble + "\n\n---\n\n" + body
             }
 
             let stream = cli.send(

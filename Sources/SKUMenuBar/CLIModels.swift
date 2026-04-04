@@ -10,6 +10,7 @@ enum AppSection: String, CaseIterable, Hashable {
     case agents      = "Agents"
     case mcp         = "MCP Server"
     case codeReview  = "Code Review"
+    case files       = "Files"
     case notes       = "Notizen"
     case tasks       = "Aufgaben"
     case settings    = "Einstellungen"
@@ -22,6 +23,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .agents:     return "cpu.fill"
         case .mcp:        return "network"
         case .codeReview: return "checklist"
+        case .files:      return "folder.fill"
         case .notes:      return "note.text"
         case .tasks:      return "checkmark.square.fill"
         case .settings:   return "gearshape.fill"
@@ -36,6 +38,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .agents:     return .purple
         case .mcp:        return .cyan
         case .codeReview: return .mint
+        case .files:      return .indigo
         case .notes:      return .yellow
         case .tasks:      return .green
         case .settings:   return .gray

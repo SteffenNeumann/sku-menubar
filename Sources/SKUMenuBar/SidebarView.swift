@@ -20,12 +20,7 @@ struct SidebarView: View {
 
             VStack(spacing: 0) {
                 // Traffic-light spacer
-                Color.clear.frame(height: 10)
-
-                // App branding
-                brandingHeader
-
-                Divider().foregroundStyle(theme.cardBorder)
+                Color.clear.frame(height: 28)
 
                 // Navigation
                 ScrollView(.vertical, showsIndicators: false) {
@@ -67,7 +62,6 @@ struct SidebarView: View {
                 sidebarFooter
             }
         }
-        .listStyle(.sidebar)
     }
 
     // MARK: - Recent Projects
@@ -122,37 +116,6 @@ struct SidebarView: View {
             .frame(height: 0.5)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-    }
-
-    // MARK: - App header
-
-    private var brandingHeader: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(LinearGradient(
-                        colors: [accentColor, accentDark],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    ))
-                    .frame(width: 30, height: 30)
-                    .shadow(color: accentColor.opacity(0.35), radius: 4, y: 2)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("myClaude")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                Text("AI Command Center")
-                    .font(.system(size: 10))
-                    .foregroundStyle(theme.tertiaryText)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Section group

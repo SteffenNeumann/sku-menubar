@@ -17,7 +17,6 @@ struct MainWindowView: View {
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .ignoresSafeArea(.all, edges: .top)
             .navigationTitle("")
         }
         .navigationSplitViewStyle(.balanced)
