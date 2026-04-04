@@ -172,20 +172,23 @@ struct FileExplorerView: View {
 
             // Draggable divider
             Rectangle()
-                .fill(theme.cardBorder)
-                .frame(width: 4)
-                .contentShape(Rectangle())
-                .onHover { inside in
-                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 1)
-                        .onChanged { value in
-                            let newWidth = treePanelWidth + value.translation.width
-                            treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
+                .fill(theme.cardBorder.opacity(0.6))
+                .frame(width: 1)
+                .background(
+                    Color.clear
+                        .frame(width: 8)
+                        .contentShape(Rectangle())
+                        .onHover { inside in
+                            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
                         }
+                        .gesture(
+                            DragGesture(minimumDistance: 1)
+                                .onChanged { value in
+                                    let newWidth = treePanelWidth + value.translation.width
+                                    treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
+                                }
+                        )
                 )
-                .background(Color.clear)
 
             // Right: preview / info panel
             previewPanel

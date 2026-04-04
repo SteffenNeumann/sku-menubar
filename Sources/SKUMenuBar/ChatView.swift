@@ -1605,27 +1605,9 @@ class ResizeDragNSView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Skip the top 30px (panel header area) — don't draw into headers
-        let topSkip: CGFloat = 30
-        let drawH = max(0, bounds.height - topSkip)
-        guard drawH > 0 else { return }
-
-        // Center line
+        // Subtle center line only
         NSColor.separatorColor.withAlphaComponent(0.25).setFill()
-        NSRect(x: (bounds.width - 1) / 2, y: 0, width: 1, height: drawH).fill()
-
-        // Grip dots centered in visible region
-        let dotSize: CGFloat = 3
-        let dotGap: CGFloat = 5
-        let totalDots = 5
-        let totalH = CGFloat(totalDots) * dotSize + CGFloat(totalDots - 1) * dotGap
-        let startY = (drawH - totalH) / 2
-        let cx = (bounds.width - dotSize) / 2
-        NSColor.separatorColor.withAlphaComponent(0.55).setFill()
-        for i in 0..<totalDots {
-            let y = startY + CGFloat(i) * (dotSize + dotGap)
-            NSBezierPath(ovalIn: NSRect(x: cx, y: y, width: dotSize, height: dotSize)).fill()
-        }
+        NSRect(x: (bounds.width - 1) / 2, y: 0, width: 1, height: bounds.height).fill()
     }
 }
 
