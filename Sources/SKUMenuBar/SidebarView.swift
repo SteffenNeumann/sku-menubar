@@ -19,8 +19,15 @@ struct SidebarView: View {
             theme.windowBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Traffic-light spacer
-                Color.clear.frame(height: 28)
+                // Traffic-light spacer + current time
+                HStack {
+                    Spacer()
+                    Text(Date(), style: .time)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.trailing, 12)
+                }
+                .frame(height: 28)
 
                 // Navigation
                 ScrollView(.vertical, showsIndicators: false) {
@@ -333,21 +340,17 @@ struct SidebarView: View {
     // MARK: - Footer
 
     private var sidebarFooter: some View {
-        HStack(spacing: 6) {
-            if let t = state.lastUpdate {
-                Image(systemName: "clock").font(.system(size: 9))
-                Text(t.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: 10))
-            } else {
-                Text("Nicht geladen").font(.system(size: 10))
-            }
-            Spacer()
+        HStack(spacing: 4) {
+            Text(BuildInfo.buildDate)
+                .font(.system(size: 9))
+            Text("·")
+                .font(.system(size: 9))
             Text(BuildInfo.commitHash)
                 .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(theme.tertiaryText.opacity(0.5))
         }
-        .foregroundStyle(theme.tertiaryText)
+        .foregroundStyle(theme.tertiaryText.opacity(0.6))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
 }
