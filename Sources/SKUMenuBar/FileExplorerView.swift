@@ -130,6 +130,26 @@ struct FileExplorerView: View {
     @State private var newItemIsDir: Bool = false
     @State private var errorMsg: String? = nil
 
+    // Edit mode
+    @State private var isEditing: Bool = false
+    @State private var editText: String = ""
+    @State private var isDirty: Bool = false
+    @State private var showUnsavedAlert: Bool = false
+    @State private var pendingNode: ExplorerNode? = nil
+
+    // Commit sheet
+    @State private var showCommitSheet: Bool = false
+    @State private var commitMessage: String = ""
+    @State private var doPull: Bool = true
+    @State private var doPush: Bool = true
+    @State private var gitLog: String = ""
+    @State private var isGitRunning: Bool = false
+    @State private var gitDone: Bool = false
+    @State private var gitHadError: Bool = false
+    @State private var gitRepoURL: URL? = nil
+
+    private let gitService = GitShellService()
+
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
@@ -155,6 +175,15 @@ struct FileExplorerView: View {
         .background(theme.windowBg)
         .onAppear { loadInitialDirectory() }
         .onChange(of: showHidden) { reload() }
+        .alert("Ungespeicherte Änderungen", isPresented: $showUnsavedAlert) {
+            Button("Verwerfen", role: .destructive) {
+                isEditing = false; isDirty = false
+                if let n = pendingNode { pendingNode = nil; selectNode(n) }
+            }
+            Button("Abbrechen", role: .cancel) { pendingNode = nil }
+        } message: {
+            Text("Die Datei hat ungespeicherte Änderungen. Wirklich wechseln?")
+        }
         .alert("Löschen bestätigen", isPresented: Binding(
             get: { confirmDeleteNode != nil },
             set: { if !$0 { confirmDeleteNode = nil } }
@@ -166,6 +195,7 @@ struct FileExplorerView: View {
                 Text("\"\(node.name)\" wirklich löschen?")
             }
         }
+        .sheet(isPresented: $showCommitSheet) { commitSheetView }
     }
 
     // MARK: - Toolbar
@@ -319,7 +349,44 @@ struct FileExplorerView: View {
                         Spacer()
                         // Action buttons
                         HStack(spacing: 6) {
-                            if !node.isDirectory {
+                            if !node.isDirectory && node.isTextFile {
+                                if isEditing {
+                                    Button {
+                                        saveFile(node: node)
+                                    } label: {
+                                        Label(isDirty ? "Speichern *" : "Speichern", systemImage: "checkmark.circle.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.green)
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        isEditing = false; isDirty = false
+                                        editText = previewText ?? ""
+                                    } label: {
+                                        Label("Abbrechen", systemImage: "xmark.circle")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(theme.secondaryText)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Button {
+                                        enterEditMode(node: node)
+                                    } label: {
+                                        Label("Bearbeiten", systemImage: "pencil")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(accentColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        NSWorkspace.shared.open(node.url)
+                                    } label: {
+                                        Label("Öffnen", systemImage: "arrow.up.forward.square")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(accentColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            } else if !node.isDirectory {
                                 Button {
                                     NSWorkspace.shared.open(node.url)
                                 } label: {
@@ -375,13 +442,25 @@ struct FileExplorerView: View {
                     } else if isLoadingPreview {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let text = previewText {
-                        ScrollView {
-                            Text(text)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(theme.primaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(16)
-                                .textSelection(.enabled)
+                        if isEditing {
+                            HighlightedCodeView(
+                                code: editText,
+                                fileURL: node.url,
+                                isDark: !theme.isLight,
+                                isEditable: true,
+                                onTextChange: { newText in
+                                    editText = newText
+                                    isDirty = true
+                                }
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            HighlightedCodeView(
+                                code: text,
+                                fileURL: node.url,
+                                isDark: !theme.isLight
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     } else {
                         VStack(spacing: 8) {
@@ -465,6 +544,230 @@ struct FileExplorerView: View {
 
     // MARK: - Actions
 
+    private func enterEditMode(node: ExplorerNode) {
+        editText = previewText ?? ""
+        isDirty = false
+        isEditing = true
+    }
+
+    private func saveFile(node: ExplorerNode) {
+        do {
+            try editText.write(to: node.url, atomically: true, encoding: .utf8)
+            previewText = editText
+            isDirty = false
+            isEditing = false
+            // Detect git repo and show commit sheet
+            if let repo = gitService.repoRoot(for: node.url) {
+                gitRepoURL = repo
+                commitMessage = "Edit: \(node.name)"
+                gitLog = ""
+                gitDone = false
+                gitHadError = false
+                showCommitSheet = true
+            }
+        } catch {
+            errorMsg = error.localizedDescription
+        }
+    }
+
+    // MARK: - Commit sheet view
+
+    @ViewBuilder
+    private var commitSheetView: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 14))
+                    .foregroundStyle(accentColor)
+                Text("Commit & Push")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                if let repo = gitRepoURL {
+                    let branch = gitService.currentBranch(in: repo)
+                    if !branch.isEmpty {
+                        Text(branch)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+            .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Commit message
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("COMMIT-NACHRICHT")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(theme.tertiaryText)
+                            .kerning(0.5)
+                        TextField("Commit-Nachricht…", text: $commitMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder))
+                    }
+
+                    // Options
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $doPull) {
+                            Text("Vorher pullen (git pull)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .toggleStyle(.checkbox)
+                        .disabled(gitDone || isGitRunning)
+
+                        Toggle(isOn: $doPush) {
+                            Text("Danach pushen (git push)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .toggleStyle(.checkbox)
+                        .disabled(gitDone || isGitRunning)
+                    }
+
+                    // Log output
+                    if !gitLog.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("OUTPUT")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                                .kerning(0.5)
+                            ScrollView {
+                                Text(gitLog)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(gitHadError ? Color.red : theme.primaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(8)
+                            }
+                            .frame(maxHeight: 140)
+                            .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+
+                    // PR button (shown after successful push)
+                    if gitDone && !gitHadError && doPush, let repo = gitRepoURL,
+                       let prURL = gitService.prURL(in: repo) {
+                        Button {
+                            NSWorkspace.shared.open(prURL)
+                        } label: {
+                            Label("Pull Request erstellen", systemImage: "arrow.triangle.pull")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(accentColor, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(20)
+            }
+
+            Divider()
+
+            // Footer buttons
+            HStack(spacing: 10) {
+                if isGitRunning {
+                    ProgressView().scaleEffect(0.7)
+                    Text("Läuft…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Spacer()
+                Button("Schließen") {
+                    showCommitSheet = false
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.secondaryText)
+
+                if !gitDone {
+                    Button {
+                        runCommit()
+                    } label: {
+                        Text(doPush ? "Commit & Push" : "Commit")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(commitMessage.isEmpty ? Color.gray : accentColor,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(commitMessage.isEmpty || isGitRunning)
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 14)
+        }
+        .frame(width: 440, alignment: .leading)
+        .background(theme.windowBg)
+        .environment(\.appTheme, theme)
+    }
+
+    @MainActor
+    private func runCommit() {
+        guard let repo = gitRepoURL, let node = selectedNode else { return }
+        isGitRunning = true
+        gitLog = ""
+        gitHadError = false
+
+        Task { @MainActor in
+            var log = ""
+
+            func append(_ r: GitShellService.GitResult, label: String) {
+                log += "→ \(label)\n"
+                if !r.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log += r.output
+                }
+                if !r.error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    log += r.error
+                }
+                log += "\n"
+            }
+
+            // Pull
+            if doPull {
+                let r = await gitService.pull(in: repo)
+                append(r, label: "git pull")
+                if !r.success { finish(log: log, error: true); return }
+            }
+
+            // Add
+            let addR = await gitService.add(node.url, in: repo)
+            append(addR, label: "git add")
+            if !addR.success { finish(log: log, error: true); return }
+
+            // Commit
+            let commitR = await gitService.commit(message: commitMessage, in: repo)
+            append(commitR, label: "git commit")
+            if !commitR.success { finish(log: log, error: true); return }
+
+            // Push
+            if doPush {
+                let pushR = await gitService.push(in: repo)
+                append(pushR, label: "git push")
+                if !pushR.success { finish(log: log, error: true); return }
+            }
+
+            finish(log: log, error: false)
+        }
+    }
+
+    private func finish(log: String, error: Bool) {
+        gitLog = log
+        gitHadError = error
+        gitDone = !error
+        isGitRunning = false
+    }
+
     private func loadInitialDirectory() {
         // Prefer the working directory of the current chat tab
         let chatWd = state.chatTabs.indices.contains(state.selectedChatTabIndex)
@@ -501,6 +804,14 @@ struct FileExplorerView: View {
     }
 
     private func selectNode(_ node: ExplorerNode) {
+        // Guard unsaved changes
+        if isDirty, selectedNode?.id != node.id {
+            pendingNode = node
+            showUnsavedAlert = true
+            return
+        }
+        isEditing = false
+        isDirty = false
         selectedNode = node
         previewText = nil
 
@@ -511,14 +822,11 @@ struct FileExplorerView: View {
         } else if node.isTextFile {
             isLoadingPreview = true
             Task.detached(priority: .userInitiated) {
+                // Load full file (bounded by isTextFile check: < 500 KB)
                 let text = (try? String(contentsOf: node.url, encoding: .utf8))
                     ?? (try? String(contentsOf: node.url, encoding: .isoLatin1))
-                let preview = text.map { t -> String in
-                    let lines = t.components(separatedBy: "\n")
-                    return lines.prefix(500).joined(separator: "\n")
-                }
                 await MainActor.run {
-                    previewText = preview
+                    previewText = text
                     isLoadingPreview = false
                 }
             }

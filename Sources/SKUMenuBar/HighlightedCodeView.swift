@@ -47,8 +47,25 @@ struct HighlightedCodeView: NSViewRepresentable {
     let isDark: Bool
     /// When true the view fills its container without a scroll view (for inline code blocks).
     var scrollable: Bool = true
+    /// When true the text view is editable.
+    var isEditable: Bool = false
+    /// Called whenever the user changes the text (only when isEditable = true).
+    var onTextChange: ((String) -> Void)? = nil
 
     private static let highlightr: Highlightr? = Highlightr()
+
+    // MARK: Coordinator
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var onTextChange: ((String) -> Void)?
+        init(onTextChange: ((String) -> Void)?) { self.onTextChange = onTextChange }
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            onTextChange?(tv.string)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onTextChange: onTextChange) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -71,6 +88,7 @@ struct HighlightedCodeView: NSViewRepresentable {
         textView.textContainer?.containerSize = CGSize(width: CGFloat.greatestFiniteMagnitude,
                                                         height: CGFloat.greatestFiniteMagnitude)
         textView.textContainerInset = NSSize(width: 12, height: 12)
+        textView.delegate = context.coordinator
 
         scrollView.documentView = textView
         return scrollView
@@ -78,6 +96,13 @@ struct HighlightedCodeView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        // Update coordinator callback in case it changed
+        context.coordinator.onTextChange = onTextChange
+        // Don't overwrite what the user is currently typing
+        if textView.string == code {
+            textView.isEditable = isEditable
+            return
+        }
 
         let theme = isDark ? "atom-one-dark" : "xcode"
         let highlightr = Self.highlightr
@@ -119,5 +144,6 @@ struct HighlightedCodeView: NSViewRepresentable {
         textView.backgroundColor = bg
         scrollView.backgroundColor = bg
         scrollView.contentView.backgroundColor = bg
+        textView.isEditable = isEditable
     }
 }
