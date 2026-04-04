@@ -333,24 +333,20 @@ struct SidebarView: View {
     // MARK: - Footer
 
     private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                if let t = state.lastUpdate {
-                    Image(systemName: "clock").font(.system(size: 9))
-                    Text(t.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10))
-                } else {
-                    Text("Nicht geladen").font(.system(size: 10))
-                }
+        HStack(spacing: 6) {
+            if let t = state.lastUpdate {
+                Image(systemName: "clock").font(.system(size: 9))
+                Text(t.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: 10))
+            } else {
+                Text("Nicht geladen").font(.system(size: 10))
             }
-            Text(BuildInfo.label)
+            Spacer()
+            Text(BuildInfo.commitHash)
                 .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(theme.tertiaryText.opacity(0.55))
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .foregroundStyle(theme.tertiaryText.opacity(0.5))
         }
         .foregroundStyle(theme.tertiaryText)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
