@@ -37,21 +37,26 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         ZStack {
-            // ChatView bleibt immer im View-Baum, damit Tabs & Nachrichten erhalten bleiben
+            // ChatView und FileExplorerView bleiben immer im View-Baum (State-Erhalt)
             ChatView()
                 .opacity(selectedSection == .chat ? 1 : 0)
                 .allowsHitTesting(selectedSection == .chat)
                 .accessibilityHidden(selectedSection != .chat)
 
+            FileExplorerView()
+                .opacity(selectedSection == .files ? 1 : 0)
+                .allowsHitTesting(selectedSection == .files)
+                .accessibilityHidden(selectedSection != .files)
+
             // Alle anderen Sections werden normal gerendert
             switch selectedSection {
             case .chat:       EmptyView()
+            case .files:      EmptyView()
             case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
             case .mcp:        MCPView()
             case .codeReview: CodeReviewView()
-            case .files:      FileExplorerView()
             case .notes:      NotesView(lockedType: .note)
             case .tasks:      NotesView(lockedType: .task)
             case .settings:   SettingsFormView().padding(20)

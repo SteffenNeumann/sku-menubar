@@ -145,6 +145,10 @@ struct FileExplorerView: View {
     // Live preview
     @State private var showLivePreview: Bool = false
     @State private var livePreviewPanelWidth: CGFloat = 480
+    /// Line hovered in the code editor → highlight element in preview (blue)
+    @State private var editorHoveredLine: Int? = nil
+    /// Line sent back from preview hover → highlight in editor (orange)
+    @State private var previewHoveredLine: Int? = nil
 
     // Panel visibility (focus mode)
     @State private var showFileTree: Bool = true
@@ -155,6 +159,7 @@ struct FileExplorerView: View {
     @State private var isDirty: Bool = false
     @State private var showUnsavedAlert: Bool = false
     @State private var pendingNode: ExplorerNode? = nil
+    @State private var showSaveToast: Bool = false
 
     // Commit sheet
     @State private var showCommitSheet: Bool = false
@@ -192,29 +197,40 @@ struct FileExplorerView: View {
                 .transition(.move(edge: .leading))
 
                 // Draggable divider
-                Rectangle()
-                    .fill(theme.cardBorder.opacity(0.6))
-                    .frame(width: 1)
-                    .background(
-                        Color.clear
-                            .frame(width: 8)
-                            .contentShape(Rectangle())
-                            .onHover { inside in
-                                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                            }
-                            .gesture(
-                                DragGesture(minimumDistance: 1)
-                                    .onChanged { value in
-                                        let newWidth = treePanelWidth + value.translation.width
-                                        treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
-                                    }
-                            )
-                    )
+                PanelResizeHandle(width: $treePanelWidth, minWidth: treePanelMinWidth, maxWidth: treePanelMaxWidth, growsRight: true)
+                    .frame(width: 10)
             }
 
             // Right: preview / info panel
             previewPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if showSaveToast {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Gespeichert")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(duration: 0.25), value: showSaveToast)
+                .background {
+                    // Hidden Cmd+S button — active only while editing
+                    if isEditing, let node = selectedNode {
+                        Button("") { quickSaveFile(node: node) }
+                            .keyboardShortcut("s", modifiers: .command)
+                            .frame(width: 0, height: 0)
+                            .opacity(0)
+                    }
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.windowBg)
@@ -677,7 +693,9 @@ struct FileExplorerView: View {
                 onTextChange: { newText in
                     editText = newText
                     isDirty = true
-                }
+                },
+                onHoverLine: { line in editorHoveredLine = line },
+                hoveredLine: previewHoveredLine
             )
             .frame(minWidth: 200, idealWidth: livePreviewPanelWidth, maxWidth: livePreviewPanelWidth, maxHeight: .infinity)
 
@@ -732,7 +750,9 @@ struct FileExplorerView: View {
                 WebPreviewView(
                     htmlContent: htmlContent,
                     sourceURL: node.url,
-                    accessRoot: URL(fileURLWithPath: rootPath)
+                    accessRoot: URL(fileURLWithPath: rootPath),
+                    highlightLine: editorHoveredLine,
+                    onPreviewHover: { line in previewHoveredLine = line }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -777,6 +797,18 @@ struct FileExplorerView: View {
                     self.gitPRURL = prURL
                 }
             }
+        } catch {
+            errorMsg = error.localizedDescription
+        }
+    }
+
+    private func quickSaveFile(node: ExplorerNode) {
+        do {
+            try editText.write(to: node.url, atomically: true, encoding: .utf8)
+            previewText = editText
+            isDirty = false
+            showSaveToast = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { showSaveToast = false }
         } catch {
             errorMsg = error.localizedDescription
         }
@@ -1276,11 +1308,87 @@ struct WebPreviewView: NSViewRepresentable {
     let sourceURL: URL
     /// Root of the project — WKWebView gets read access to this entire tree
     let accessRoot: URL
+    /// Line hovered in the code editor — the matching element is outlined blue in the preview.
+    var highlightLine: Int? = nil
+    /// Called when the mouse hovers an element in the preview (line number, nil = left).
+    var onPreviewHover: ((Int?) -> Void)? = nil
 
     private static let tmpFileName = ".myClaude_livepreview.html"
 
+    // Injected at documentEnd — adds hover outlines and the __highlightEditorLine bridge.
+    private static let hoverScript = """
+    (function() {
+        var hovered = null;
+        var editorMark = null;
+        document.addEventListener('mouseover', function(e) {
+            if (hovered) { hovered.style.outline = hovered.__prevOutline || ''; }
+            hovered = e.target;
+            hovered.__prevOutline = hovered.style.outline || '';
+            hovered.style.outline = '2px solid rgba(0,120,255,0.55)';
+            var node = hovered;
+            while (node && node.nodeType === 1) {
+                var line = node.getAttribute('data-source-line');
+                if (line) { window.webkit.messageHandlers.previewHover.postMessage(parseInt(line)); return; }
+                node = node.parentElement;
+            }
+        }, true);
+        document.addEventListener('mouseout', function(e) {
+            if (e.relatedTarget === null) {
+                if (hovered) { hovered.style.outline = hovered.__prevOutline || ''; hovered = null; }
+                window.webkit.messageHandlers.previewHover.postMessage(0);
+            }
+        }, true);
+        window.__highlightEditorLine = function(lineNum) {
+            if (editorMark) { editorMark.style.outline = editorMark.__editorPrev || ''; editorMark = null; }
+            if (lineNum <= 0) return;
+            var el = document.querySelector('[data-source-line="' + lineNum + '"]');
+            if (!el) {
+                for (var n = lineNum - 1; n >= 1 && !el; n--) {
+                    el = document.querySelector('[data-source-line="' + n + '"]');
+                }
+            }
+            if (el) {
+                editorMark = el;
+                editorMark.__editorPrev = el.style.outline || '';
+                el.style.outline = '2px solid rgba(255,140,0,0.75)';
+                el.scrollIntoView({behavior:'smooth', block:'nearest'});
+            }
+        };
+    })();
+    """
+
+    // Weak wrapper to break WKUserContentController → Coordinator retain cycle.
+    private final class WeakMsgHandler: NSObject, WKScriptMessageHandler {
+        weak var coordinator: Coordinator?
+        func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+            coordinator?.userContentController(ucc, didReceive: message)
+        }
+    }
+
+    final class Coordinator: NSObject, WKScriptMessageHandler {
+        var onPreviewHover: ((Int?) -> Void)?
+        var lastContent: String = ""
+        var lastHighlightLine: Int? = nil
+
+        func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "previewHover" else { return }
+            let line = message.body as? Int ?? 0
+            DispatchQueue.main.async { self.onPreviewHover?(line > 0 ? line : nil) }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero)
+        let config = WKWebViewConfiguration()
+        let weakHandler = WeakMsgHandler()
+        weakHandler.coordinator = context.coordinator
+        config.userContentController.add(weakHandler, name: "previewHover")
+        let script = WKUserScript(source: Self.hoverScript,
+                                  injectionTime: .atDocumentEnd,
+                                  forMainFrameOnly: false)
+        config.userContentController.addUserScript(script)
+        let webView = WKWebView(frame: .zero, configuration: config)
         if #available(macOS 14.0, *) {
             webView.underPageBackgroundColor = .clear
         }
@@ -1288,16 +1396,51 @@ struct WebPreviewView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let dir = sourceURL.deletingLastPathComponent()
-        let tmpURL = dir.appendingPathComponent(Self.tmpFileName)
-        do {
-            try htmlContent.write(to: tmpURL, atomically: true, encoding: .utf8)
-            // allowingReadAccessTo: accessRoot gives read access to the whole project tree,
-            // so images/CSS/JS anywhere under the project root resolve correctly.
-            webView.loadFileURL(tmpURL, allowingReadAccessTo: accessRoot)
-        } catch {
-            webView.loadHTMLString(htmlContent, baseURL: dir)
+        context.coordinator.onPreviewHover = onPreviewHover
+
+        // Preprocess HTML to tag each element with its source line number.
+        let processed = injectSourceLineAttributes(htmlContent)
+        if processed != context.coordinator.lastContent {
+            context.coordinator.lastContent = processed
+            context.coordinator.lastHighlightLine = nil
+            let dir = sourceURL.deletingLastPathComponent()
+            let tmpURL = dir.appendingPathComponent(Self.tmpFileName)
+            do {
+                try processed.write(to: tmpURL, atomically: true, encoding: .utf8)
+                webView.loadFileURL(tmpURL, allowingReadAccessTo: accessRoot)
+            } catch {
+                webView.loadHTMLString(processed, baseURL: dir)
+            }
         }
+
+        // Drive editor→preview highlight via JS (only when value changed).
+        let line = highlightLine ?? 0
+        if line != (context.coordinator.lastHighlightLine ?? -999) {
+            context.coordinator.lastHighlightLine = highlightLine
+            webView.evaluateJavaScript("if(window.__highlightEditorLine)window.__highlightEditorLine(\(line));",
+                                       completionHandler: nil)
+        }
+    }
+
+    /// Adds data-source-line="N" to every opening HTML tag so the JS can map
+    /// elements back to source lines.
+    private func injectSourceLineAttributes(_ html: String) -> String {
+        let lines = html.components(separatedBy: "\n")
+        var result = [String]()
+        result.reserveCapacity(lines.count)
+        for (i, line) in lines.enumerated() {
+            let n = i + 1
+            // Inject into opening tags that don't already carry the attribute.
+            // Pattern: <tagname optionalAttrs> or <tagname optionalAttrs/>
+            // We skip DOCTYPE, comments (<!--), processing instructions (<?).
+            let modified = line.replacingOccurrences(
+                of: #"<([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?(/?>\s*)"#,
+                with: "<$1 data-source-line=\"\(n)\"$2$3",
+                options: .regularExpression
+            )
+            result.append(modified)
+        }
+        return result.joined(separator: "\n")
     }
 }
 

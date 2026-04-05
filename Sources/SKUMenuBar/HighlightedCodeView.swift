@@ -44,8 +44,74 @@ private func detectLanguage(for url: URL) -> String? {
 final class CodeTextView: NSTextView {
     var isDark: Bool = true
 
+    /// Called when the mouse hovers a different line (nil = mouse left).
+    var onHoverLine: ((Int?) -> Void)?
+    /// Line number highlighted by the live preview (orange tint).
+    var hoveredLine: Int? { didSet { if hoveredLine != oldValue { needsDisplay = true } } }
+
+    private var _lastHoveredLine: Int? = nil
+
     // Width of the line-number gutter (left of the text area).
     static let gutterWidth: CGFloat = 48
+
+    // MARK: Mouse tracking
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let line = lineAt(event: event)
+        if line != _lastHoveredLine {
+            _lastHoveredLine = line
+            onHoverLine?(line)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if _lastHoveredLine != nil {
+            _lastHoveredLine = nil
+            onHoverLine?(nil)
+        }
+    }
+
+    // MARK: Plain-text paste
+
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        guard let plain = pb.string(forType: .string) else { return }
+        let range = selectedRange()
+        if shouldChangeText(in: range, replacementString: plain) {
+            textStorage?.replaceCharacters(in: range, with: plain)
+            didChangeText()
+        }
+    }
+
+    private func lineAt(event: NSEvent) -> Int? {
+        guard let lm = layoutManager, let tc = textContainer else { return nil }
+        let pt = convert(event.locationInWindow, from: nil)
+        let textPt = NSPoint(x: pt.x - textContainerOrigin.x,
+                             y: pt.y - textContainerOrigin.y)
+        var frac: CGFloat = 0
+        let charIdx = lm.characterIndex(for: textPt, in: tc,
+                                        fractionOfDistanceBetweenInsertionPoints: &frac)
+        if charIdx >= string.count { return nil }
+        var line = 1
+        (string as NSString).enumerateSubstrings(
+            in: NSRange(location: 0, length: charIdx),
+            options: [.byLines, .substringNotRequired]
+        ) { _, _, _, _ in line += 1 }
+        return line
+    }
 
     // MARK: drawBackground
 
@@ -55,6 +121,9 @@ final class CodeTextView: NSTextView {
 
         // 2. Draw current-line highlight (full width so it shows under gutter too).
         drawCurrentLineHighlight(in: rect)
+
+        // 2b. Draw preview-hover line highlight.
+        drawHoveredLineHighlight(in: rect)
 
         // 3. Draw gutter background (solid, on top of highlight in gutter area).
         let gutterRect = NSRect(x: bounds.minX, y: rect.minY,
@@ -79,6 +148,41 @@ final class CodeTextView: NSTextView {
     }
 
     // MARK: Private helpers
+
+    /// Draws an orange glow on the line that the live preview is currently hovering.
+    private func drawHoveredLineHighlight(in rect: NSRect) {
+        guard let targetLine = hoveredLine,
+              let lm = layoutManager,
+              let tc = textContainer,
+              lm.numberOfGlyphs > 0,
+              !string.isEmpty else { return }
+
+        // Find the char range of the target line.
+        var currentLine = 1
+        var targetRange: NSRange? = nil
+        (string as NSString).enumerateSubstrings(
+            in: NSRange(location: 0, length: (string as NSString).length),
+            options: [.byLines, .substringNotRequired]
+        ) { _, _, enclosing, stop in
+            if currentLine == targetLine { targetRange = enclosing; stop.pointee = true }
+            currentLine += 1
+        }
+        guard let charRange = targetRange, charRange.length > 0 else { return }
+
+        let glyphRange = lm.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        var lineRect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
+        lineRect.origin.y += textContainerInset.height
+        lineRect.origin.x  = bounds.minX
+        lineRect.size.width = max(bounds.width, lineRect.maxX)
+
+        guard lineRect.intersects(rect) else { return }
+
+        let color: NSColor = isDark
+            ? NSColor(red: 1.0, green: 0.55, blue: 0.0, alpha: 0.14)
+            : NSColor(red: 1.0, green: 0.55, blue: 0.0, alpha: 0.11)
+        color.setFill()
+        lineRect.fill()
+    }
 
     private func drawCurrentLineHighlight(in rect: NSRect) {
         guard let lm = layoutManager,
@@ -137,7 +241,7 @@ final class CodeTextView: NSTextView {
         charRange.length = min(charRange.length, maxLen - charRange.location)
 
         text.enumerateSubstrings(in: charRange, options: [.byLines, .substringNotRequired]) { [weak self] _, _, enclosing, stop in
-            guard let self = self else { stop.pointee = true; return }
+            guard self != nil else { stop.pointee = true; return }
 
             let gi  = lm.glyphIndexForCharacter(at: enclosing.location)
             var lfr = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
@@ -170,6 +274,10 @@ struct HighlightedCodeView: NSViewRepresentable {
     var isEditable: Bool = false
     /// Called whenever the user changes the text (only when isEditable = true).
     var onTextChange: ((String) -> Void)? = nil
+    /// Called when the mouse hovers over a different line (nil = mouse left view).
+    var onHoverLine: ((Int?) -> Void)? = nil
+    /// Line to highlight (orange) — driven by live preview hover.
+    var hoveredLine: Int? = nil
 
     private static let highlightr: Highlightr? = {
         let bundleInApp = Bundle.main.bundleURL
@@ -187,7 +295,11 @@ struct HighlightedCodeView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onTextChange: ((String) -> Void)?
-        init(onTextChange: ((String) -> Void)?) { self.onTextChange = onTextChange }
+        var onHoverLine: ((Int?) -> Void)?
+        init(onTextChange: ((String) -> Void)?, onHoverLine: ((Int?) -> Void)?) {
+            self.onTextChange = onTextChange
+            self.onHoverLine = onHoverLine
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
@@ -200,7 +312,7 @@ struct HighlightedCodeView: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onTextChange: onTextChange) }
+    func makeCoordinator() -> Coordinator { Coordinator(onTextChange: onTextChange, onHoverLine: onHoverLine) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -214,6 +326,7 @@ struct HighlightedCodeView: NSViewRepresentable {
         textView.isDark           = isDark
         textView.isEditable       = false
         textView.isSelectable     = true
+        textView.allowsUndo       = true
         textView.backgroundColor  = .clear
         textView.drawsBackground  = true   // must be true so drawBackground is called
         textView.isRichText       = true
@@ -226,6 +339,8 @@ struct HighlightedCodeView: NSViewRepresentable {
         // Left inset = gutter width + code margin; top/bottom = comfortable padding.
         textView.textContainerInset = NSSize(width: CodeTextView.gutterWidth + 10, height: 14)
         textView.delegate = context.coordinator
+        let coordinator = context.coordinator
+        textView.onHoverLine = { line in coordinator.onHoverLine?(line) }
 
         scrollView.documentView = textView
         return scrollView
@@ -234,6 +349,9 @@ struct HighlightedCodeView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? CodeTextView else { return }
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onHoverLine = onHoverLine
+        textView.onHoverLine = { line in context.coordinator.onHoverLine?(line) }
+        textView.hoveredLine = hoveredLine
 
         // Always keep isDark in sync.
         textView.isDark = isDark
@@ -273,6 +391,7 @@ struct HighlightedCodeView: NSViewRepresentable {
             )
             textView.textStorage?.setAttributedString(plain)
         }
+        textView.undoManager?.removeAllActions()
 
         // Slightly darker background for better contrast vs the tree panel.
         let bg: NSColor = isDark

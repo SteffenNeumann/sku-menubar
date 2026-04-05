@@ -261,6 +261,49 @@ struct SingleChatSessionView: View {
 
                 // Center: Chat area
                 VStack(spacing: 0) {
+                    // Header strip with panel toggles (right-aligned)
+                    HStack(spacing: 2) {
+                        Spacer()
+                        Button {
+                            withAnimation { state.hideSidebar.toggle() }
+                        } label: {
+                            Image(systemName: "sidebar.squares.left")
+                                .font(.system(size: 11))
+                                .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                                .frame(width: 26, height: 26)
+                        }
+                        .buttonStyle(.plain)
+                        .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
+
+                        Button {
+                            withAnimation(.spring(response: 0.3)) { showFilePanel.toggle() }
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                                .font(.system(size: 11))
+                                .foregroundStyle(showFilePanel ? accentColor : theme.secondaryText)
+                                .frame(width: 26, height: 26)
+                        }
+                        .buttonStyle(.plain)
+                        .help(showFilePanel ? "File Explorer schließen" : "File Explorer öffnen")
+
+                        if activeDiff != nil {
+                            Button {
+                                withAnimation(.spring(response: 0.3)) { activeDiff = nil }
+                            } label: {
+                                Image(systemName: "sidebar.right")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(accentColor)
+                                    .frame(width: 26, height: 26)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Diff-Panel schließen")
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(height: 32)
+                    .background(theme.windowBg)
+                    .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .bottom)
+
                     if messages.isEmpty {
                         emptyState.onTapGesture { closeAllPickers() }
                     } else {
@@ -271,7 +314,7 @@ struct SingleChatSessionView: View {
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
                         })
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
                 // Right: Diff side panel (resizable)
@@ -686,7 +729,16 @@ struct SingleChatSessionView: View {
 
     // Minimal icon row at the very bottom of the input card
     private var controlStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 0) {
+            // App sidebar toggle
+            stripButton(icon: state.hideSidebar ? "sidebar.squares.left" : "sidebar.squares.left",
+                        active: !state.hideSidebar, help: state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden") {
+                withAnimation { state.hideSidebar.toggle() }
+            }
+
+            stripSep
+
             // File panel toggle
             stripButton(icon: "sidebar.left", active: showFilePanel, help: "File Explorer") {
                 withAnimation(.spring(response: 0.3)) { showFilePanel.toggle() }
@@ -873,6 +925,7 @@ struct SingleChatSessionView: View {
             }
         }
         .padding(.horizontal, 8)
+        } // ScrollView
         .padding(.bottom, 6)
     }
 
@@ -1598,10 +1651,9 @@ class ResizeDragNSView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let coord = coordinator else { return }
-        // deltaX: positive = moved right
         let raw = coord.growsRight ? event.deltaX : -event.deltaX
         let newW = max(coord.minWidth, min(coord.maxWidth, coord.width.wrappedValue + raw))
-        DispatchQueue.main.async { coord.width.wrappedValue = newW }
+        coord.width.wrappedValue = newW
     }
 
     override func draw(_ dirtyRect: NSRect) {
