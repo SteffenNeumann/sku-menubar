@@ -27,6 +27,9 @@ struct MainWindowView: View {
                 selectedSection = .chat
             }
         }
+        .onChange(of: state.hideSidebar) { _, hidden in
+            withAnimation { columnVisibility = hidden ? .detailOnly : .all }
+        }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .background(WindowConfigurator().frame(width: 0, height: 0))
     }

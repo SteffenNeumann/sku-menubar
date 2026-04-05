@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 // MARK: - File Node Model
 
@@ -60,6 +61,10 @@ final class ExplorerNode: Identifiable, ObservableObject {
     var fileExtension: String { url.pathExtension.lowercased() }
 
     var isPDF: Bool { fileExtension == "pdf" }
+
+    var isWebPreviewable: Bool {
+        ["html", "htm", "svg"].contains(fileExtension)
+    }
 
     var isTextFile: Bool {
         let binaryExtensions: Set<String> = [
@@ -137,6 +142,13 @@ struct FileExplorerView: View {
     @State private var newItemIsDir: Bool = false
     @State private var errorMsg: String? = nil
 
+    // Live preview
+    @State private var showLivePreview: Bool = false
+    @State private var livePreviewPanelWidth: CGFloat = 480
+
+    // Panel visibility (focus mode)
+    @State private var showFileTree: Bool = true
+
     // Edit mode
     @State private var isEditing: Bool = false
     @State private var editText: String = ""
@@ -168,34 +180,37 @@ struct FileExplorerView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: tree panel
-            VStack(spacing: 0) {
-                toolbar
-                Divider().foregroundStyle(theme.cardBorder)
-                treePanel
-            }
-            .frame(width: treePanelWidth)
-            .background(theme.windowBg)
+            // Left: tree panel (collapsible)
+            if showFileTree {
+                VStack(spacing: 0) {
+                    toolbar
+                    Divider().foregroundStyle(theme.cardBorder)
+                    treePanel
+                }
+                .frame(width: treePanelWidth)
+                .background(theme.windowBg)
+                .transition(.move(edge: .leading))
 
-            // Draggable divider
-            Rectangle()
-                .fill(theme.cardBorder.opacity(0.6))
-                .frame(width: 1)
-                .background(
-                    Color.clear
-                        .frame(width: 8)
-                        .contentShape(Rectangle())
-                        .onHover { inside in
-                            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                        }
-                        .gesture(
-                            DragGesture(minimumDistance: 1)
-                                .onChanged { value in
-                                    let newWidth = treePanelWidth + value.translation.width
-                                    treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
-                                }
-                        )
-                )
+                // Draggable divider
+                Rectangle()
+                    .fill(theme.cardBorder.opacity(0.6))
+                    .frame(width: 1)
+                    .background(
+                        Color.clear
+                            .frame(width: 8)
+                            .contentShape(Rectangle())
+                            .onHover { inside in
+                                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                            }
+                            .gesture(
+                                DragGesture(minimumDistance: 1)
+                                    .onChanged { value in
+                                        let newWidth = treePanelWidth + value.translation.width
+                                        treePanelWidth = max(treePanelMinWidth, min(treePanelMaxWidth, newWidth))
+                                    }
+                            )
+                    )
+            }
 
             // Right: preview / info panel
             previewPanel
@@ -404,6 +419,25 @@ struct FileExplorerView: View {
                         Spacer()
                         // Action buttons
                         HStack(spacing: 6) {
+                            if !node.isDirectory && node.isWebPreviewable {
+                                Button {
+                                    showLivePreview.toggle()
+                                } label: {
+                                    Label("Live Preview", systemImage: showLivePreview ? "eye.fill" : "eye")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(showLivePreview ? accentColor : theme.secondaryText)
+                                        .padding(.horizontal, 7).padding(.vertical, 3)
+                                        .background(
+                                            showLivePreview ? accentColor.opacity(0.12) : Color.clear,
+                                            in: RoundedRectangle(cornerRadius: 5)
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .strokeBorder(showLivePreview ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
                             if !node.isDirectory && node.isTextFile {
                                 if isEditing {
                                     Button {
@@ -468,6 +502,29 @@ struct FileExplorerView: View {
                                     .foregroundStyle(theme.secondaryText)
                             }
                             .buttonStyle(.plain)
+
+                            Divider().frame(height: 14)
+
+                            // Focus mode toggles
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
+                            } label: {
+                                Image(systemName: showFileTree ? "sidebar.left" : "sidebar.left")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
+                                    .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
+                            } label: {
+                                Image(systemName: state.hideSidebar ? "sidebar.squares.left" : "sidebar.squares.left")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                                    .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
@@ -497,7 +554,9 @@ struct FileExplorerView: View {
                     } else if isLoadingPreview {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let text = previewText {
-                        if isEditing {
+                        if showLivePreview && node.isWebPreviewable {
+                            livePreviewSplitView(node: node, text: text)
+                        } else if isEditing {
                             HighlightedCodeView(
                                 code: editText,
                                 fileURL: node.url,
@@ -595,6 +654,91 @@ struct FileExplorerView: View {
             }
             .padding(.vertical, 4)
         }
+    }
+
+    // MARK: - Live Preview Split View
+
+    private func livePreviewSplitView(node: ExplorerNode, text: String) -> some View {
+        let liveCode = isEditing ? editText : text
+        let htmlContent: String = {
+            if node.fileExtension == "svg" {
+                return "<!DOCTYPE html><html><body style='margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;'>\(liveCode)</body></html>"
+            }
+            return liveCode
+        }()
+
+        return HStack(spacing: 0) {
+            // Code editor
+            HighlightedCodeView(
+                code: isEditing ? editText : text,
+                fileURL: node.url,
+                isDark: !theme.isLight,
+                isEditable: isEditing,
+                onTextChange: { newText in
+                    editText = newText
+                    isDirty = true
+                }
+            )
+            .frame(minWidth: 200, idealWidth: livePreviewPanelWidth, maxWidth: livePreviewPanelWidth, maxHeight: .infinity)
+
+            // Draggable divider (editor | preview)
+            ResizeDividerHandle(onDrag: { delta in
+                livePreviewPanelWidth = max(200, min(1400, livePreviewPanelWidth + delta))
+            })
+            .frame(width: 8)
+
+            // Live web preview
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 10))
+                        .foregroundStyle(accentColor)
+                    Text("Live Preview")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                    Spacer()
+                    if isEditing && isDirty {
+                        HStack(spacing: 4) {
+                            Circle().fill(.orange).frame(width: 6, height: 6)
+                            Text("Ungespeichert")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+                    Button {
+                        // Open in default browser
+                        if isEditing && isDirty {
+                            // Write temp file and open
+                            let tmp = FileManager.default.temporaryDirectory
+                                .appendingPathComponent(node.name)
+                            try? editText.write(to: tmp, atomically: true, encoding: .utf8)
+                            NSWorkspace.shared.open(tmp)
+                        } else {
+                            NSWorkspace.shared.open(node.url)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Im Browser öffnen")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(theme.cardSurface)
+
+                Divider()
+
+                WebPreviewView(
+                    htmlContent: htmlContent,
+                    sourceURL: node.url,
+                    accessRoot: URL(fileURLWithPath: rootPath)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Actions
@@ -888,6 +1032,7 @@ struct FileExplorerView: View {
         }
         isEditing = false
         isDirty = false
+        showLivePreview = false
         selectedNode = node
         // Don't nil previewText here — keep old content visible until new one loads
 
@@ -1121,4 +1266,105 @@ struct ExplorerTreeRow: View {
         .buttonStyle(.plain)
         .help(help)
     }
+}
+
+// MARK: - Web Preview View
+
+struct WebPreviewView: NSViewRepresentable {
+    let htmlContent: String
+    /// The original source file URL (temp preview file is written next to it)
+    let sourceURL: URL
+    /// Root of the project — WKWebView gets read access to this entire tree
+    let accessRoot: URL
+
+    private static let tmpFileName = ".myClaude_livepreview.html"
+
+    func makeNSView(context: Context) -> WKWebView {
+        let webView = WKWebView(frame: .zero)
+        if #available(macOS 14.0, *) {
+            webView.underPageBackgroundColor = .clear
+        }
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let dir = sourceURL.deletingLastPathComponent()
+        let tmpURL = dir.appendingPathComponent(Self.tmpFileName)
+        do {
+            try htmlContent.write(to: tmpURL, atomically: true, encoding: .utf8)
+            // allowingReadAccessTo: accessRoot gives read access to the whole project tree,
+            // so images/CSS/JS anywhere under the project root resolve correctly.
+            webView.loadFileURL(tmpURL, allowingReadAccessTo: accessRoot)
+        } catch {
+            webView.loadHTMLString(htmlContent, baseURL: dir)
+        }
+    }
+}
+
+// MARK: - Resize Divider Handle (NSViewRepresentable for reliable cursor)
+
+struct ResizeDividerHandle: NSViewRepresentable {
+    let onDrag: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> _ResizeDividerNSView {
+        _ResizeDividerNSView(onDrag: onDrag)
+    }
+
+    func updateNSView(_ nsView: _ResizeDividerNSView, context: Context) {
+        nsView.onDrag = onDrag
+    }
+}
+
+final class _ResizeDividerNSView: NSView {
+    var onDrag: (CGFloat) -> Void
+    private var lastX: CGFloat = 0
+
+    init(onDrag: @escaping (CGFloat) -> Void) {
+        self.onDrag = onDrag
+        super.init(frame: .zero)
+        self.wantsLayer = true
+        self.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        // Draw a single 1px separator line in the center of the hit area
+        let midX = floor(bounds.midX) + 0.5
+        let line = NSBezierPath()
+        line.move(to: NSPoint(x: midX, y: bounds.minY))
+        line.line(to: NSPoint(x: midX, y: bounds.maxY))
+        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
+        line.lineWidth = 1
+        line.stroke()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) { NSCursor.resizeLeftRight.set() }
+    override func mouseExited(with event: NSEvent)  { NSCursor.arrow.set() }
+
+    override func mouseDown(with event: NSEvent) {
+        lastX = event.locationInWindow.x
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentX = event.locationInWindow.x
+        let delta = currentX - lastX
+        lastX = currentX
+        DispatchQueue.main.async { self.onDrag(delta) }
+    }
+
+    override func mouseUp(with event: NSEvent) {}
+
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

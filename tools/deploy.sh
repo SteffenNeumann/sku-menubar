@@ -13,6 +13,7 @@ BUNDLE="$REPO_ROOT/.build/arm64-apple-macosx/debug/Highlightr_Highlightr.bundle"
 
 echo "🔨 Building..."
 cd "$REPO_ROOT"
+bash "$SCRIPT_DIR/gen-buildinfo.sh"
 swift build
 
 echo "🛑 Stopping running instance..."

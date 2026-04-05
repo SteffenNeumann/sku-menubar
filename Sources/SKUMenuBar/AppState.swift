@@ -54,6 +54,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
     @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
+    @Published var hideSidebar: Bool = false               // hide the main navigation sidebar
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
