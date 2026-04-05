@@ -314,7 +314,7 @@ struct SingleChatSessionView: View {
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
                         })
                 }
-                .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
                 // Right: Diff side panel (resizable)
@@ -378,6 +378,7 @@ struct SingleChatSessionView: View {
             newSession()
             workingDirectory = path
             tab.title = URL(fileURLWithPath: path).lastPathComponent
+            withAnimation(.spring(response: 0.3)) { showFilePanel = true }
         }
         // Save inputText and sync messages when switching away from this tab (opacity approach
         // keeps views alive, so onDisappear won't fire on tab switch)
@@ -729,23 +730,7 @@ struct SingleChatSessionView: View {
 
     // Minimal icon row at the very bottom of the input card
     private var controlStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 0) {
-            // App sidebar toggle
-            stripButton(icon: state.hideSidebar ? "sidebar.squares.left" : "sidebar.squares.left",
-                        active: !state.hideSidebar, help: state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden") {
-                withAnimation { state.hideSidebar.toggle() }
-            }
-
-            stripSep
-
-            // File panel toggle
-            stripButton(icon: "sidebar.left", active: showFilePanel, help: "File Explorer") {
-                withAnimation(.spring(response: 0.3)) { showFilePanel.toggle() }
-            }
-
-            stripSep
-
             // Attach file
             stripButton(icon: "paperclip", active: false, help: "Datei anhängen") {
                 openFilePicker()
@@ -925,7 +910,6 @@ struct SingleChatSessionView: View {
             }
         }
         .padding(.horizontal, 8)
-        } // ScrollView
         .padding(.bottom, 6)
     }
 

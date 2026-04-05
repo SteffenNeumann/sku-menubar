@@ -33,6 +33,7 @@ private func detectLanguage(for url: URL) -> String? {
     case "md":                           return "markdown"
     case "dockerfile":                   return "dockerfile"
     case "makefile":                     return "makefile"
+    case "bas", "cls", "frm", "vba", "vbs": return "vbscript"
     default:                             return nil
     }
 }

@@ -47,11 +47,19 @@ final class ChatHistoryService: ObservableObject {
             let sessions = entries
                 .sorted { $0.ts > $1.ts }
                 .map { e in
-                    HistorySession(
+                    // Use firstUserMessage as preview if history.jsonl shows a slash-command or empty
+                    let rawPreview = e.preview
+                    let preview: String
+                    if rawPreview.isEmpty || rawPreview.hasPrefix("/") || rawPreview.hasPrefix("[Image") {
+                        preview = firstUserMessage(sessionId: e.session, projectPath: path) ?? rawPreview
+                    } else {
+                        preview = rawPreview
+                    }
+                    return HistorySession(
                         id: "\(path)/\(e.session)",
                         sessionId: e.session,
                         projectPath: path,
-                        preview: e.preview,
+                        preview: preview,
                         timestamp: e.ts,
                         messageCount: 0
                     )
@@ -117,6 +125,21 @@ final class ChatHistoryService: ObservableObject {
                 }
             }
 
+            // Skip messages with no visible content (e.g. pure system-tag injections like /clear)
+            guard !content.isEmpty || !toolCalls.isEmpty else { continue }
+
+            // Merge consecutive pure-tool-call assistant messages into the next one
+            // so all tool calls for one turn appear in a single bubble
+            if role == .assistant, content.isEmpty, !toolCalls.isEmpty,
+               let lastIdx = messages.indices.last,
+               messages[lastIdx].role == .assistant {
+                messages[lastIdx].toolCalls.append(contentsOf: toolCalls)
+                messages[lastIdx].inputTokens += inputT
+                messages[lastIdx].outputTokens += outputT
+                messages[lastIdx].cacheTokens += cacheT
+                continue
+            }
+
             messages.append(HistoryMessage(
                 id: uuid,
                 parentId: raw.parentUuid,
@@ -138,5 +161,43 @@ final class ChatHistoryService: ObservableObject {
     private func encodePath(_ path: String) -> String {
         // /Users/steffen/foo -> -Users-steffen-foo
         path.replacingOccurrences(of: "/", with: "-")
+    }
+
+    /// Reads the session JSONL to find the first meaningful user text message.
+    /// Stops after finding it to keep this fast.
+    private func firstUserMessage(sessionId: String, projectPath: String) -> String? {
+        let file = projectsDir
+            .appendingPathComponent(encodePath(projectPath))
+            .appendingPathComponent("\(sessionId).jsonl")
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+
+        // Read in chunks until we find the first user message
+        var buffer = Data()
+        let decoder = JSONDecoder()
+        while true {
+            let chunk = handle.readData(ofLength: 4096)
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+            // Process complete lines
+            while let nlRange = buffer.range(of: Data([0x0A])) {
+                let lineData = buffer[buffer.startIndex..<nlRange.lowerBound]
+                buffer.removeSubrange(buffer.startIndex...nlRange.lowerBound)
+                guard !lineData.isEmpty,
+                      let raw = try? decoder.decode(RawCLIMessage.self, from: lineData),
+                      raw.type == "user" else { continue }
+                let text = raw.message?.content?.displayText ?? ""
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Skip pure slash-commands
+                guard !trimmed.isEmpty && !trimmed.hasPrefix("/") else { continue }
+                // Strip "[Image: source: /path...]" references, keep any user-written text
+                let stripped = trimmed
+                    .replacingOccurrences(of: #"\[Image: source:[^\]]*\]"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let preview = stripped.isEmpty ? trimmed : stripped
+                return String(preview.prefix(80))
+            }
+        }
+        return nil
     }
 }

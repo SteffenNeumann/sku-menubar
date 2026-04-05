@@ -62,7 +62,8 @@ struct AttachedFile: Identifiable {
                         "json", "yaml", "yml", "toml", "sh", "bash", "zsh",
                         "html", "css", "scss", "xml", "csv", "go", "rs", "rb",
                         "java", "kt", "c", "cpp", "h", "hpp", "sql", "env",
-                        "gitignore", "dockerfile", "makefile", "log"]
+                        "gitignore", "dockerfile", "makefile", "log",
+                        "bas", "cls", "frm", "vba", "vbs"]
         return textExts.contains(ext) || url.pathExtension.isEmpty
     }
 }
@@ -226,12 +227,12 @@ struct HistoryMessage: Identifiable {
     let parentId: String?
     let role: MessageRole
     let content: String
-    let toolCalls: [ToolCall]
+    var toolCalls: [ToolCall]
     let timestamp: Date
     let model: String?
-    let inputTokens: Int
-    let outputTokens: Int
-    let cacheTokens: Int
+    var inputTokens: Int
+    var outputTokens: Int
+    var cacheTokens: Int
 }
 
 // MARK: - History JSONL parsing helpers
@@ -276,19 +277,14 @@ enum RawContent: Decodable {
 
     var displayText: String {
         switch self {
-        case .text(let s): return s
+        case .text(let s): return s.strippingClaudeSystemTags()
         case .blocks(let blocks):
             return blocks.compactMap { block in
                 switch block.type {
-                case "text": return block.text
-                case "tool_use": return "[\(block.name ?? "tool")]"
+                case "text": return block.text?.strippingClaudeSystemTags()
+                case "tool_use": return nil // shown via toolCalls badges, not as text
                 case "tool_result":
-                    if let content = block.content {
-                        switch content {
-                        case .text(let t): return t
-                        case .blocks(let b): return b.compactMap(\.text).joined()
-                        }
-                    }
+                    // Tool results are internal harness content — never shown in chat history
                     return nil
                 default: return nil
                 }
@@ -587,6 +583,36 @@ struct ActiveCLISession: Identifiable {
     let kind: String
 
     var cwdDisplay: String { URL(fileURLWithPath: cwd).lastPathComponent }
+}
+
+// MARK: - String helper: strip Claude internal system tags
+
+private extension String {
+    /// Removes Claude Code internal XML tags from message content so they don't
+    /// appear in the chat history view. These tags are injected by the harness
+    /// and are not meant to be visible to users.
+    func strippingClaudeSystemTags() -> String {
+        let tagNames = [
+            "local-command-caveat",
+            "command-name",
+            "command-message",
+            "command-args",
+            "system-reminder",
+            "user-prompt-submit-hook",
+        ]
+        var result = self
+        for tag in tagNames {
+            // Remove <tag ...>...</tag> blocks (including multiline content)
+            if let regex = try? NSRegularExpression(
+                pattern: "<\(tag)[^>]*>[\\s\\S]*?</\(tag)>",
+                options: []
+            ) {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: "")
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 struct ActiveSessionFile: Decodable {

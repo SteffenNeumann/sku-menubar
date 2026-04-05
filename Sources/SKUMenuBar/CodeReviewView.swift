@@ -129,6 +129,7 @@ struct CodeReviewView: View {
     @State private var previewFile: URL?
     @State private var previewContent: String = ""
     @State private var showSourceViewer: Bool = true
+    @State private var showFilePanel: Bool = true
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -138,11 +139,12 @@ struct CodeReviewView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: File picker + tree
-            leftPanel
-                .frame(width: 240)
-
-            Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+            // Left: File picker + tree (collapsible)
+            if showFilePanel {
+                leftPanel
+                    .frame(width: 240)
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+            }
 
             // Right: Config + output
             rightPanel
@@ -332,15 +334,22 @@ struct CodeReviewView: View {
             }
 
             // Main content: source viewer + review output side by side
-            HStack(spacing: 0) {
-                // Source viewer (left half)
-                if showSourceViewer {
+            if showSourceViewer {
+                HSplitView {
                     sourceViewerPanel
-                        .frame(maxWidth: .infinity)
-                    Rectangle().fill(theme.cardBorder).frame(width: 0.5)
-                }
+                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
 
-                // Review output (right half or full)
+                    VStack(spacing: 0) {
+                        if reviewOutput.isEmpty && !isReviewing {
+                            reviewPlaceholder
+                        } else {
+                            reviewOutputArea
+                        }
+                    }
+                    .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 VStack(spacing: 0) {
                     if reviewOutput.isEmpty && !isReviewing {
                         reviewPlaceholder
@@ -348,9 +357,8 @@ struct CodeReviewView: View {
                         reviewOutputArea
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Stats footer
             if outputTokens > 0 {
@@ -402,27 +410,54 @@ struct CodeReviewView: View {
 
             Spacer()
 
-            // Source viewer toggle
-            Button {
-                withAnimation(.spring(response: 0.3)) { showSourceViewer.toggle() }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: showSourceViewer ? "sidebar.left" : "sidebar.left")
-                        .font(.system(size: 11))
-                    Text(showSourceViewer ? "Quellcode" : "Quellcode")
-                        .font(.system(size: 11))
+            // Sidebar toggles (like File Explorer header)
+            HStack(spacing: 6) {
+                // Toggle source viewer panel
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { showSourceViewer.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11))
+                        Text("Quellcode")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundStyle(showSourceViewer ? accentColor : theme.tertiaryText)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(
+                        showSourceViewer ? accentColor.opacity(0.1) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 5)
+                    )
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
+                        showSourceViewer ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
                 }
-                .foregroundStyle(showSourceViewer ? accentColor : theme.tertiaryText)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(
-                    showSourceViewer ? accentColor.opacity(0.1) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 5)
-                )
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
-                    showSourceViewer ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
+                .buttonStyle(.plain)
+                .help(showSourceViewer ? "Quellcode-Ansicht ausblenden" : "Quellcode-Ansicht einblenden")
+
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5, height: 16)
+
+                // Toggle file panel (Dateien)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { showFilePanel.toggle() }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 11))
+                        .foregroundStyle(showFilePanel ? theme.secondaryText : accentColor)
+                }
+                .buttonStyle(.plain)
+                .help(showFilePanel ? "Dateien ausblenden" : "Dateien einblenden")
+
+                // Toggle app sidebar
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
+                } label: {
+                    Image(systemName: "sidebar.squares.left")
+                        .font(.system(size: 11))
+                        .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
             }
-            .buttonStyle(.plain)
-            .help(showSourceViewer ? "Quellcode-Ansicht ausblenden" : "Quellcode-Ansicht einblenden")
 
             // Clear
             if !reviewOutput.isEmpty {
@@ -833,7 +868,8 @@ struct CodeReviewView: View {
             "kt", "c", "cpp", "h", "hpp", "cs", "php", "m", "mm",
             "json", "yaml", "yml", "toml", "xml", "plist",
             "md", "txt", "sh", "bash", "zsh", "makefile", "dockerfile",
-            "html", "css", "scss", "sass", "sql", "env", "gitignore", "lock"
+            "html", "css", "scss", "sass", "sql", "env", "gitignore", "lock",
+            "bas", "cls", "frm", "vba", "vbs"
         ]
 
         var nodes: [FileNode] = []

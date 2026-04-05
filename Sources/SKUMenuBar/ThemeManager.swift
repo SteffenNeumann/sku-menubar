@@ -83,7 +83,7 @@ private extension Color {
 
 extension AppTheme {
 
-    static let all: [AppTheme] = [cyan, emerald, violet, coffeeDark, bitterDark, monoDark, coffeeLight, bitterLight, monoLight]
+    static let all: [AppTheme] = [cyan, emerald, violet, coffeeDark, bitterDark, monoDark, graphite, stone, eclipse, iron, basalt, coffeeLight, bitterLight, monoLight, fog, dusk, mist, cement]
 
     static let cyan = AppTheme(
         id: "cyan", name: "Cyan",
@@ -147,6 +147,79 @@ extension AppTheme {
         bgBotR: 246, bgBotG: 248, bgBotB: 250, bgBotA: 1.0,
         glowEnabled: false,
         acR: 9, acG: 105, acB: 218, isLight: true
+    )
+
+    // ── Grey Shades ──────────────────────────────────────────────────────────
+
+    // Eclipse — ultra-tief, kühl, blau-grau (Linear/Vercel-Stil)
+    static let eclipse = AppTheme(
+        id: "eclipse", name: "Eclipse",
+        bgTopR: 17,  bgTopG: 17,  bgTopB: 19,  bgTopA: 1.0,
+        bgBotR: 8,   bgBotG: 8,   bgBotB: 11,  bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 124, acG: 124, acB: 138, isLight: false
+    )
+    // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
+    static let iron = AppTheme(
+        id: "iron", name: "Iron",
+        bgTopR: 160, bgTopG: 32,  bgTopB: 240, bgTopA: 0.10,
+        bgBotR: 244, bgBotG: 63,  bgBotB: 94,  bgBotA: 0.07,
+        glowEnabled: true,
+        acR: 224, acG: 64, acB: 251, isLight: false
+    )
+    // Basalt — warmes Anthrazit mit leuchtendem Orange (macOS Premium Night)
+    static let basalt = AppTheme(
+        id: "basalt", name: "Basalt",
+        bgTopR: 30,  bgTopG: 28,  bgTopB: 26,  bgTopA: 1.0,
+        bgBotR: 22,  bgBotG: 20,  bgBotB: 18,  bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 251, acG: 146, acB: 60, isLight: false
+    )
+
+    static let fog = AppTheme(
+        id: "fog", name: "Fog",
+        bgTopR: 232, bgTopG: 232, bgTopB: 232, bgTopA: 1.0,
+        bgBotR: 220, bgBotG: 220, bgBotB: 220, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 59, acG: 130, acB: 246, isLight: true
+    )
+    // Dusk — warmes Greige, Paper-Ton (Obsidian/Bear-Stil)
+    static let dusk = AppTheme(
+        id: "dusk", name: "Dusk",
+        bgTopR: 212, bgTopG: 208, bgTopB: 202, bgTopA: 1.0,
+        bgBotR: 200, bgBotG: 196, bgBotB: 190, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 124, acG: 58, acB: 237, isLight: true
+    )
+    // Mist — kühles Blaugrau (Notion/Linear Light-Stil)
+    static let mist = AppTheme(
+        id: "mist", name: "Mist",
+        bgTopR: 205, bgTopG: 210, bgTopB: 216, bgTopA: 1.0,
+        bgBotR: 191, bgBotG: 197, bgBotB: 204, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 59, acG: 130, acB: 246, isLight: true
+    )
+    // Cement — neutrales Mittelgrau, kein Farbstich
+    static let cement = AppTheme(
+        id: "cement", name: "Cement",
+        bgTopR: 200, bgTopG: 200, bgTopB: 200, bgTopA: 1.0,
+        bgBotR: 186, bgBotG: 186, bgBotB: 186, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 245, acG: 158, acB: 11, isLight: true
+    )
+    static let stone = AppTheme(
+        id: "stone", name: "Stone",
+        bgTopR: 72, bgTopG: 72, bgTopB: 76, bgTopA: 1.0,
+        bgBotR: 58, bgBotG: 58, bgBotB: 62, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 245, acG: 158, acB: 11, isLight: false
+    )
+    static let graphite = AppTheme(
+        id: "graphite", name: "Graphite",
+        bgTopR: 28, bgTopG: 28, bgTopB: 30, bgTopA: 1.0,
+        bgBotR: 20, bgBotG: 20, bgBotB: 22, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 160, acG: 160, acB: 165, isLight: false
     )
 }
 

@@ -262,13 +262,13 @@ struct SettingsFormView: View {
                                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
                                         alignment: .leading, spacing: 10
                                     ) {
-                                        ForEach(darkThemes.prefix(3)) { t in themeSwatchButton(t) }
+                                        ForEach(darkThemes.prefix(4)) { t in themeSwatchButton(t) }
                                     }
                                     LazyVGrid(
                                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
                                         alignment: .leading, spacing: 10
                                     ) {
-                                        ForEach(darkThemes.dropFirst(3)) { t in themeSwatchButton(t) }
+                                        ForEach(darkThemes.dropFirst(4)) { t in themeSwatchButton(t) }
                                     }
                                 }
 

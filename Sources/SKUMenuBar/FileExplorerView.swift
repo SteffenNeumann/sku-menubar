@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import PDFKit
 
 // MARK: - File Node Model
 
@@ -62,6 +63,10 @@ final class ExplorerNode: Identifiable, ObservableObject {
 
     var isPDF: Bool { fileExtension == "pdf" }
 
+    var isImage: Bool {
+        ["png", "jpg", "jpeg", "gif", "bmp", "ico", "tiff", "tif", "webp", "heic"].contains(fileExtension)
+    }
+
     var isWebPreviewable: Bool {
         ["html", "htm", "svg"].contains(fileExtension)
     }
@@ -81,7 +86,8 @@ final class ExplorerNode: Identifiable, ObservableObject {
             "c", "cpp", "h", "m", "rb", "php", "sh", "bash", "zsh", "fish",
             "json", "yaml", "yml", "toml", "xml", "html", "htm", "css", "scss",
             "md", "txt", "csv", "log", "env", "gitignore", "dockerfile",
-            "makefile", "readme", "license", "podfile", "gemfile"
+            "makefile", "readme", "license", "podfile", "gemfile",
+            "bas", "cls", "frm", "vba", "vbs"
         ]
         return textExtensions.contains(fileExtension) || (fileSize > 0 && fileSize < 500_000)
     }
@@ -96,6 +102,7 @@ final class ExplorerNode: Identifiable, ObservableObject {
         case "md":                             return "doc.richtext"
         case "html", "htm", "css", "scss":    return "globe"
         case "sh", "bash", "zsh":             return "terminal.fill"
+        case "bas", "cls", "frm", "vba", "vbs": return "tablecells.fill"
         case "png", "jpg", "jpeg", "gif", "svg", "webp", "ico": return "photo"
         case "pdf":                            return "doc.fill"
         case "zip", "tar", "gz", "7z":        return "archivebox"
@@ -115,6 +122,7 @@ final class ExplorerNode: Identifiable, ObservableObject {
         case "sh", "bash", "zsh": return .green
         case "html":         return Color(red: 0.90, green: 0.35, blue: 0.2)
         case "css", "scss": return .purple
+        case "bas", "cls", "frm", "vba", "vbs": return Color(red: 0.13, green: 0.55, blue: 0.13)
         case "png", "jpg", "jpeg", "gif", "svg": return .pink
         case "pdf":          return .red
         default:             return .secondary
@@ -133,6 +141,8 @@ struct FileExplorerView: View {
     @State private var showHidden: Bool = false
     @State private var rootPath: String = NSHomeDirectory()
     @State private var previewText: String? = nil
+    @State private var pdfDocument: PDFDocument? = nil
+    @State private var nsImage: NSImage? = nil
     @State private var isLoadingPreview: Bool = false
     @State private var renamingNode: ExplorerNode? = nil
     @State private var renameText: String = ""
@@ -569,6 +579,18 @@ struct FileExplorerView: View {
                         directoryContentsView(node: node)
                     } else if isLoadingPreview {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if node.isPDF, let pdf = pdfDocument {
+                        PDFPreviewView(document: pdf)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let img = nsImage {
+                        ScrollView([.vertical, .horizontal]) {
+                            Image(nsImage: img)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .padding(16)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let text = previewText {
                         if showLivePreview && node.isWebPreviewable {
                             livePreviewSplitView(node: node, text: text)
@@ -1031,6 +1053,8 @@ struct FileExplorerView: View {
         rootNode = node
         selectedNode = nil
         previewText = nil
+        pdfDocument = nil
+        nsImage = nil
     }
 
     private func reload() {
@@ -1066,11 +1090,27 @@ struct FileExplorerView: View {
         isDirty = false
         showLivePreview = false
         selectedNode = node
-        // Don't nil previewText here — keep old content visible until new one loads
+        previewText = nil
+        pdfDocument = nil
+        nsImage = nil
 
         if node.isDirectory {
             if node.children == nil {
                 node.loadChildren(showHidden: showHidden)
+            }
+        } else if node.isPDF {
+            pdfDocument = PDFDocument(url: node.url)
+        } else if node.isImage {
+            isLoadingPreview = true
+            let targetURL = node.url
+            Task.detached(priority: .userInitiated) {
+                let img = NSImage(contentsOf: targetURL)
+                await MainActor.run {
+                    if self.selectedNode?.url == targetURL {
+                        self.nsImage = img
+                        self.isLoadingPreview = false
+                    }
+                }
             }
         } else if node.isTextFile {
             isLoadingPreview = true
@@ -1089,8 +1129,6 @@ struct FileExplorerView: View {
                     }
                 }
             }
-        } else {
-            previewText = nil
         }
     }
 
@@ -1120,7 +1158,7 @@ struct FileExplorerView: View {
         guard let node = confirmDeleteNode else { return }
         do {
             try FileManager.default.trashItem(at: node.url, resultingItemURL: nil)
-            if selectedNode?.id == node.id { selectedNode = nil; previewText = nil }
+            if selectedNode?.id == node.id { selectedNode = nil; previewText = nil; pdfDocument = nil; nsImage = nil }
             if let parent = node.parent {
                 parent.loadChildren(showHidden: showHidden)
                 parent.objectWillChange.send()

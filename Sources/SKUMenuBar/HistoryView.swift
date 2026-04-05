@@ -222,9 +222,21 @@ struct HistoryView: View {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Session")
+                    let sessionTitle: String = {
+                        // Use first meaningful user message as title
+                        let first = sessionMessages
+                            .first(where: { $0.role == .user && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.content.hasPrefix("/") })
+                        if let text = first?.content {
+                            let words = text.components(separatedBy: .whitespacesAndNewlines)
+                                .filter { !$0.isEmpty }.prefix(8).joined(separator: " ")
+                            return words.isEmpty ? "Session" : words
+                        }
+                        return session.preview.isEmpty ? "Session" : session.preview
+                    }()
+                    Text(sessionTitle)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
+                        .lineLimit(2)
                     Text(session.sessionId)
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
