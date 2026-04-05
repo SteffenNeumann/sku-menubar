@@ -20,13 +20,13 @@ struct SidebarView: View {
 
             VStack(spacing: 0) {
                 // Traffic-light spacer + current date & time
-                HStack(spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(Date(), style: .date)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(theme.tertiaryText)
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(theme.tertiaryText.opacity(0.7))
                     Text(Date(), style: .time)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(theme.tertiaryText)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
                     Spacer()
                 }
                 .padding(.leading, 12)
@@ -119,6 +119,30 @@ struct SidebarView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    state.pendingChatNewProject = project.path
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        selection = .chat
+                    }
+                } label: {
+                    Label("In Chat öffnen", systemImage: "bubble.left.and.bubble.right")
+                }
+                Button {
+                    state.pendingFilesPath = project.path
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        selection = .files
+                    }
+                } label: {
+                    Label("In Explorer öffnen", systemImage: "folder")
+                }
+                Divider()
+                Button {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: project.path))
+                } label: {
+                    Label("Im Finder öffnen", systemImage: "arrow.up.forward.square")
+                }
+            }
         }
     }
 
@@ -349,13 +373,15 @@ struct SidebarView: View {
     private var sidebarFooter: some View {
         HStack(spacing: 4) {
             Text(BuildInfo.buildDate)
-                .font(.system(size: 9))
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(theme.tertiaryText.opacity(0.5))
             Text("·")
                 .font(.system(size: 9))
+                .foregroundStyle(theme.tertiaryText.opacity(0.3))
             Text(BuildInfo.commitHash)
                 .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(theme.tertiaryText.opacity(0.35))
         }
-        .foregroundStyle(theme.tertiaryText.opacity(0.6))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
