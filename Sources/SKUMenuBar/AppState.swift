@@ -53,6 +53,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatSessionTitle: String? = nil
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
+    @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {

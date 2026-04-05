@@ -406,7 +406,6 @@ private struct AgentBaseballCard: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onDuplicate: () -> Void
-    let onLogbook: () -> Void
     let onMemory: () -> Void
     let onRerun: () -> Void
 
@@ -603,7 +602,6 @@ private struct AgentBaseballCard: View {
                     Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                     rerunButton
                     Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
-                    actionBarButton(id: "logbook", icon: "book.pages",       action: onLogbook)
                 }
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "memory",  icon: "memorychip",           action: onMemory)
@@ -739,7 +737,6 @@ private struct AgentBaseballCard: View {
     private static let tooltips: [String: String] = [
         "edit":    "Agent bearbeiten",
         "rerun":   "Agent jetzt ausführen",
-        "logbook": "Logbook in Sublime Text öffnen",
         "memory":  "Agent Memory anzeigen",
         "copy":    "Agent duplizieren",
         "delete":  "Agent löschen",
@@ -929,40 +926,9 @@ struct AgentsView: View {
             onEdit: { startEditingAgent(agent) },
             onDelete: { pendingDeleteAgent = agent },
             onDuplicate: { duplicateAgent(agent) },
-            onLogbook: { openLogbook(for: agent) },
             onMemory: { memoryAgent = agent },
             onRerun: { Task { await state.agentService.executeScheduledAgent(agent) } }
         )
-    }
-
-    private func openLogbook(for agent: AgentDefinition) {
-        let home = NSHomeDirectory()
-        let fm = FileManager.default
-        // Agent may write to agent-memory/{name}/ or agent-memory/{id}/
-        let reportByName = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.name)/daily_report.txt")
-        let reportById   = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.id)/daily_report.txt")
-        let mdURL        = URL(fileURLWithPath: "\(home)/.claude/agents/\(agent.id)/logbook.md")
-        let jsonURL      = URL(fileURLWithPath: "\(home)/.claude/agent-logs/\(agent.id).json")
-        let targetURL: URL
-        if fm.fileExists(atPath: reportByName.path) {
-            targetURL = reportByName
-        } else if fm.fileExists(atPath: reportById.path) {
-            targetURL = reportById
-        } else if fm.fileExists(atPath: mdURL.path) {
-            targetURL = mdURL
-        } else if fm.fileExists(atPath: jsonURL.path) {
-            targetURL = jsonURL
-        } else {
-            try? FileManager.default.createDirectory(at: mdURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? "# Logbook — \(agent.name)\n\n_(No entries yet)_\n".write(to: mdURL, atomically: true, encoding: .utf8)
-            targetURL = mdURL
-        }
-        let sublimeURL = URL(fileURLWithPath: "/Applications/Sublime Text.app")
-        if FileManager.default.fileExists(atPath: sublimeURL.path) {
-            NSWorkspace.shared.open([targetURL], withApplicationAt: sublimeURL, configuration: .init(), completionHandler: nil)
-        } else {
-            NSWorkspace.shared.open(targetURL)
-        }
     }
 
     private func agentSectionHeader(title: String, count: Int, color: Color, gridWidth: CGFloat) -> some View {

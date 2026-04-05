@@ -205,6 +205,12 @@ struct FileExplorerView: View {
         .background(theme.windowBg)
         .onAppear { loadInitialDirectory() }
         .onChange(of: showHidden) { reload() }
+        .onChange(of: state.pendingFilesPath) {
+            guard let path = state.pendingFilesPath else { return }
+            state.pendingFilesPath = nil
+            rootPath = path
+            reload()
+        }
         .alert("Ungespeicherte Änderungen", isPresented: $showUnsavedAlert) {
             Button("Verwerfen", role: .destructive) {
                 isEditing = false; isDirty = false
@@ -232,9 +238,27 @@ struct FileExplorerView: View {
 
     private var toolbar: some View {
         HStack(spacing: 6) {
-            // Current root (truncated)
-            Button {
-                pickDirectory()
+            // Current root (truncated) — menu with recent projects
+            Menu {
+                let projects = state.historyService.projects
+                if !projects.isEmpty {
+                    Section("Letzte Projekte") {
+                        ForEach(projects.prefix(8)) { project in
+                            Button {
+                                rootPath = project.path
+                                reload()
+                            } label: {
+                                Label(project.displayName, systemImage: "folder")
+                            }
+                        }
+                    }
+                    Divider()
+                }
+                Button {
+                    pickDirectory()
+                } label: {
+                    Label("Anderer Ordner…", systemImage: "folder.badge.plus")
+                }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
@@ -253,7 +277,8 @@ struct FileExplorerView: View {
                 .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
             .help("Verzeichnis wählen")
 
             Spacer()
@@ -446,7 +471,7 @@ struct FileExplorerView: View {
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(theme.cardSurface)
+                    .background(theme.windowBg)
 
                     Divider().foregroundStyle(theme.cardBorder)
 
@@ -462,7 +487,7 @@ struct FileExplorerView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(theme.cardSurface.opacity(0.5))
+                    .background(theme.windowBg)
 
                     Divider().foregroundStyle(theme.cardBorder)
 
@@ -522,11 +547,11 @@ struct FileExplorerView: View {
     private func infoChip(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
                 .kerning(0.5)
             Text(value)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.primaryText)
         }
     }
@@ -547,16 +572,16 @@ struct FileExplorerView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: child.icon)
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 14))
                                         .foregroundStyle(child.iconColor)
-                                        .frame(width: 18)
+                                        .frame(width: 20)
                                     Text(child.name)
-                                        .font(.system(size: 11))
+                                        .font(.system(size: 12))
                                         .foregroundStyle(theme.primaryText)
                                     Spacer()
                                     if !child.isDirectory {
                                         Text(formatSize(child.fileSize))
-                                            .font(.system(size: 10))
+                                            .font(.system(size: 11))
                                             .foregroundStyle(theme.tertiaryText)
                                     }
                                 }
@@ -1025,9 +1050,9 @@ struct ExplorerTreeRow: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
-                    .frame(width: 20, height: 20)
+                    .frame(width: 22, height: 22)
                 Image(systemName: node.icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(isSelected ? accentColor : node.iconColor)
             }
 
@@ -1041,7 +1066,7 @@ struct ExplorerTreeRow: View {
                     .onExitCommand { renamingNode = nil }
             } else {
                 Text(node.name)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1064,7 +1089,7 @@ struct ExplorerTreeRow: View {
                 }
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 3)
+        .padding(.horizontal, 8).padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 5)
                 .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? theme.cardSurface : Color.clear))

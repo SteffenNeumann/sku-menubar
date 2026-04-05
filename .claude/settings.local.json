@@ -86,7 +86,12 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); t=d.get\\(''''threads'''',[{}]\\)[0]; [print\\(f[''''symbol'''']\\) for f in t.get\\(''''frames'''',[]\\) if ''''myClaude'''' in f.get\\(''''binary'''',''''''''\\) or ''''swift'''' in f.get\\(''''binary'''',''''''''\\).lower\\(\\)]\")",
       "Bash(ls -t ~/Library/Logs/DiagnosticReports/myClaude*.ips)",
       "Bash(xcodebuild -scheme SKUMenuBar -configuration Debug build)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(cp /tmp/skill_web_design_guidelines_clean.md /Users/steffen/.claude/skills/web-design-guidelines/SKILL.md)",
+      "Bash(cp /tmp/skill_shadcn_clean.md /Users/steffen/.claude/skills/shadcn/SKILL.md)",
+      "Bash(cp /tmp/skill_ui_ux_pro_max_clean.md /Users/steffen/.claude/skills/ui-ux-pro-max/SKILL.md)",
+      "Bash(wc -l /Users/steffen/.claude/skills/*/SKILL.md)",
+      "Bash(bash:*)"
     ],
     "defaultMode": "bypassPermissions"
   }
