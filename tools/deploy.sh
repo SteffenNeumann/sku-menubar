@@ -24,6 +24,8 @@ if [ -f "$APP_BUNDLE" ]; then
     cp "$BINARY" "$APP_BUNDLE"
     # Copy Highlightr resource bundle to app root (NSBundle.module: Bundle.main.bundleURL/Highlightr_Highlightr.bundle)
     if [ -d "$BUNDLE" ]; then
+        # Fix permissions on existing bundle before overwriting to avoid "Permission denied"
+        [ -d "$APP_BUNDLE_ROOT/Highlightr_Highlightr.bundle" ] && chmod -R u+w "$APP_BUNDLE_ROOT/Highlightr_Highlightr.bundle"
         cp -R "$BUNDLE" "$APP_BUNDLE_ROOT/"
         echo "📦 Copied Highlightr_Highlightr.bundle → app root"
     else

@@ -20,12 +20,12 @@ struct SidebarView: View {
 
             VStack(spacing: 0) {
                 // Traffic-light spacer + current date & time
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                HStack(spacing: 6) {
                     Text(Date(), style: .date)
-                        .font(.system(size: 10, weight: .regular))
-                        .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
                     Text(Date(), style: .time)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
                 }
@@ -374,13 +374,13 @@ struct SidebarView: View {
         HStack(spacing: 4) {
             Text(BuildInfo.buildDate)
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                .foregroundStyle(theme.secondaryText.opacity(0.7))
             Text("·")
                 .font(.system(size: 9))
-                .foregroundStyle(theme.tertiaryText.opacity(0.3))
+                .foregroundStyle(theme.secondaryText.opacity(0.4))
             Text(BuildInfo.commitHash)
                 .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(theme.tertiaryText.opacity(0.35))
+                .foregroundStyle(theme.secondaryText.opacity(0.5))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
