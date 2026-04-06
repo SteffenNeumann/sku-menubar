@@ -8,6 +8,10 @@ struct MarkdownTextView: View {
     @Environment(\.appTheme) var theme
     @Environment(\.colorScheme) var colorScheme
 
+    private var accentColor: Color {
+        Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
+    }
+
     var body: some View {
         let segments = parseSegments(text)
 
@@ -24,23 +28,147 @@ struct MarkdownTextView: View {
         }
     }
 
+    // MARK: - Block-level Markdown types
+
+    private enum MarkdownBlock {
+        case heading(level: Int, text: String)
+        case paragraph(text: String)
+        case bulletItem(indent: Int, text: String)
+        case numberedItem(number: Int, text: String)
+        case blockquote(text: String)
+        case hr
+    }
+
+    // MARK: - Block parser
+
+    private func parseMarkdownBlocks(_ raw: String) -> [MarkdownBlock] {
+        var result: [MarkdownBlock] = []
+        var paraLines: [String] = []
+
+        func flush() {
+            let joined = paraLines.joined(separator: "\n")
+            let trimmed = joined.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { result.append(.paragraph(text: trimmed)) }
+            paraLines.removeAll()
+        }
+
+        for line in raw.components(separatedBy: "\n") {
+            let tr = line.trimmingCharacters(in: .whitespaces)
+
+            if tr.hasPrefix("### ") { flush(); result.append(.heading(level: 3, text: String(tr.dropFirst(4)))); continue }
+            if tr.hasPrefix("## ")  { flush(); result.append(.heading(level: 2, text: String(tr.dropFirst(3)))); continue }
+            if tr.hasPrefix("# ")   { flush(); result.append(.heading(level: 1, text: String(tr.dropFirst(2)))); continue }
+
+            if (tr == "---" || tr == "***" || tr == "___") { flush(); result.append(.hr); continue }
+
+            if tr.hasPrefix("> ") { flush(); result.append(.blockquote(text: String(tr.dropFirst(2)))); continue }
+            if tr == ">"          { flush(); result.append(.blockquote(text: "")); continue }
+
+            if tr.count >= 2 && (tr.hasPrefix("- ") || tr.hasPrefix("* ") || tr.hasPrefix("+ ")) {
+                flush()
+                let indent = line.prefix(while: { $0 == " " }).count / 2
+                result.append(.bulletItem(indent: indent, text: String(tr.dropFirst(2))))
+                continue
+            }
+
+            if let m = tr.range(of: "^[0-9]+\\. ", options: [.regularExpression]) {
+                flush()
+                let prefix = String(tr[..<m.upperBound])
+                let numStr = prefix.components(separatedBy: ".").first ?? "1"
+                let num = Int(numStr.trimmingCharacters(in: .whitespaces)) ?? 1
+                result.append(.numberedItem(number: num, text: String(tr[m.upperBound...])))
+                continue
+            }
+
+            if tr.isEmpty { flush(); continue }
+            paraLines.append(line)
+        }
+        flush()
+        return result
+    }
+
+    // MARK: - Block segment view
+
     @ViewBuilder
     private func textSegmentView(_ t: String) -> some View {
-        // Convert single newlines to markdown hard line breaks (two spaces + \n)
-        // so that \n in CLI output is rendered as a visual line break.
-        let processed = t.replacingOccurrences(
-            of: "(?<!\n)\n(?!\n)", with: "  \n", options: .regularExpression)
-        if let attributed = try? AttributedString(markdown: processed,
+        let blocks = parseMarkdownBlocks(t)
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                markdownBlockView(block)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func markdownBlockView(_ block: MarkdownBlock) -> some View {
+        switch block {
+        case .heading(let level, let text):
+            inlineMarkdown(text)
+                .font(.system(size: level == 1 ? 18 : level == 2 ? 15 : 13.5,
+                               weight: level == 1 ? .bold : .semibold))
+                .foregroundStyle(theme.primaryText)
+                .padding(.top, level == 1 ? 6 : 2)
+                .padding(.bottom, 1)
+
+        case .paragraph(let text):
+            inlineMarkdown(text)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.primaryText)
+                .lineSpacing(2)
+
+        case .bulletItem(let indent, let text):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("•")
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.tertiaryText)
+                    .padding(.leading, CGFloat(indent) * 14)
+                inlineMarkdown(text)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.primaryText)
+            }
+
+        case .numberedItem(let number, let text):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(number).")
+                    .font(.system(size: 13).monospacedDigit())
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(minWidth: 20, alignment: .trailing)
+                inlineMarkdown(text)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.primaryText)
+            }
+
+        case .blockquote(let text):
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(accentColor.opacity(0.55))
+                    .frame(width: 3)
+                inlineMarkdown(text)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+
+        case .hr:
+            Rectangle()
+                .fill(theme.cardBorder)
+                .frame(maxWidth: .infinity, maxHeight: 1)
+                .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func inlineMarkdown(_ text: String) -> some View {
+        if let attributed = try? AttributedString(
+            markdown: text,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            Text(attributed)
-                .font(.system(size: 12.5, design: .monospaced))
-                .foregroundStyle(theme.primaryText)
-                .textSelection(.enabled)
+            Text(attributed).textSelection(.enabled)
         } else {
-            Text(t).font(.system(size: 12.5, design: .monospaced))
-                .foregroundStyle(theme.primaryText)
-                .textSelection(.enabled)
+            Text(text).textSelection(.enabled)
         }
     }
 

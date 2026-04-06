@@ -511,6 +511,7 @@ struct NoteEditorView: View {
     @Environment(\.appTheme) var theme
     @EnvironmentObject var state: AppState
     @FocusState private var bodyFocused: Bool
+    @State private var showPreview: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -523,10 +524,18 @@ struct NoteEditorView: View {
 
             Divider().foregroundStyle(theme.cardBorder)
 
-            // Body: Checkliste für Tasks, Freitext für Notizen
+            // Body: Checkliste für Tasks, Freitext/Preview für Notizen
             if note.type == .task {
                 TaskLinesEditorView(lines: $note.taskLines, theme: theme, accent: accentColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if showPreview {
+                ScrollView(.vertical, showsIndicators: false) {
+                    MarkdownTextView(text: note.body.isEmpty ? "*Keine Inhalte*" : note.body)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.clear)
             } else {
                 TextEditor(text: $note.body)
                     .font(.system(size: 13))
@@ -589,6 +598,29 @@ struct NoteEditorView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.primaryText)
                 .textFieldStyle(.plain)
+
+            // Preview toggle (nur für Notizen)
+            if note.type == .note {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showPreview.toggle() }
+                } label: {
+                    Group {
+                        if showPreview {
+                            NotesPencilIcon(color: accentColor)
+                        } else {
+                            NotesEyeIcon(color: theme.tertiaryText)
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .background(showPreview ? accentColor.opacity(0.12) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(showPreview ? accentColor.opacity(0.3) : Color.clear,
+                                      lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .help(showPreview ? "Bearbeiten" : "Vorschau (Markdown)")
+            }
 
             // Task done toggle
             if note.type == .task {
@@ -912,5 +944,68 @@ struct TaskLinesEditorView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             focusedId = newLine.id
         }
+    }
+}
+
+// MARK: - SVG-style preview toggle icons
+
+private struct NotesEyeIcon: View {
+    let color: Color
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = sz.width, h = sz.height
+            let cx = w / 2, cy = h / 2
+            // Lens outline
+            var lens = Path()
+            lens.move(to: CGPoint(x: 2, y: cy))
+            lens.addCurve(
+                to: CGPoint(x: w - 2, y: cy),
+                control1: CGPoint(x: cx * 0.4, y: 1.5),
+                control2: CGPoint(x: cx * 1.6, y: 1.5)
+            )
+            lens.addCurve(
+                to: CGPoint(x: 2, y: cy),
+                control1: CGPoint(x: cx * 1.6, y: h - 1.5),
+                control2: CGPoint(x: cx * 0.4, y: h - 1.5)
+            )
+            ctx.stroke(lens, with: .color(color),
+                       style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+            // Iris
+            let r: CGFloat = h * 0.26
+            let pupil = Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
+            ctx.fill(pupil, with: .color(color))
+        }
+        .frame(width: 16, height: 10)
+    }
+}
+
+private struct NotesPencilIcon: View {
+    let color: Color
+    var body: some View {
+        Canvas { ctx, sz in
+            let w = sz.width, h = sz.height
+            // Shaft body
+            var shaft = Path()
+            shaft.move(to:    CGPoint(x: w * 0.14, y: h * 0.82))
+            shaft.addLine(to: CGPoint(x: w * 0.76, y: h * 0.10))
+            shaft.addLine(to: CGPoint(x: w * 0.92, y: h * 0.26))
+            shaft.addLine(to: CGPoint(x: w * 0.30, y: h * 0.96))
+            shaft.closeSubpath()
+            ctx.stroke(shaft, with: .color(color),
+                       style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+            // Tip
+            var tip = Path()
+            tip.move(to:    CGPoint(x: w * 0.02, y: h * 0.98))
+            tip.addLine(to: CGPoint(x: w * 0.14, y: h * 0.82))
+            tip.addLine(to: CGPoint(x: w * 0.30, y: h * 0.96))
+            tip.closeSubpath()
+            ctx.fill(tip, with: .color(color.opacity(0.6)))
+            // Eraser divider
+            var band = Path()
+            band.move(to:    CGPoint(x: w * 0.70, y: h * 0.12))
+            band.addLine(to: CGPoint(x: w * 0.86, y: h * 0.28))
+            ctx.stroke(band, with: .color(color.opacity(0.45)), lineWidth: 1.6)
+        }
+        .frame(width: 13, height: 13)
     }
 }
