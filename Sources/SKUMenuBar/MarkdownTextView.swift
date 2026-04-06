@@ -36,14 +36,35 @@ struct MarkdownTextView: View {
         case bulletItem(indent: Int, text: String)
         case numberedItem(number: Int, text: String)
         case blockquote(text: String)
+        case table(headers: [String], rows: [[String]])
         case hr
     }
 
     // MARK: - Block parser
 
+    /// Split a markdown table row `| a | b | c |` into trimmed cells
+    private func tableColumns(_ line: String) -> [String] {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("|") { s = String(s.dropFirst()) }
+        if s.hasSuffix("|") { s = String(s.dropLast()) }
+        return s.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func isTableSeparator(_ line: String) -> Bool {
+        let tr = line.trimmingCharacters(in: .whitespaces)
+        guard tr.contains("|") else { return false }
+        let stripped = tr.replacingOccurrences(of: "|", with: "")
+                         .replacingOccurrences(of: "-", with: "")
+                         .replacingOccurrences(of: ":", with: "")
+                         .replacingOccurrences(of: " ", with: "")
+        return stripped.isEmpty
+    }
+
     private func parseMarkdownBlocks(_ raw: String) -> [MarkdownBlock] {
         var result: [MarkdownBlock] = []
         var paraLines: [String] = []
+        // Table accumulator
+        var tableLines: [String] = []
 
         func flush() {
             let joined = paraLines.joined(separator: "\n")
@@ -51,9 +72,32 @@ struct MarkdownTextView: View {
             if !trimmed.isEmpty { result.append(.paragraph(text: trimmed)) }
             paraLines.removeAll()
         }
+        func flushTable() {
+            guard tableLines.count >= 2 else {
+                paraLines += tableLines; tableLines.removeAll(); return
+            }
+            // Find separator row
+            if let sepIdx = tableLines.indices.first(where: { isTableSeparator(tableLines[$0]) }), sepIdx > 0 {
+                let headers = tableColumns(tableLines[sepIdx - 1])
+                let rows = tableLines[(sepIdx + 1)...].map { tableColumns($0) }
+                result.append(.table(headers: headers, rows: rows))
+            } else {
+                paraLines += tableLines
+            }
+            tableLines.removeAll()
+        }
 
         for line in raw.components(separatedBy: "\n") {
             let tr = line.trimmingCharacters(in: .whitespaces)
+
+            // Table row?
+            if tr.hasPrefix("|") || (tr.contains("|") && isTableSeparator(tr)) {
+                flush()          // flush any pending paragraph
+                tableLines.append(tr)
+                continue
+            } else if !tableLines.isEmpty {
+                flushTable()
+            }
 
             if tr.hasPrefix("### ") { flush(); result.append(.heading(level: 3, text: String(tr.dropFirst(4)))); continue }
             if tr.hasPrefix("## ")  { flush(); result.append(.heading(level: 2, text: String(tr.dropFirst(3)))); continue }
@@ -83,6 +127,7 @@ struct MarkdownTextView: View {
             if tr.isEmpty { flush(); continue }
             paraLines.append(line)
         }
+        if !tableLines.isEmpty { flushTable() }
         flush()
         return result
     }
@@ -152,12 +197,67 @@ struct MarkdownTextView: View {
             .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
+        case .table(let headers, let rows):
+            tableView(headers: headers, rows: rows)
+
         case .hr:
             Rectangle()
                 .fill(theme.cardBorder)
                 .frame(maxWidth: .infinity, maxHeight: 1)
                 .padding(.vertical, 4)
         }
+    }
+
+    @ViewBuilder
+    private func tableView(headers: [String], rows: [[String]]) -> some View {
+        let isDark = !theme.isLight
+        let colCount = max(headers.count, rows.map(\.count).max() ?? 0)
+        let padded: [[String]] = [headers] + rows.map { row in
+            row + Array(repeating: "", count: max(0, colCount - row.count))
+        }
+
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(padded.enumerated()), id: \.offset) { rowIdx, cells in
+                let isHeader = rowIdx == 0
+                HStack(spacing: 0) {
+                    ForEach(Array(cells.prefix(colCount).enumerated()), id: \.offset) { colIdx, cell in
+                        Group {
+                            if let attributed = try? AttributedString(
+                                markdown: cell,
+                                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+                                Text(attributed)
+                            } else {
+                                Text(cell)
+                            }
+                        }
+                        .font(.system(size: 12, weight: isHeader ? .semibold : .regular))
+                        .foregroundStyle(isHeader ? theme.primaryText : theme.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, isHeader ? 7 : 5)
+                        .background(
+                            isHeader
+                                ? (isDark ? Color(white: 0.13) : Color(white: 0.89))
+                                : (rowIdx % 2 == 0 ? Color.clear : (isDark ? Color(white: 0.10).opacity(0.5) : Color(white: 0.93).opacity(0.7)))
+                        )
+                        if colIdx < cells.prefix(colCount).count - 1 {
+                            Rectangle()
+                                .fill(isDark ? Color(white: 0.22) : Color(white: 0.76))
+                                .frame(width: 0.5)
+                        }
+                    }
+                }
+                if rowIdx < padded.count - 1 {
+                    Rectangle()
+                        .fill(isDark ? Color(white: 0.22) : Color(white: 0.76))
+                        .frame(maxWidth: .infinity, maxHeight: 0.5)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(
+            isDark ? Color(white: 0.22) : Color(white: 0.76), lineWidth: 0.5))
     }
 
     @ViewBuilder
@@ -223,8 +323,9 @@ struct MarkdownTextView: View {
                 language: language.isEmpty ? nil : language,
                 isDark: isDark
             )
-            .frame(height: blockHeight)
+            .frame(maxWidth: .infinity, minHeight: blockHeight, maxHeight: blockHeight)
         }
+        .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
     }
