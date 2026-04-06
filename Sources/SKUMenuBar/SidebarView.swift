@@ -35,6 +35,10 @@ struct SidebarView: View {
                 // Navigation
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 2) {
+                        sectionGroup(title: nil, items: [.home])
+
+                        sectionDivider
+
                         sectionGroup(title: "Übersicht", items: [.dashboard])
 
                         sectionDivider
@@ -232,10 +236,6 @@ struct SidebarView: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isSelected ? theme.accent : .clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? theme.accentBorder : .clear, lineWidth: 0.5)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }

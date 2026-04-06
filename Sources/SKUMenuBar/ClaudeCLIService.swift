@@ -308,6 +308,41 @@ final class ClaudeCLIService: ObservableObject {
 
     // MARK: - Active sessions
 
+    /// Static variant — safe to call from a detached Task (no @MainActor dependency)
+    nonisolated static func loadActiveSessionsSync() -> [ActiveCLISession] {
+        let home = NSHomeDirectory()
+        let sessionsDir = URL(fileURLWithPath: "\(home)/.claude/sessions")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: sessionsDir,
+            includingPropertiesForKeys: nil
+        ) else { return [] }
+
+        let decoder = JSONDecoder()
+        var sessions: [ActiveCLISession] = []
+
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  let raw = try? decoder.decode(ActiveSessionFile.self, from: data),
+                  let pid = raw.pid,
+                  let sid = raw.sessionId,
+                  let cwd = raw.cwd else { continue }
+
+            let running = kill(Int32(pid), 0) == 0
+            if running {
+                let started = raw.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .now
+                sessions.append(ActiveCLISession(
+                    id: file.lastPathComponent,
+                    pid: pid,
+                    sessionId: sid,
+                    cwd: cwd,
+                    startedAt: started,
+                    kind: raw.kind ?? "interactive"
+                ))
+            }
+        }
+        return sessions.sorted { $0.startedAt > $1.startedAt }
+    }
+
     func loadActiveSessions() -> [ActiveCLISession] {
         let home = NSHomeDirectory()
         let sessionsDir = URL(fileURLWithPath: "\(home)/.claude/sessions")

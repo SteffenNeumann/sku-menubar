@@ -255,9 +255,12 @@ struct SettingsFormView: View {
                         configCard {
                             VStack(alignment: .leading, spacing: 16) {
                                 // DARK subsection
+                                let darkThemes = AppTheme.all.filter { !$0.isLight && !$0.isMedium }
+                                let mediumThemes = AppTheme.all.filter { $0.isMedium }
+                                let lightThemes = AppTheme.all.filter { $0.isLight }
+
                                 VStack(alignment: .leading, spacing: 10) {
                                     themeGroupHeader(label: "DARK", icon: "moon.fill")
-                                    let darkThemes = AppTheme.all.filter { !$0.isLight }
                                     LazyVGrid(
                                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
                                         alignment: .leading, spacing: 10
@@ -274,6 +277,19 @@ struct SettingsFormView: View {
 
                                 Divider().foregroundStyle(theme.cardBorder)
 
+                                // MEDIUM subsection
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "MEDIUM", icon: "circle.lefthalf.filled")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading, spacing: 10
+                                    ) {
+                                        ForEach(mediumThemes) { t in themeSwatchButton(t) }
+                                    }
+                                }
+
+                                Divider().foregroundStyle(theme.cardBorder)
+
                                 // LIGHT subsection
                                 VStack(alignment: .leading, spacing: 10) {
                                     themeGroupHeader(label: "LIGHT", icon: "sun.max.fill")
@@ -282,9 +298,7 @@ struct SettingsFormView: View {
                                         alignment: .leading,
                                         spacing: 10
                                     ) {
-                                        ForEach(AppTheme.all.filter { $0.isLight }) { t in
-                                            themeSwatchButton(t)
-                                        }
+                                        ForEach(lightThemes) { t in themeSwatchButton(t) }
                                     }
                                 }
                             }
@@ -372,18 +386,22 @@ struct SettingsFormView: View {
     private func themeSwatchButton(_ t: AppTheme) -> some View {
         let isSelected = themeManager.current.id == t.id
         let ac = Color(red: t.acR/255, green: t.acG/255, blue: t.acB/255)
-        let winBg = t.isLight
-            ? Color(red: 246/255, green: 248/255, blue: 250/255)
-            : Color(red: 2/255, green: 6/255, blue: 23/255)
-        let sidebarBg = t.isLight
+        // Use actual theme background — glow themes get deep-space navy, others use their own bgTop
+        let winBg: Color = t.isLight
+            ? Color(red: t.bgTopR/255, green: t.bgTopG/255, blue: t.bgTopB/255)
+            : (t.glowEnabled
+               ? Color(red: 2/255, green: 6/255, blue: 23/255)
+               : Color(red: t.bgTopR/255, green: t.bgTopG/255, blue: t.bgTopB/255))
+        let sidebarBg: Color = t.isLight
             ? Color(red: 248/255, green: 241/255, blue: 233/255)
-            : Color(red: 8/255, green: 12/255, blue: 30/255)
-        let cardFill = t.isLight
-            ? Color(white: 0, opacity: 0.06)
-            : Color(white: 1, opacity: 0.07)
-        let navItem = t.isLight
-            ? Color(white: 0, opacity: 0.10)
-            : Color(white: 1, opacity: 0.10)
+            : (t.isMedium
+               ? Color(red: t.bgBotR/255, green: t.bgBotG/255, blue: t.bgBotB/255)
+               : (t.glowEnabled
+                  ? Color(red: 8/255, green: 12/255, blue: 30/255)
+                  : Color(red: t.bgBotR/255, green: t.bgBotG/255, blue: t.bgBotB/255)))
+        let useDarkElements = t.isLight || t.isMedium
+        let cardFill = useDarkElements ? Color(white: 0, opacity: 0.08) : Color(white: 1, opacity: 0.07)
+        let navItem  = useDarkElements ? Color(white: 0, opacity: 0.12) : Color(white: 1, opacity: 0.10)
 
         Button {
             themeManager.current = t
@@ -425,7 +443,7 @@ struct SettingsFormView: View {
 
                         // Separator
                         Rectangle()
-                            .fill(t.isLight ? Color(white:0, opacity:0.08) : Color(white:1, opacity:0.08))
+                            .fill(useDarkElements ? Color(white:0, opacity:0.10) : Color(white:1, opacity:0.08))
                             .frame(width: 0.5)
 
                         // Content area

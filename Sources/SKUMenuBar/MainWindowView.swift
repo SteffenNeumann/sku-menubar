@@ -2,8 +2,12 @@ import SwiftUI
 
 struct MainWindowView: View {
     @EnvironmentObject var state: AppState
-    @State private var selectedSection: AppSection = .dashboard
+    @State private var selectedSection: AppSection = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    // Lazy flags — heavy views are only instantiated when first visited
+    @State private var chatLoaded       = false
+    @State private var filesLoaded      = false
+    @State private var codeReviewLoaded = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -37,30 +41,45 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         ZStack {
-            // ChatView und FileExplorerView bleiben immer im View-Baum (State-Erhalt)
-            ChatView()
-                .opacity(selectedSection == .chat ? 1 : 0)
-                .allowsHitTesting(selectedSection == .chat)
-                .accessibilityHidden(selectedSection != .chat)
-
-            FileExplorerView()
-                .opacity(selectedSection == .files ? 1 : 0)
-                .allowsHitTesting(selectedSection == .files)
-                .accessibilityHidden(selectedSection != .files)
+            // Schwere Views erst beim ersten Besuch in den Baum aufnehmen (Lazy Init)
+            if chatLoaded {
+                ChatView()
+                    .opacity(selectedSection == .chat ? 1 : 0)
+                    .allowsHitTesting(selectedSection == .chat)
+                    .accessibilityHidden(selectedSection != .chat)
+            }
+            if filesLoaded {
+                FileExplorerView()
+                    .opacity(selectedSection == .files ? 1 : 0)
+                    .allowsHitTesting(selectedSection == .files)
+                    .accessibilityHidden(selectedSection != .files)
+            }
+            if codeReviewLoaded {
+                CodeReviewView()
+                    .opacity(selectedSection == .codeReview ? 1 : 0)
+                    .allowsHitTesting(selectedSection == .codeReview)
+                    .accessibilityHidden(selectedSection != .codeReview)
+            }
 
             // Alle anderen Sections werden normal gerendert
             switch selectedSection {
+            case .home:       HomeView(selectedSection: $selectedSection)
             case .chat:       EmptyView()
             case .files:      EmptyView()
+            case .codeReview: EmptyView()
             case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
             case .mcp:        MCPView()
-            case .codeReview: CodeReviewView()
             case .notes:      NotesView(lockedType: .note)
             case .tasks:      NotesView(lockedType: .task)
             case .settings:   SettingsFormView().padding(20)
             }
+        }
+        .onChange(of: selectedSection) { _, section in
+            if section == .chat       { chatLoaded       = true }
+            if section == .files      { filesLoaded      = true }
+            if section == .codeReview { codeReviewLoaded = true }
         }
     }
 }

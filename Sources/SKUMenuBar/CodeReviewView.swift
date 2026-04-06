@@ -126,10 +126,14 @@ struct CodeReviewView: View {
     @State private var inputTokens: Int = 0
     @State private var outputTokens: Int = 0
     @State private var costUsd: Double = 0
+    @State private var showFilePanel: Bool = true
     @State private var previewFile: URL?
     @State private var previewContent: String = ""
-    @State private var showSourceViewer: Bool = true
-    @State private var showFilePanel: Bool = true
+    @State private var isApplying: Bool = false
+    @State private var showApplySheet: Bool = false
+    @State private var pendingAppliedFiles: [(url: URL, newContent: String)] = []
+    @State private var applyError: String?
+    @State private var applySuccess: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -138,12 +142,11 @@ struct CodeReviewView: View {
     private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HSplitView {
             // Left: File picker + tree (collapsible)
             if showFilePanel {
                 leftPanel
-                    .frame(width: 240)
-                Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+                    .frame(minWidth: 160, idealWidth: 240, maxWidth: 400, maxHeight: .infinity)
             }
 
             // Right: Config + output
@@ -265,7 +268,6 @@ struct CodeReviewView: View {
                 } else {
                     selectedFiles.insert(node.url)
                 }
-                // Always load preview on click
                 loadPreview(node.url)
             }
         } label: {
@@ -333,23 +335,11 @@ struct CodeReviewView: View {
                 Rectangle().fill(theme.cardBorder).frame(height: 0.5)
             }
 
-            // Main content: source viewer + review output side by side
-            if showSourceViewer {
-                HSplitView {
-                    sourceViewerPanel
-                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+            // Main content: source viewer left + review output right
+            HSplitView {
+                sourceViewerPanel
+                    .frame(minWidth: 200, idealWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
 
-                    VStack(spacing: 0) {
-                        if reviewOutput.isEmpty && !isReviewing {
-                            reviewPlaceholder
-                        } else {
-                            reviewOutputArea
-                        }
-                    }
-                    .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
                 VStack(spacing: 0) {
                     if reviewOutput.isEmpty && !isReviewing {
                         reviewPlaceholder
@@ -357,14 +347,16 @@ struct CodeReviewView: View {
                         reviewOutputArea
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Stats footer
             if outputTokens > 0 {
                 statsFooter
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var reviewToolbar: some View {
@@ -412,30 +404,6 @@ struct CodeReviewView: View {
 
             // Sidebar toggles (like File Explorer header)
             HStack(spacing: 6) {
-                // Toggle source viewer panel
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { showSourceViewer.toggle() }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 11))
-                        Text("Quellcode")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(showSourceViewer ? accentColor : theme.tertiaryText)
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(
-                        showSourceViewer ? accentColor.opacity(0.1) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 5)
-                    )
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
-                        showSourceViewer ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
-                }
-                .buttonStyle(.plain)
-                .help(showSourceViewer ? "Quellcode-Ansicht ausblenden" : "Quellcode-Ansicht einblenden")
-
-                Rectangle().fill(theme.cardBorder).frame(width: 0.5, height: 16)
-
                 // Toggle file panel (Dateien)
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { showFilePanel.toggle() }
@@ -609,6 +577,62 @@ struct CodeReviewView: View {
                 .background(.red.opacity(0.08))
             }
 
+            // Apply toolbar (only after review completed)
+            if !isReviewing && !reviewOutput.isEmpty {
+                HStack(spacing: 8) {
+                    if applySuccess {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                        Text("Änderungen gespeichert")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                    } else if let err = applyError {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                        Text(err)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button {
+                        applyError = nil
+                        applySuccess = false
+                        applyReview()
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isApplying {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .controlSize(.mini)
+                                    .tint(.white)
+                            } else {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.system(size: 10))
+                            }
+                            Text(isApplying ? "Wird umgesetzt…" : "Vorschläge umsetzen")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(
+                            LinearGradient(colors: [.purple, .purple.opacity(0.8)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isApplying)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(theme.cardBg.opacity(0.5))
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+                }
+            }
+
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -628,6 +652,84 @@ struct CodeReviewView: View {
                 }
             }
         }
+        .sheet(isPresented: $showApplySheet) {
+            applyConfirmationSheet
+        }
+    }
+
+    private var applyConfirmationSheet: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 10) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.purple)
+                Text("Vorschläge umsetzen")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Text("\(pendingAppliedFiles.count) Datei(en)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            .padding(16)
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            Text("Die folgenden Dateien werden überschrieben:")
+                .font(.system(size: 11))
+                .foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 6)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(pendingAppliedFiles, id: \.url) { item in
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.badge.arrow.up")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.purple)
+                            Text(item.url.lastPathComponent)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(theme.primaryText)
+                            Spacer()
+                            let lines = item.newContent.components(separatedBy: "\n").count
+                            Text("\(lines) Zeilen")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(maxHeight: 200)
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+                .padding(.top, 8)
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Abbrechen") {
+                    showApplySheet = false
+                    pendingAppliedFiles = []
+                }
+                .keyboardShortcut(.escape)
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondaryText)
+
+                Button("Dateien überschreiben") {
+                    commitAppliedFiles()
+                }
+                .keyboardShortcut(.return)
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+            }
+            .padding(16)
+        }
+        .frame(width: 420)
+        .background(theme.windowBg)
     }
 
     private func statChip(_ text: String, color: Color) -> some View {
@@ -676,7 +778,6 @@ struct CodeReviewView: View {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
             if previewFile == nil {
-                // Empty state
                 VStack(spacing: 10) {
                     Image(systemName: "cursortext")
                         .font(.system(size: 28))
@@ -698,6 +799,15 @@ struct CodeReviewView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private func loadPreview(_ url: URL) {
+        previewFile = url
+        if let content = try? String(contentsOf: url, encoding: .utf8) {
+            previewContent = content
+        } else {
+            previewContent = "(Datei konnte nicht gelesen werden)"
         }
     }
 
@@ -756,15 +866,6 @@ struct CodeReviewView: View {
         n >= 1_000_000 ? String(format: "%.1fM", Double(n)/1_000_000)
         : n >= 1_000   ? String(format: "%.0fK", Double(n)/1_000)
         : "\(n)"
-    }
-
-    private func loadPreview(_ url: URL) {
-        previewFile = url
-        if let content = try? String(contentsOf: url, encoding: .utf8) {
-            previewContent = content
-        } else {
-            previewContent = "(Datei konnte nicht gelesen werden)"
-        }
     }
 
     // MARK: - Actions
@@ -850,6 +951,122 @@ struct CodeReviewView: View {
             await MainActor.run {
                 isReviewing = false
             }
+        }
+    }
+
+    // MARK: - Apply Review
+
+    private func applyReview() {
+        guard !selectedFiles.isEmpty, !reviewOutput.isEmpty else { return }
+        isApplying = true
+
+        Task {
+            // Build original file contents
+            var fileContent = ""
+            let sortedFiles = selectedFiles.sorted { $0.path < $1.path }
+            for url in sortedFiles {
+                if let text = try? String(contentsOf: url, encoding: .utf8) {
+                    let ext = url.pathExtension
+                    fileContent += "### \(url.lastPathComponent)\n```\(ext)\n\(text)\n```\n\n"
+                }
+            }
+
+            let applyPrompt = """
+            Below are the original source files and a code review with suggested improvements.
+            Apply ALL the suggested changes from the review to each file.
+            Return ONLY the complete modified file contents — no explanations, no commentary.
+            Use this exact format for each file:
+            ### <filename>
+            ```<extension>
+            <complete modified code>
+            ```
+
+            --- ORIGINAL FILES ---
+            \(fileContent)
+            --- REVIEW ---
+            \(reviewOutput)
+            """
+
+            let stream = state.cliService.send(
+                message: applyPrompt,
+                sessionId: nil,
+                agentName: nil,
+                model: selectedModel,
+                workingDirectory: selectedDirectory?.path
+            )
+
+            var applyOutput = ""
+            do {
+                for try await event in stream {
+                    if event.type == "assistant",
+                       let content = event.message?.content {
+                        for block in content where block.type == "text" {
+                            if let t = block.text { applyOutput += t }
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    applyError = error.localizedDescription
+                    isApplying = false
+                }
+                return
+            }
+
+            // Parse returned files
+            let parsed = parseAppliedFiles(from: applyOutput, knownFiles: sortedFiles)
+            await MainActor.run {
+                isApplying = false
+                if parsed.isEmpty {
+                    applyError = "Keine Änderungen erkannt"
+                } else {
+                    pendingAppliedFiles = parsed
+                    showApplySheet = true
+                }
+            }
+        }
+    }
+
+    private func parseAppliedFiles(from output: String, knownFiles: [URL]) -> [(url: URL, newContent: String)] {
+        var results: [(url: URL, newContent: String)] = []
+        // Match blocks: ### filename\n```ext\n<code>\n```
+        let pattern = #"###\s+(.+?)\n```[^\n]*\n([\s\S]*?)```"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(output.startIndex..., in: output)
+        let matches = regex.matches(in: output, range: range)
+        for match in matches {
+            guard match.numberOfRanges == 3,
+                  let nameRange = Range(match.range(at: 1), in: output),
+                  let codeRange = Range(match.range(at: 2), in: output) else { continue }
+            let name = String(output[nameRange]).trimmingCharacters(in: .whitespaces)
+            let code = String(output[codeRange])
+            // Find matching URL among known files
+            if let url = knownFiles.first(where: { $0.lastPathComponent == name }) {
+                results.append((url: url, newContent: code))
+            }
+        }
+        return results
+    }
+
+    private func commitAppliedFiles() {
+        showApplySheet = false
+        var failed = false
+        for item in pendingAppliedFiles {
+            do {
+                try item.newContent.write(to: item.url, atomically: true, encoding: .utf8)
+                // Refresh preview if this file is currently shown
+                if previewFile == item.url {
+                    previewContent = item.newContent
+                }
+            } catch {
+                failed = true
+            }
+        }
+        pendingAppliedFiles = []
+        if failed {
+            applyError = "Einige Dateien konnten nicht gespeichert werden"
+        } else {
+            applySuccess = true
         }
     }
 

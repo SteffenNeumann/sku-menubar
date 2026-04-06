@@ -96,6 +96,13 @@ final class AppState: ObservableObject {
         didSet { persistNotes() }
     }
 
+    @Published var homeTileOrder: [HomeTileID] = HomeTileID.allCases {
+        didSet { persistHomeTiles() }
+    }
+    @Published var homeTileVisible: Set<HomeTileID> = Set(HomeTileID.allCases) {
+        didSet { persistHomeTiles() }
+    }
+
     // MARK: - Private
     private let service = GitHubService()
     // Use named suite so settings persist across binary vs .app bundle changes
@@ -103,6 +110,7 @@ final class AppState: ObservableObject {
     private let key     = "gh_sku_settings_v2"
     private let snippetsKey       = "cli_snippets_v1"
     private let notesKey          = "notes_v1"
+    private let homeTilesKey      = "home_tiles_v1"
     private let claudeDailyKey    = "claude_daily_by_date_v1"
     private var timer:      Timer?
     private var usageTimer: Timer?
@@ -119,13 +127,17 @@ final class AppState: ObservableObject {
         if !settings.anthropicAdminKey.isEmpty {
             Task { await refreshClaude() }
         }
-        activeSessions = cliService.loadActiveSessions()
         loadNotes()
+        loadHomeTiles()
         Task {
             async let agents: () = agentService.loadAgents()
             async let projects: () = historyService.loadProjects()
             async let usage: () = loadLocalCLIUsage()
-            _ = await (agents, projects, usage)
+            async let sessions: [ActiveCLISession] = Task.detached(priority: .utility) {
+                ClaudeCLIService.loadActiveSessionsSync()
+            }.value
+            let (_, _, _, loadedSessions) = await (agents, projects, usage, sessions)
+            activeSessions = loadedSessions
             agentService.startScheduler()
         }
     }
@@ -168,6 +180,24 @@ final class AppState: ObservableObject {
     private func persistNotes() {
         if let d = try? JSONEncoder().encode(notes) {
             ud.set(d, forKey: notesKey)
+        }
+    }
+
+    private func loadHomeTiles() {
+        guard let d = ud.data(forKey: homeTilesKey),
+              let saved = try? JSONDecoder().decode(HomeTileSettings.self, from: d)
+        else { return }
+        homeTileOrder = saved.order.filter { HomeTileID.allCases.contains($0) }
+        // Append any new tiles that were added since the settings were last saved
+        let missing = HomeTileID.allCases.filter { !homeTileOrder.contains($0) }
+        homeTileOrder += missing
+        homeTileVisible = saved.visible
+    }
+
+    private func persistHomeTiles() {
+        let s = HomeTileSettings(order: homeTileOrder, visible: homeTileVisible)
+        if let d = try? JSONEncoder().encode(s) {
+            ud.set(d, forKey: homeTilesKey)
         }
     }
 
@@ -539,4 +569,11 @@ final class AppState: ObservableObject {
         claudeLastUpdate = Date()
         claudeIsLoading = false
     }
+}
+
+// MARK: - Home Tile Settings (persistence helper)
+
+private struct HomeTileSettings: Codable {
+    var order:   [HomeTileID]
+    var visible: Set<HomeTileID>
 }

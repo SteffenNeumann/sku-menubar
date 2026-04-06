@@ -14,9 +14,13 @@ struct AppTheme: Identifiable, Equatable, Codable {
 
     // Accent tints (all premultiplied RGBA so we store as components)
     let acR, acG, acB: Double        // base accent RGB (0–255)
+    let acTextR, acTextG, acTextB: Double  // darker text variant for medium-tone backgrounds
 
     // Light/dark variant flag
     let isLight: Bool
+
+    // Medium-tone themes (mid-grey range, ~96–140 brightness) — need dark text like light themes
+    var isMedium: Bool { ["slate", "pewter", "ash"].contains(id) }
 
     // Computed accent colors using Mirror's opacity scale
     var accentSoft:         Color { Color(r: acR, g: acG, b: acB, a: 0.10) }
@@ -24,6 +28,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var accentHover:        Color { Color(r: acR, g: acG, b: acB, a: 0.20) }
     var accentStrong:       Color { Color(r: acR, g: acG, b: acB, a: 0.60) }
     var accentFull:         Color { Color(r: acR, g: acG, b: acB, a: 1.00) }
+    var accentText:         Color { Color(r: acTextR, g: acTextG, b: acTextB, a: 1.0) }
     var accentBorder:       Color { Color(r: acR, g: acG, b: acB, a: 0.30) }
     var accentBorderStrong: Color { Color(r: acR, g: acG, b: acB, a: 0.40) }
     var accentRing:         Color { Color(r: acR, g: acG, b: acB, a: 0.25) }
@@ -33,15 +38,25 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var bgBot: Color { Color(r: bgBotR, g: bgBotG, b: bgBotB, a: bgBotA) }
 
     // Card surface (Mirror: rgba(255,255,255,0.05))
-    var cardBg:     Color { isLight ? Color(white: 0, opacity: 0.04) : Color(white: 1, opacity: 0.05) }
-    var cardBorder: Color { isLight ? Color(white: 0, opacity: 0.12) : Color(white: 1, opacity: 0.12) }
+    var cardBg:     Color { (isLight || isMedium) ? Color(white: 0, opacity: 0.07) : Color(white: 1, opacity: 0.05) }
+    var cardBorder: Color { (isLight || isMedium) ? Color(white: 0, opacity: 0.15) : Color(white: 1, opacity: 0.12) }
 
     // Solid card surface (flat, no material blur)
     var cardSurface: Color {
-        isLight
-            ? Color(red: 240/255, green: 242/255, blue: 248/255)
-            : Color(white: 1, opacity: 0.07)
+        if isLight {
+            return Color(red: 240/255, green: 242/255, blue: 248/255)
+        } else if isMedium {
+            return Color(white: 1, opacity: 0.72)
+        } else {
+            return Color(white: 1, opacity: 0.07)
+        }
     }
+
+    // Row/item background — used for list rows and action buttons inside tiles
+    var rowBg: Color { (isLight || isMedium) ? Color.black.opacity(0.05) : Color.white.opacity(0.04) }
+
+    // Hover background — subtle tint for hovered rows/items
+    var hoverBg: Color { (isLight || isMedium) ? Color.black.opacity(0.08) : Color.white.opacity(0.06) }
 
     // Sidebar surface (Mirror: rgba(2,6,23,0.75) dark / rgba(248,241,233,0.95) light)
     var sidebarBg: Color {
@@ -54,10 +69,10 @@ struct AppTheme: Identifiable, Equatable, Codable {
         }
     }
 
-    // Primary text
-    var primaryText:   Color { isLight ? Color(white: 0.08) : Color(white: 0.95) }
-    var secondaryText: Color { isLight ? Color(white: 0.35) : Color(white: 0.60) }
-    var tertiaryText:  Color { isLight ? Color(white: 0.55) : Color(white: 0.40) }
+    // Primary text — medium themes get dark text like light themes for sufficient contrast
+    var primaryText:   Color { (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95) }
+    var secondaryText: Color { (isLight || isMedium) ? Color(white: 0.25) : Color(white: 0.60) }
+    var tertiaryText:  Color { (isLight || isMedium) ? Color(white: 0.42) : Color(white: 0.40) }
 
     // Base window background — glow themes use deep-space blue, others use their own bgTop
     var windowBg: Color {
@@ -83,70 +98,88 @@ private extension Color {
 
 extension AppTheme {
 
-    static let all: [AppTheme] = [cyan, emerald, violet, coffeeDark, bitterDark, monoDark, graphite, stone, eclipse, iron, basalt, coffeeLight, bitterLight, monoLight, fog, dusk, mist, cement]
+    static let all: [AppTheme] = [cyan, emerald, violet, coffeeDark, bitterDark, monoDark, graphite, stone, eclipse, iron, basalt, coffeeLight, bitterLight, monoLight, fog, dusk, mist, cement, slate, pewter, ash]
 
     static let cyan = AppTheme(
         id: "cyan", name: "Cyan",
         bgTopR: 14,  bgTopG: 165, bgTopB: 233, bgTopA: 0.20,
         bgBotR: 59,  bgBotG: 130, bgBotB: 246, bgBotA: 0.12,
         glowEnabled: true,
-        acR: 14, acG: 165, acB: 233, isLight: false
+        acR: 14, acG: 165, acB: 233,
+        acTextR: 14, acTextG: 165, acTextB: 233,
+        isLight: false
     )
     static let emerald = AppTheme(
         id: "emerald", name: "Emerald",
         bgTopR: 34, bgTopG: 197, bgTopB: 94,  bgTopA: 0.18,
         bgBotR: 21, bgBotG: 128, bgBotB: 61,  bgBotA: 0.10,
         glowEnabled: true,
-        acR: 34, acG: 197, acB: 94, isLight: false
+        acR: 34, acG: 197, acB: 94,
+        acTextR: 34, acTextG: 197, acTextB: 94,
+        isLight: false
     )
     static let violet = AppTheme(
         id: "violet", name: "Violet",
         bgTopR: 124, bgTopG: 58, bgTopB: 237, bgTopA: 0.20,
         bgBotR: 99,  bgBotG: 102,bgBotB: 241, bgBotA: 0.12,
         glowEnabled: true,
-        acR: 124, acG: 58, acB: 237, isLight: false
+        acR: 124, acG: 58, acB: 237,
+        acTextR: 124, acTextG: 58, acTextB: 237,
+        isLight: false
     )
     static let coffeeDark = AppTheme(
         id: "coffeeDark", name: "Coffee Dark",
         bgTopR: 38, bgTopG: 29, bgTopB: 26, bgTopA: 0.9,
         bgBotR: 28, bgBotG: 22, bgBotB: 20, bgBotA: 0.92,
         glowEnabled: false,
-        acR: 201, acG: 155, acB: 119, isLight: false
+        acR: 201, acG: 155, acB: 119,
+        acTextR: 201, acTextG: 155, acTextB: 119,
+        isLight: false
     )
     static let bitterDark = AppTheme(
         id: "bitterDark", name: "Bitter Dark",
         bgTopR: 13, bgTopG: 12, bgTopB: 16, bgTopA: 1.0,
         bgBotR: 21, bgBotG: 21, bgBotB: 24, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 255, acG: 35, acB: 1, isLight: false
+        acR: 255, acG: 35, acB: 1,
+        acTextR: 255, acTextG: 35, acTextB: 1,
+        isLight: false
     )
     static let coffeeLight = AppTheme(
         id: "coffeeLight", name: "Coffee Light",
         bgTopR: 248, bgTopG: 241, bgTopB: 233, bgTopA: 0.95,
         bgBotR: 239, bgBotG: 226, bgBotB: 217, bgBotA: 0.94,
         glowEnabled: false,
-        acR: 176, acG: 112, acB: 73, isLight: true
+        acR: 176, acG: 112, acB: 73,
+        acTextR: 176, acTextG: 112, acTextB: 73,
+        isLight: true
     )
     static let bitterLight = AppTheme(
         id: "bitterLight", name: "Bitter Light",
         bgTopR: 247, bgTopG: 246, bgTopB: 244, bgTopA: 1.0,
         bgBotR: 240, bgBotG: 238, bgBotB: 235, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 255, acG: 35, acB: 1, isLight: true
+        acR: 255, acG: 35, acB: 1,
+        acTextR: 255, acTextG: 35, acTextB: 1,
+        isLight: true
     )
     static let monoDark = AppTheme(
         id: "monoDark", name: "Mono Dark",
         bgTopR: 13, bgTopG: 17, bgTopB: 23, bgTopA: 1.0,
         bgBotR: 13, bgBotG: 17, bgBotB: 23, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 88, acG: 166, acB: 255, isLight: false
+        acR: 88, acG: 166, acB: 255,
+        acTextR: 88, acTextG: 166, acTextB: 255,
+        isLight: false
     )
     static let monoLight = AppTheme(
         id: "monoLight", name: "Mono Light",
         bgTopR: 246, bgTopG: 248, bgTopB: 250, bgTopA: 1.0,
         bgBotR: 246, bgBotG: 248, bgBotB: 250, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 9, acG: 105, acB: 218, isLight: true
+        acR: 9, acG: 105, acB: 218,
+        acTextR: 9, acTextG: 105, acTextB: 218,
+        isLight: true
     )
 
     // ── Grey Shades ──────────────────────────────────────────────────────────
@@ -157,7 +190,9 @@ extension AppTheme {
         bgTopR: 17,  bgTopG: 17,  bgTopB: 19,  bgTopA: 1.0,
         bgBotR: 8,   bgBotG: 8,   bgBotB: 11,  bgBotA: 1.0,
         glowEnabled: false,
-        acR: 124, acG: 124, acB: 138, isLight: false
+        acR: 124, acG: 124, acB: 138,
+        acTextR: 124, acTextG: 124, acTextB: 138,
+        isLight: false
     )
     // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
     static let iron = AppTheme(
@@ -165,7 +200,9 @@ extension AppTheme {
         bgTopR: 160, bgTopG: 32,  bgTopB: 240, bgTopA: 0.10,
         bgBotR: 244, bgBotG: 63,  bgBotB: 94,  bgBotA: 0.07,
         glowEnabled: true,
-        acR: 224, acG: 64, acB: 251, isLight: false
+        acR: 224, acG: 64, acB: 251,
+        acTextR: 224, acTextG: 64, acTextB: 251,
+        isLight: false
     )
     // Basalt — warmes Anthrazit mit leuchtendem Orange (macOS Premium Night)
     static let basalt = AppTheme(
@@ -173,7 +210,9 @@ extension AppTheme {
         bgTopR: 30,  bgTopG: 28,  bgTopB: 26,  bgTopA: 1.0,
         bgBotR: 22,  bgBotG: 20,  bgBotB: 18,  bgBotA: 1.0,
         glowEnabled: false,
-        acR: 251, acG: 146, acB: 60, isLight: false
+        acR: 251, acG: 146, acB: 60,
+        acTextR: 251, acTextG: 146, acTextB: 60,
+        isLight: false
     )
 
     static let fog = AppTheme(
@@ -181,7 +220,9 @@ extension AppTheme {
         bgTopR: 232, bgTopG: 232, bgTopB: 232, bgTopA: 1.0,
         bgBotR: 220, bgBotG: 220, bgBotB: 220, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 59, acG: 130, acB: 246, isLight: true
+        acR: 59, acG: 130, acB: 246,
+        acTextR: 59, acTextG: 130, acTextB: 246,
+        isLight: true
     )
     // Dusk — warmes Greige, Paper-Ton (Obsidian/Bear-Stil)
     static let dusk = AppTheme(
@@ -189,7 +230,9 @@ extension AppTheme {
         bgTopR: 212, bgTopG: 208, bgTopB: 202, bgTopA: 1.0,
         bgBotR: 200, bgBotG: 196, bgBotB: 190, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 124, acG: 58, acB: 237, isLight: true
+        acR: 124, acG: 58, acB: 237,
+        acTextR: 124, acTextG: 58, acTextB: 237,
+        isLight: true
     )
     // Mist — kühles Blaugrau (Notion/Linear Light-Stil)
     static let mist = AppTheme(
@@ -197,7 +240,9 @@ extension AppTheme {
         bgTopR: 205, bgTopG: 210, bgTopB: 216, bgTopA: 1.0,
         bgBotR: 191, bgBotG: 197, bgBotB: 204, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 59, acG: 130, acB: 246, isLight: true
+        acR: 59, acG: 130, acB: 246,
+        acTextR: 59, acTextG: 130, acTextB: 246,
+        isLight: true
     )
     // Cement — neutrales Mittelgrau, kein Farbstich
     static let cement = AppTheme(
@@ -205,21 +250,66 @@ extension AppTheme {
         bgTopR: 200, bgTopG: 200, bgTopB: 200, bgTopA: 1.0,
         bgBotR: 186, bgBotG: 186, bgBotB: 186, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 245, acG: 158, acB: 11, isLight: true
+        acR: 245, acG: 158, acB: 11,
+        acTextR: 245, acTextG: 158, acTextB: 11,
+        isLight: true
+    )
+    // Slate — Cool steel-blue, Linear/Raycast mid-tone feel
+    // Content: desaturated blue-steel (176,181,192) → WCAG AA ~5.1:1 with black text
+    // Sidebar: 36 pts darker, clear structural separation
+    // Accent: vivid sky-blue, saturated enough to pop on the mid-grey surface
+    static let slate = AppTheme(
+        id: "slate", name: "Slate",
+        bgTopR: 176, bgTopG: 181, bgTopB: 192, bgTopA: 1.0,
+        bgBotR: 138, bgBotG: 143, bgBotB: 156, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 37, acG: 139, acB: 242,
+        acTextR: 11, acTextG: 41, acTextB: 72,
+        isLight: false
+    )
+    // Pewter — Warm titanium-silver, Apple Pro Hardware feel
+    // Content: warm greige (182,177,170) → WCAG AA ~5.3:1 with black text
+    // Sidebar: 40 pts cooler-darker, reinforces premium layering
+    // Accent: deep amber-orange, rich against the warm grey
+    static let pewter = AppTheme(
+        id: "pewter", name: "Pewter",
+        bgTopR: 182, bgTopG: 177, bgTopB: 170, bgTopA: 1.0,
+        bgBotR: 140, bgBotG: 136, bgBotB: 130, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 234, acG: 108, acB: 19,
+        acTextR: 58, acTextG: 27, acTextB: 4,
+        isLight: false
+    )
+    // Ash — Neutral blue-grey, clean macOS / Notion feel
+    // Content: cool neutral (172,173,180) → WCAG AA ~4.9:1 with black text
+    // Sidebar: 38 pts darker, clean split without warmth or coolness bias
+    // Accent: vivid teal-mint, high saturation for visibility on neutral grey
+    static let ash = AppTheme(
+        id: "ash", name: "Ash",
+        bgTopR: 172, bgTopG: 173, bgTopB: 180, bgTopA: 1.0,
+        bgBotR: 130, bgBotG: 131, bgBotB: 140, bgBotA: 1.0,
+        glowEnabled: false,
+        acR: 16, acG: 210, acB: 176,
+        acTextR: 5, acTextG: 73, acTextB: 61,
+        isLight: false
     )
     static let stone = AppTheme(
         id: "stone", name: "Stone",
         bgTopR: 72, bgTopG: 72, bgTopB: 76, bgTopA: 1.0,
         bgBotR: 58, bgBotG: 58, bgBotB: 62, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 245, acG: 158, acB: 11, isLight: false
+        acR: 245, acG: 158, acB: 11,
+        acTextR: 245, acTextG: 158, acTextB: 11,
+        isLight: false
     )
     static let graphite = AppTheme(
         id: "graphite", name: "Graphite",
         bgTopR: 28, bgTopG: 28, bgTopB: 30, bgTopA: 1.0,
         bgBotR: 20, bgBotG: 20, bgBotB: 22, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 160, acG: 160, acB: 165, isLight: false
+        acR: 160, acG: 160, acB: 165,
+        acTextR: 160, acTextG: 160, acTextB: 165,
+        isLight: false
     )
 }
 

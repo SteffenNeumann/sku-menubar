@@ -4,6 +4,7 @@ import SwiftUI
 // MARK: - App Navigation
 
 enum AppSection: String, CaseIterable, Hashable {
+    case home        = "Home"
     case dashboard   = "Dashboard"
     case chat        = "Chat"
     case history     = "Verlauf"
@@ -17,6 +18,7 @@ enum AppSection: String, CaseIterable, Hashable {
 
     var icon: String {
         switch self {
+        case .home:       return "house.fill"
         case .dashboard:  return "square.grid.2x2.fill"
         case .chat:       return "bubble.left.and.bubble.right.fill"
         case .history:    return "clock.fill"
@@ -32,6 +34,7 @@ enum AppSection: String, CaseIterable, Hashable {
 
     var color: Color {
         switch self {
+        case .home:       return .blue
         case .dashboard:  return .blue
         case .chat:       return .green
         case .history:    return .orange
@@ -621,4 +624,37 @@ struct ActiveSessionFile: Decodable {
     let cwd: String?
     let startedAt: Double?
     let kind: String?
+}
+
+// MARK: - Home Tile Configuration
+
+enum HomeTileID: String, CaseIterable, Codable {
+    case quickActions    = "quickActions"
+    case costToday       = "costToday"
+    case recentProjects  = "recentProjects"
+    case activeSessions  = "activeSessions"
+    case agents          = "agents"
+    case tokenUsage      = "tokenUsage"
+
+    var displayName: String {
+        switch self {
+        case .quickActions:   return "Schnellzugriff"
+        case .costToday:      return "Kosten Heute"
+        case .recentProjects: return "Letzte Projekte"
+        case .activeSessions: return "Aktive Sessions"
+        case .agents:         return "Agents"
+        case .tokenUsage:     return "Token-Verbrauch"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .quickActions:   return "bolt.fill"
+        case .costToday:      return "eurosign.circle.fill"
+        case .recentProjects: return "clock.arrow.circlepath"
+        case .activeSessions: return "terminal.fill"
+        case .agents:         return "cpu.fill"
+        case .tokenUsage:     return "chart.bar.fill"
+        }
+    }
 }

@@ -315,7 +315,7 @@ struct FileExplorerView: View {
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
+                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
             .menuStyle(.borderlessButton)
@@ -332,7 +332,7 @@ struct FileExplorerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
                     .frame(width: 26, height: 26)
-                    .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
+                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
@@ -346,7 +346,7 @@ struct FileExplorerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 26, height: 26)
-                    .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 6))
+                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
@@ -1307,7 +1307,7 @@ struct ExplorerTreeRow: View {
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? theme.cardSurface : Color.clear))
+                .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? theme.hoverBg : Color.clear))
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
