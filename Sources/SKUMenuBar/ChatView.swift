@@ -1367,7 +1367,8 @@ struct SingleChatSessionView: View {
         }
 
         // Fallback model for --fallback-model CLI flag (native overload handling)
-        let fallback: String? = state.settings.copilotFallbackEnabled
+        // Only pass --fallback-model when the current model is NOT already the fallback model
+        let fallback: String? = (state.settings.copilotFallbackEnabled && model != state.settings.copilotFallbackModel)
             ? state.settings.copilotFallbackModel
             : nil
 
