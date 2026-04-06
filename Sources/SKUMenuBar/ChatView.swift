@@ -1421,16 +1421,33 @@ struct SingleChatSessionView: View {
               }.map { state.agentService.fullSystemPrompt(for: $0) }
             : nil
 
-        let stream = state.cliService.send(
-            message: message,
-            sessionId: currentSessionId,
-            systemPrompt: agentSystemPrompt,
-            model: model,
-            fallbackModel: fallback,
-            workingDirectory: workingDirectory,
-            addDirs: addDirs,
-            skipPermissions: autoApprove
-        )
+        let stream: AsyncThrowingStream<StreamEvent, Error>
+
+        if model.hasPrefix("github/") {
+            // Direkt über GitHub Models API (CLI unterstützt github/ Provider nicht)
+            let historyMsgs = messages.dropLast(2).compactMap { msg -> GitHubMessage? in
+                guard msg.role == .user || msg.role == .assistant else { return nil }
+                return GitHubMessage(role: msg.role == .user ? "user" : "assistant", content: msg.content)
+            }
+            stream = state.ghModelsService.send(
+                message: message,
+                model: model,
+                systemPrompt: agentSystemPrompt,
+                history: Array(historyMsgs),
+                githubToken: state.settings.token
+            )
+        } else {
+            stream = state.cliService.send(
+                message: message,
+                sessionId: currentSessionId,
+                systemPrompt: agentSystemPrompt,
+                model: model,
+                fallbackModel: fallback,
+                workingDirectory: workingDirectory,
+                addDirs: addDirs,
+                skipPermissions: autoApprove
+            )
+        }
 
         var pendingContent = ""
         var pendingTokenCount = 0

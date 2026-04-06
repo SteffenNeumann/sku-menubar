@@ -115,6 +115,7 @@ final class AppState: ObservableObject {
 
     // MARK: - CLI Services
     let cliService     = ClaudeCLIService()
+    let ghModelsService = GitHubModelsService()
     let historyService = ChatHistoryService()
     lazy var agentService: AgentService = AgentService(cliService: cliService)
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
