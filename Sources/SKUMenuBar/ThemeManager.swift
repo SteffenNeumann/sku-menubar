@@ -245,13 +245,14 @@ extension AppTheme {
         isLight: true
     )
     // Cement — neutrales Mittelgrau, kein Farbstich
+    // Accent: tiefes Bernstein-Orange (245→210, 158→95) — deutlich höherer Kontrast auf Hellgrau
     static let cement = AppTheme(
         id: "cement", name: "Cement",
         bgTopR: 200, bgTopG: 200, bgTopB: 200, bgTopA: 1.0,
         bgBotR: 186, bgBotG: 186, bgBotB: 186, bgBotA: 1.0,
         glowEnabled: false,
-        acR: 245, acG: 158, acB: 11,
-        acTextR: 245, acTextG: 158, acTextB: 11,
+        acR: 200, acG: 85, acB: 5,
+        acTextR: 140, acTextG: 55, acTextB: 0,
         isLight: true
     )
     // Slate — Cool steel-blue, Linear/Raycast mid-tone feel

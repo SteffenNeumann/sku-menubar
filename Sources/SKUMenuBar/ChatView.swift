@@ -166,6 +166,7 @@ struct SingleChatSessionView: View {
     @State private var showOrchPicker     = false
     @State private var showSnippetPicker  = false
     @State private var showPermPicker     = false
+    @State private var showSlashMenu      = false
     @State private var showSnippetSheet   = false
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
@@ -190,6 +191,25 @@ struct SingleChatSessionView: View {
     private var orchestratorMode: Bool { !selectedOrchestrators.isEmpty }
 
     private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+
+    private struct SlashCommand {
+        let name: String
+        let description: String
+    }
+
+    private let slashCommands: [SlashCommand] = [
+        .init(name: "/clear",   description: "Chat-Verlauf löschen"),
+        .init(name: "/new",     description: "Neue Session starten"),
+        .init(name: "/compact", description: "Konversation komprimieren"),
+        .init(name: "/model",   description: "Modell wechseln"),
+        .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
+    ]
+
+    private var filteredSlashCommands: [SlashCommand] {
+        let q = inputText.lowercased()
+        if q == "/" { return slashCommands }
+        return slashCommands.filter { $0.name.lowercased().hasPrefix(q) }
+    }
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -601,6 +621,54 @@ struct SingleChatSessionView: View {
         return hasContent && !isStreaming
     }
 
+    // Medium themes (Slate/Pewter/Ash) sit on a mid-grey surface — use a clearly separated solid
+    // background so the slash menu has enough contrast. Dark and light themes use their existing cardBg.
+    private var slashMenuBg: Color {
+        theme.isMedium ? Color(NSColor.windowBackgroundColor).opacity(0.96) : theme.cardBg
+    }
+    private var slashMenuBorder: Color {
+        theme.isMedium ? Color(white: 0, opacity: 0.22) : theme.cardBorder
+    }
+    // Description text: ensure sufficient contrast on medium themes
+    private var slashDescColor: Color {
+        theme.isMedium ? Color(white: 0.18) : theme.secondaryText
+    }
+
+    private var slashMenuView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(filteredSlashCommands.enumerated()), id: \.offset) { idx, cmd in
+                Button {
+                    inputText = cmd.name
+                    showSlashMenu = false
+                    sendMessage()
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(cmd.name)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(accentColor)
+                        Text(cmd.description)
+                            .font(.system(size: 11))
+                            .foregroundStyle(slashDescColor)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                }
+                .buttonStyle(.plain)
+                if idx < filteredSlashCommands.count - 1 {
+                    Rectangle().fill(slashMenuBorder.opacity(0.6)).frame(height: 0.5)
+                        .padding(.horizontal, 6)
+                }
+            }
+        }
+        .background(slashMenuBg)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(slashMenuBorder, lineWidth: 0.5))
+        .shadow(color: .black.opacity(theme.isMedium ? 0.18 : 0.25), radius: 6, x: 0, y: -2)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
+    }
+
     private var inputBar: some View {
         VStack(spacing: 0) {
             // File attachment chips
@@ -611,6 +679,12 @@ struct SingleChatSessionView: View {
                     }
                     .padding(.horizontal, 12).padding(.top, 8)
                 }
+            }
+
+            // Slash command suggestions
+            if showSlashMenu && !filteredSlashCommands.isEmpty {
+                slashMenuView
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
             // Text + send
@@ -631,8 +705,26 @@ struct SingleChatSessionView: View {
                         .scrollContentBackground(.hidden)
                         .background(.clear)
                         .focused($inputFocused)
+                        .onChange(of: inputText) {
+                            let startsWithSlash = inputText.hasPrefix("/")
+                            let hasSpace = inputText.contains(" ")
+                            showSlashMenu = startsWithSlash && !hasSpace
+                        }
                         .onKeyPress(.return) {
                             if NSEvent.modifierFlags.contains(.shift) { return .ignored }
+                            if showSlashMenu, let first = filteredSlashCommands.first {
+                                // If the typed text exactly matches a command, execute it directly
+                                let typed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if typed == first.name || filteredSlashCommands.count == 1 {
+                                    inputText = first.name
+                                    showSlashMenu = false
+                                    sendMessage()
+                                } else {
+                                    inputText = first.name + " "
+                                    showSlashMenu = false
+                                }
+                                return .handled
+                            }
                             guard canSend else { return .handled }
                             sendMessage(); return .handled
                         }
@@ -1162,12 +1254,40 @@ struct SingleChatSessionView: View {
         return parts.joined(separator: "\n\n")
     }
 
+    @discardableResult
+    private func handleSlashCommand(_ cmd: String) -> Bool {
+        let lower = cmd.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        inputText = ""
+        showSlashMenu = false
+        switch lower {
+        case "/clear", "/new":
+            newSession()
+            return true
+        case "/model":
+            showModelPicker = true
+            return true
+        case "/help":
+            let helpText = slashCommands
+                .map { "**\($0.name)** — \($0.description)" }
+                .joined(separator: "\n")
+            messages.append(ChatMessage(role: .assistant, content: "**Verfügbare Slash-Befehle:**\n\n\(helpText)"))
+            return true
+        default:
+            // /compact and unknown commands pass through to Claude
+            return false
+        }
+    }
+
     private func sendMessage() {
         if orchestratorMode && !selectedOrchestrators.isEmpty {
             sendOrchestrator()
             return
         }
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Handle slash commands before normal send
+        if text.hasPrefix("/"), !text.contains(" ") || text == "/compact" {
+            if handleSlashCommand(text) { return }
+        }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
         // Prompt for working directory before first message of a new session
@@ -1349,6 +1469,14 @@ struct SingleChatSessionView: View {
                         }
                         isStreaming = false
                         return
+                    }
+
+                    // If CLI intercepted the message as a slash command (e.g. unknown skill),
+                    // it may return text only in result.result without an assistant event.
+                    if let resultText = event.result, !resultText.isEmpty,
+                       messages.indices.contains(assistantIndex),
+                       messages[assistantIndex].content.isEmpty {
+                        messages[assistantIndex].content = resultText
                     }
 
                     state.lastChatProvider = source

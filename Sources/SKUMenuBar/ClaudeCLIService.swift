@@ -33,7 +33,11 @@ final class ClaudeCLIService: ObservableObject {
                 }
 
                 if let sid = sessionId, !sid.isEmpty {
-                    args += ["--resume", sid]
+                    // Use --continue instead of --resume to avoid "no deferred tool marker" error
+                    // (--resume is for resuming interrupted tool calls; --continue continues the
+                    //  most recent session in the current working directory)
+                    _ = sid
+                    args += ["--continue"]
                 }
                 if let sp = systemPrompt, !sp.isEmpty {
                     args += ["--system-prompt", sp]

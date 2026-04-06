@@ -10,44 +10,15 @@ struct MarkdownTextView: View {
 
     var body: some View {
         let segments = parseSegments(text)
-        let hasCode = segments.contains { if case .code = $0 { return true }; return false }
 
-        if hasCode {
-            // Two-column layout: text left, code blocks right
-            HStack(alignment: .top, spacing: 0) {
-                // Left: text segments only
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                        if case .text(let t) = segment {
-                            textSegmentView(t)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                // Divider
-                Rectangle()
-                    .fill(theme.cardBorder.opacity(0.6))
-                    .frame(width: 0.5)
-                    .padding(.horizontal, 8)
-
-                // Right: code blocks only
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                        if case .code(let lang, let code) = segment {
-                            codeBlock(language: lang, code: code)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-        } else {
-            // Single-column layout when no code
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    if case .text(let t) = segment {
-                        textSegmentView(t)
-                    }
+        // Single-column layout: text and code blocks appear in order
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let t):
+                    textSegmentView(t)
+                case .code(let lang, let code):
+                    codeBlock(language: lang, code: code)
                 }
             }
         }
