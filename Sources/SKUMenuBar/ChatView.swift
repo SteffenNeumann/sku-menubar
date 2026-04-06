@@ -1355,7 +1355,8 @@ struct SingleChatSessionView: View {
         assistantIndex: Int,
         model: String,
         agentOverride: String? = nil,
-        addDirs: [String] = []
+        addDirs: [String] = [],
+        isFallbackAttempt: Bool = false
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
@@ -1458,9 +1459,29 @@ struct SingleChatSessionView: View {
                         let eventResult = event.result ?? ""
                         let combined = (contentText + " " + eventResult).lowercased()
 
-                        if combined.contains("limit") || combined.contains("overloaded") ||
-                           combined.contains("quota") || combined.contains("529") || combined.contains("429") {
+                        let isRateLimit = combined.contains("limit") || combined.contains("overloaded") ||
+                            combined.contains("quota") || combined.contains("529") || combined.contains("429")
+
+                        if isRateLimit {
                             state.claudeRateLimitActive = true
+                            // Auto-Retry mit Fallback-Modell wenn aktiviert und noch kein Fallback-Versuch
+                            if state.settings.copilotFallbackEnabled && !isFallbackAttempt {
+                                if messages.indices.contains(assistantIndex) {
+                                    messages[assistantIndex].content = ""
+                                    messages[assistantIndex].toolCalls = []
+                                    messages[assistantIndex].source = inferredSource(from: state.settings.copilotFallbackModel)
+                                    messages[assistantIndex].model = nil
+                                }
+                                await performSend(
+                                    message: message,
+                                    assistantIndex: assistantIndex,
+                                    model: state.settings.copilotFallbackModel,
+                                    agentOverride: agentOverride,
+                                    addDirs: addDirs,
+                                    isFallbackAttempt: true
+                                )
+                                return
+                            }
                         }
 
                         errorMessage = contentText.isEmpty ? (eventResult.isEmpty ? "Claude returned an error" : eventResult) : contentText
@@ -1490,10 +1511,30 @@ struct SingleChatSessionView: View {
             print("⚠️ performSend error: \(error.localizedDescription)")
             let errText = error.localizedDescription.lowercased()
 
+            let isRateLimit = errText.contains("limit") || errText.contains("overloaded") ||
+                errText.contains("quota") || errText.contains("529") || errText.contains("429")
+
             // Track rate-limit for UI
-            if errText.contains("limit") || errText.contains("overloaded") ||
-               errText.contains("quota") || errText.contains("529") || errText.contains("429") {
+            if isRateLimit {
                 state.claudeRateLimitActive = true
+                // Auto-Retry mit Fallback-Modell wenn aktiviert und noch kein Fallback-Versuch
+                if state.settings.copilotFallbackEnabled && !isFallbackAttempt {
+                    if messages.indices.contains(assistantIndex) {
+                        messages[assistantIndex].content = ""
+                        messages[assistantIndex].toolCalls = []
+                        messages[assistantIndex].source = inferredSource(from: state.settings.copilotFallbackModel)
+                        messages[assistantIndex].model = nil
+                    }
+                    await performSend(
+                        message: message,
+                        assistantIndex: assistantIndex,
+                        model: state.settings.copilotFallbackModel,
+                        agentOverride: agentOverride,
+                        addDirs: addDirs,
+                        isFallbackAttempt: true
+                    )
+                    return
+                }
             }
 
             errorMessage = error.localizedDescription
