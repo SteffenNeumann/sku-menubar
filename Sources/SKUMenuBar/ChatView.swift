@@ -191,6 +191,7 @@ struct SingleChatSessionView: View {
     private var orchestratorMode: Bool { !selectedOrchestrators.isEmpty }
 
     private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+    private let copilotModels = KnownModel.all.filter { $0.apiName.hasPrefix("github/") }
 
     private struct SlashCommand {
         let name: String
@@ -821,6 +822,16 @@ struct SingleChatSessionView: View {
         PickerRowView(label: label, selected: selected, accent: accentColor, fg: theme.primaryText, action: action)
     }
 
+    private func pickerSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(theme.tertiaryText)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // Multi-select row for orchestrator (hover-capable)
     private func orchRow(label: String, selected: Bool, action: @escaping () -> Void) -> some View {
         OrchRowView(label: label, selected: selected, accent: accentColor, fg: theme.primaryText, secondary: theme.tertiaryText, action: action)
@@ -867,9 +878,19 @@ struct SingleChatSessionView: View {
                 active: false,
                 isPresented: $showModelPicker
             ) {
+                // Claude (Anthropic)
+                pickerSectionHeader("Claude (Anthropic)")
                 ForEach(models, id: \.self) { m in
                     pickerRow(label: m, selected: m == selectedModel) {
                         selectedModel = m
+                        showModelPicker = false
+                    }
+                }
+                // GitHub Copilot
+                pickerSectionHeader("GitHub Copilot")
+                ForEach(copilotModels) { m in
+                    pickerRow(label: m.name, selected: m.apiName == selectedModel) {
+                        selectedModel = m.apiName
                         showModelPicker = false
                     }
                 }
