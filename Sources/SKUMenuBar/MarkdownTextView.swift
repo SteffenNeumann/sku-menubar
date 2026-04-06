@@ -289,7 +289,7 @@ struct MarkdownTextView: View {
 
     private func regularCodeBlock(language: String, code: String, isDark: Bool) -> some View {
         let lineCount = code.components(separatedBy: "\n").count
-        let blockHeight = min(CGFloat(lineCount) * 17 + 8, 380)
+        let blockHeight = CGFloat(lineCount) * 17 + 28
 
         return VStack(alignment: .leading, spacing: 0) {
             // Header bar
@@ -336,7 +336,7 @@ struct MarkdownTextView: View {
         let lines = code.components(separatedBy: "\n")
         let additions = lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
         let deletions = lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
-        let blockHeight = min(CGFloat(lines.count) * 17 + 8, 380)
+        let blockHeight = CGFloat(lines.count) * 17 + 28
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
@@ -363,15 +363,12 @@ struct MarkdownTextView: View {
                 ? Color(red: 0.13, green: 0.14, blue: 0.16)
                 : Color(red: 0.88, green: 0.88, blue: 0.90))
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        diffLine(line, isDark: isDark)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    diffLine(line, isDark: isDark)
                 }
-                .frame(maxWidth: .infinity)
             }
-            .frame(height: blockHeight)
+            .frame(maxWidth: .infinity, minHeight: blockHeight)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(
