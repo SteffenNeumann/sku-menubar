@@ -41,8 +41,42 @@ final class AppState: ObservableObject {
     @Published var claudeLastUpdate: Date?
 
     // Copilot Fallback state
-    @Published var claudeRateLimitActive: Bool = false
+    @Published var claudeRateLimitActive: Bool = false {
+        didSet {
+            if claudeRateLimitActive {
+                // Persist: default expiry 30 days, updated when parseRateLimitExpiry() is called
+                if ud.double(forKey: rateLimitExpiryKey) < Date().timeIntervalSince1970 {
+                    let fallback = Date().addingTimeInterval(30 * 24 * 3600).timeIntervalSince1970
+                    ud.set(fallback, forKey: rateLimitExpiryKey)
+                }
+                ud.set(true, forKey: rateLimitActiveKey)
+            } else {
+                ud.set(false, forKey: rateLimitActiveKey)
+                ud.set(0.0,   forKey: rateLimitExpiryKey)
+            }
+        }
+    }
     @Published var lastChatProvider: ChatProviderSource? = nil
+
+    /// Parse the expiry date from a rate-limit error message and persist it.
+    func parseRateLimitExpiry(from errorText: String) {
+        // "You will regain access on 2026-05-01 at 00:00 UTC."
+        let pattern = #"(\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}) UTC"#
+        if let range = errorText.range(of: pattern, options: .regularExpression) {
+            let match = String(errorText[range])
+            let parts = match.components(separatedBy: " at ")
+            if parts.count == 2 {
+                let datePart = parts[0]
+                let timePart = parts[1].replacingOccurrences(of: " UTC", with: "")
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd HH:mm"
+                fmt.timeZone = TimeZone(identifier: "UTC")
+                if let expiry = fmt.date(from: "\(datePart) \(timePart)") {
+                    ud.set(expiry.timeIntervalSince1970, forKey: rateLimitExpiryKey)
+                }
+            }
+        }
+    }
 
     // MARK: - Chat Tab State (persisted here so it survives window close/reopen)
     @Published var chatTabs: [ChatTab] = [ChatTab(title: "Chat 1")]
@@ -112,11 +146,23 @@ final class AppState: ObservableObject {
     private let notesKey          = "notes_v1"
     private let homeTilesKey      = "home_tiles_v1"
     private let claudeDailyKey    = "claude_daily_by_date_v1"
+    private let rateLimitActiveKey = "claude_rate_limit_active_v1"
+    private let rateLimitExpiryKey = "claude_rate_limit_expiry_v1"
     private var timer:      Timer?
     private var usageTimer: Timer?
 
     // MARK: - Init
     init() {
+        // Restore persisted rate-limit state (check expiry)
+        let savedActive = ud.bool(forKey: rateLimitActiveKey)
+        let expiry      = ud.double(forKey: rateLimitExpiryKey)
+        if savedActive && (expiry == 0 || expiry > Date().timeIntervalSince1970) {
+            claudeRateLimitActive = true
+        } else if expiry > 0 && expiry <= Date().timeIntervalSince1970 {
+            // Expiry passed — clear
+            ud.set(false, forKey: rateLimitActiveKey)
+            ud.set(0.0,   forKey: rateLimitExpiryKey)
+        }
         load()
         loadClaudeDaily()
         loadSnippets()

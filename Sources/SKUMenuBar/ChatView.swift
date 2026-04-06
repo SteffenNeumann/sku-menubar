@@ -376,6 +376,8 @@ struct SingleChatSessionView: View {
                 selectedModel = tab.model
                 selectedAgent = tab.agentId
             }
+            // Proaktiv: wenn Claude-Limit aktiv + Fallback konfiguriert → Copilot-Modell setzen
+            applyFallbackModelIfNeeded()
         }
         // Sync messages back to tab only when NOT streaming to avoid
         // parent re-renders on every streaming token (input lag fix)
@@ -392,6 +394,10 @@ struct SingleChatSessionView: View {
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
         .onChange(of: workingDirectory) { tab.workingDirectory = workingDirectory }
+        // Wenn Rate-Limit-Status sich ändert → Modell live umschalten
+        .onChange(of: state.claudeRateLimitActive) {
+            applyFallbackModelIfNeeded()
+        }
         .onChange(of: state.pendingChatNewProject) {
             guard let path = state.pendingChatNewProject else { return }
             state.pendingChatNewProject = nil
@@ -1109,6 +1115,18 @@ struct SingleChatSessionView: View {
         }
     }
 
+    /// Setzt selectedModel auf das Copilot-Fallback-Modell wenn Claude-Limit aktiv ist.
+    /// Wird bei onAppear und onChange(claudeRateLimitActive) aufgerufen.
+    private func applyFallbackModelIfNeeded() {
+        guard state.settings.copilotFallbackEnabled else { return }
+        if state.claudeRateLimitActive {
+            let fallback = state.settings.copilotFallbackModel
+            if selectedModel != fallback {
+                selectedModel = fallback
+            }
+        }
+    }
+
     // MARK: - Orchestrator: run multiple agents in parallel
 
     private func sendOrchestrator() {
@@ -1465,6 +1483,8 @@ struct SingleChatSessionView: View {
 
                         if isRateLimit {
                             state.claudeRateLimitActive = true
+                            // Ablaufdatum aus Fehlermeldung extrahieren und speichern
+                            state.parseRateLimitExpiry(from: contentText + " " + eventResult)
                             // Auto-Retry mit Fallback-Modell wenn aktiviert und noch kein Fallback-Versuch
                             if state.settings.copilotFallbackEnabled && !isFallbackAttempt {
                                 if messages.indices.contains(assistantIndex) {
