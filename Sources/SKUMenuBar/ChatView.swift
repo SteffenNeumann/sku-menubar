@@ -86,8 +86,16 @@ struct ChatView: View {
             .padding(.horizontal, 8)
         }
         .frame(height: 36)
-        .background(theme.windowBg)
-        .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .bottom)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            // Gradient separator — fades from cardBorder to transparent
+            LinearGradient(
+                colors: [theme.cardBorder.opacity(0.7), theme.cardBorder.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 0.5)
+        }
     }
 
     private func tabButton(index: Int) -> some View {
@@ -121,14 +129,16 @@ struct ChatView: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? accentColor.opacity(0.12) : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isSelected ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
-        )
+        .background(Color.clear)
+        .overlay(alignment: .bottom) {
+            // 2px accent underline for active tab
+            if isSelected {
+                accentColor
+                    .frame(height: 2)
+                    .clipShape(RoundedRectangle(cornerRadius: 1))
+                    .padding(.horizontal, 6)
+            }
+        }
         .onTapGesture { state.selectedChatTabIndex = index }
         .frame(maxWidth: 160)
     }

@@ -362,7 +362,15 @@ struct FileExplorerView: View {
             .help("Im Finder öffnen")
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(theme.windowBg)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            LinearGradient(
+                colors: [theme.cardBorder.opacity(0.6), theme.cardBorder.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 0.5)
+        }
     }
 
     // MARK: - Tree Panel
