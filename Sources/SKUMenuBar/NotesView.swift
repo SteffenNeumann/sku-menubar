@@ -67,7 +67,6 @@ struct NotesView: View {
             // Left: list
             VStack(spacing: 0) {
                 headerBar
-                Divider().foregroundStyle(theme.cardBorder)
                 filterBar
                 Divider().foregroundStyle(theme.cardBorder)
                 noteList
@@ -118,8 +117,6 @@ struct NotesView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(accentColor)
                         .frame(width: 28, height: 28)
-                        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
                 .help("Neue Notiz")
@@ -132,8 +129,6 @@ struct NotesView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(accentColor)
                         .frame(width: 28, height: 28)
-                        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
                 .help("Neue Aufgabe")
@@ -145,14 +140,16 @@ struct NotesView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(accentColor)
                     .frame(width: 28, height: 28)
-                    .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             .help("Tags verwalten")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background(theme.windowBg)
+        .overlay(alignment: .bottom) {
+            theme.cardBorder.opacity(0.5).frame(height: 0.5)
+        }
     }
 
     // MARK: - Filter bar

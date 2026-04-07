@@ -208,7 +208,6 @@ struct FileExplorerView: View {
             if showFileTree {
                 VStack(spacing: 0) {
                     toolbar
-                    Divider().foregroundStyle(theme.cardBorder)
                     treePanel
                 }
                 .frame(width: treePanelWidth)
@@ -324,8 +323,7 @@ struct FileExplorerView: View {
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                .background(Color.clear)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -341,8 +339,6 @@ struct FileExplorerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
                     .frame(width: 26, height: 26)
-                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             .help("Versteckte Dateien")
@@ -355,21 +351,14 @@ struct FileExplorerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 26, height: 26)
-                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             .help("Im Finder öffnen")
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(theme.windowBg)
         .overlay(alignment: .bottom) {
-            LinearGradient(
-                colors: [theme.cardBorder.opacity(0.6), theme.cardBorder.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 0.5)
+            theme.cardBorder.opacity(0.5).frame(height: 0.5)
         }
     }
 
