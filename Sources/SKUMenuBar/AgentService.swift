@@ -583,6 +583,30 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                     }
                 case "result":
                     if let r = event.result, !r.isEmpty { resultText = r }
+                    // Detect rate-limit in result payload → switch to Copilot fallback
+                    if event.isError == true {
+                        let combined = ((event.result ?? "") + " " + (event.error ?? "") + " " + outputText).lowercased()
+                        if isRateLimitText(combined) {
+                            appState?.parseRateLimitExpiry(from: combined)
+                            appState?.claudeRateLimitActive = true
+                            if !rateLimitActive {
+                                // Retry with Copilot
+                                liveOutput.removeValue(forKey: agent.id)
+                                runningAgents.remove(agent.id)
+                                entry.status = .running
+                                entry.error  = ""
+                                await executeScheduledAgentViaCopilot(agent, entry: &entry)
+                                let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
+                                appendLearningEntry(for: agent, status: entry.status, learned: learnedR)
+                                liveOutput.removeValue(forKey: agent.id)
+                                runningAgents.remove(agent.id)
+                                updateEntry(entry)
+                                return
+                            }
+                        }
+                    }
+                case "rate_limit_event":
+                    appState?.claudeRateLimitActive = true
                 default:
                     break
                 }
@@ -606,6 +630,23 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 entry.finishedAt = Date()
             }
         } catch {
+            let errText = error.localizedDescription.lowercased()
+            if !rateLimitActive, isRateLimitText(errText) {
+                // Rate-limit hit via throw → mark + retry with Copilot
+                appState?.parseRateLimitExpiry(from: error.localizedDescription)
+                appState?.claudeRateLimitActive = true
+                liveOutput.removeValue(forKey: agent.id)
+                runningAgents.remove(agent.id)
+                entry.status = .running
+                entry.error  = ""
+                await executeScheduledAgentViaCopilot(agent, entry: &entry)
+                let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
+                appendLearningEntry(for: agent, status: entry.status, learned: learnedR)
+                liveOutput.removeValue(forKey: agent.id)
+                runningAgents.remove(agent.id)
+                updateEntry(entry)
+                return
+            }
             entry.status = .failed
             entry.error  = error.localizedDescription
             // Preserve whatever output was collected before the failure
@@ -623,6 +664,59 @@ Do not ask for confirmation. Just write the file silently as part of your work.
         liveOutput.removeValue(forKey: agent.id)
         runningAgents.remove(agent.id)
         updateEntry(entry)
+    }
+    // MARK: - Rate-limit helpers
+
+    private func isRateLimitText(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("usage limits") || t.contains("rate_limit") ||
+               t.contains("rate limit")   || t.contains("overloaded") ||
+               t.contains("quota")        || t.contains(" 529")       ||
+               t.contains(" 429")         || t.contains("regain access")
+    }
+
+    /// Runs the agent via GitHub Copilot API (used as rate-limit fallback).
+    private func executeScheduledAgentViaCopilot(_ agent: AgentDefinition, entry: inout ScheduledTaskLogEntry) async {
+        runningAgents.insert(agent.id)
+        liveOutput[agent.id] = ""
+
+        let timeoutSeconds: TimeInterval = TimeInterval(agent.timeoutMinutes * 60)
+        let fallbackModel = agent.model.hasPrefix("github/") ? agent.model : Self.copilotFallbackModel
+        let token = appState?.settings.token ?? ""
+
+        let preamble = buildContextPreamble(for: agent)
+        let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+
+        var outputText = ""
+        do {
+            let stream = ghModelsService.send(
+                message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
+                model: fallbackModel,
+                systemPrompt: instructions.isEmpty ? nil : instructions,
+                history: [],
+                githubToken: token
+            )
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            for try await event in stream {
+                if Date() > deadline { break }
+                if event.type == "assistant", let contents = event.message?.content {
+                    for c in contents where c.type == "text" {
+                        let chunk = c.text ?? ""
+                        outputText += chunk
+                        liveOutput[agent.id] = outputText
+                    }
+                }
+            }
+            entry.status    = .success
+            entry.output    = outputText
+            entry.finishedAt = Date()
+        } catch {
+            entry.status    = .failed
+            entry.error     = "[Copilot Fallback] \(error.localizedDescription)"
+            entry.output    = outputText
+            entry.finishedAt = Date()
+        }
     }
 }
 
