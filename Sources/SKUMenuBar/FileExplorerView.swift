@@ -356,9 +356,10 @@ struct FileExplorerView: View {
             .help("Im Finder öffnen")
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(theme.windowBg)
+        .frame(minHeight: 40)
+        .background(theme.cardBg.opacity(0.4))
         .overlay(alignment: .bottom) {
-            theme.cardBorder.opacity(0.5).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
         }
     }
 
@@ -560,7 +561,8 @@ struct FileExplorerView: View {
                         }
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(theme.windowBg)
+                    .frame(minHeight: 48)
+                    .background(theme.cardBg.opacity(0.4))
 
                     Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 

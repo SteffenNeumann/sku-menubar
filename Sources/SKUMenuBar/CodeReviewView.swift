@@ -181,6 +181,8 @@ struct CodeReviewView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+            .frame(minHeight: 40)
+            .background(theme.cardBg.opacity(0.4))
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
@@ -475,6 +477,8 @@ struct CodeReviewView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .frame(minHeight: 48)
+        .background(theme.cardBg.opacity(0.4))
     }
 
     private var canReview: Bool {

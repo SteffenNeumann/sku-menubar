@@ -146,9 +146,10 @@ struct NotesView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(theme.windowBg)
+        .frame(minHeight: 40)
+        .background(theme.cardBg.opacity(0.4))
         .overlay(alignment: .bottom) {
-            theme.cardBorder.opacity(0.5).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
         }
     }
 
