@@ -426,13 +426,13 @@ struct NotesView: View {
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isSelected
-                        ? accentColor.opacity(0.12)
-                        : noteTypeColor(note.type).opacity(0.05))
+                        ? theme.primaryText.opacity(0.08)
+                        : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(
-                        isSelected ? accentColor.opacity(0.3) : noteTypeColor(note.type).opacity(0.15),
+                        isSelected ? theme.primaryText.opacity(0.14) : noteTypeColor(note.type).opacity(0.12),
                         lineWidth: 0.5)
             )
             .overlay(alignment: .leading) {
@@ -611,18 +611,20 @@ struct NoteEditorView: View {
                 } label: {
                     Group {
                         if showPreview {
-                            NotesPencilIcon(color: accentColor)
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(theme.secondaryText)
                         } else {
                             Image(systemName: "book.pages")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(theme.tertiaryText)
+                                .foregroundStyle(theme.secondaryText)
                         }
                     }
                     .frame(width: 28, height: 28)
-                    .background(showPreview ? accentColor.opacity(0.12) : Color.clear,
+                    .background(theme.primaryText.opacity(0.06),
                                 in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(showPreview ? accentColor.opacity(0.3) : Color.clear,
+                        .strokeBorder(theme.primaryText.opacity(0.08),
                                       lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
