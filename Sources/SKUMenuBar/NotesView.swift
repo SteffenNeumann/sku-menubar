@@ -525,8 +525,6 @@ struct NoteEditorView: View {
             // Type + title
             editorHeader
 
-            Divider().foregroundStyle(theme.cardBorder)
-
             // Body: Checkliste für Tasks, Freitext/Preview für Notizen
             if note.type == .task {
                 TaskLinesEditorView(lines: $note.taskLines, theme: theme, accent: accentColor)
@@ -644,6 +642,11 @@ struct NoteEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(minHeight: 48)
+        .background(theme.cardBg.opacity(0.4))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+        }
     }
 
     // MARK: - Footer

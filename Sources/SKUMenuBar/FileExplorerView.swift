@@ -636,15 +636,33 @@ struct FileExplorerView: View {
                     }
                 }
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(accentColor.opacity(0.3))
-                    Text("Datei oder Ordner auswählen")
-                        .font(.system(size: 13))
-                        .foregroundStyle(theme.tertiaryText)
+                VStack(spacing: 0) {
+                    // Empty state header — same pattern as file header
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                        Text("Vorschau")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.secondaryText)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(minHeight: 48)
+                    .background(theme.cardBg.opacity(0.4))
+
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+                    VStack(spacing: 12) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(accentColor.opacity(0.3))
+                        Text("Datei oder Ordner auswählen")
+                            .font(.system(size: 13))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(theme.windowBg)
