@@ -10,10 +10,13 @@ final class AgentService: ObservableObject {
 
     private let home = NSHomeDirectory()
     private weak var cliService: ClaudeCLIService?
+    private weak var appState: AppState?
+    private let ghModelsService = GitHubModelsService()
     private var schedulerTimer: Timer?
 
-    init(cliService: ClaudeCLIService? = nil) {
+    init(cliService: ClaudeCLIService? = nil, appState: AppState? = nil) {
         self.cliService = cliService
+        self.appState   = appState
     }
 
     var agentsDir: URL {
@@ -500,8 +503,15 @@ Do not ask for confirmation. Just write the file silently as part of your work.
 
     // MARK: - Execute scheduled agent
 
+    /// Fallback model used when Claude rate limit is active.
+    private static let copilotFallbackModel = "github/claude-sonnet-4-5"
+
     func executeScheduledAgent(_ agent: AgentDefinition) async {
-        guard let cli = cliService else {
+        let rateLimitActive = appState?.claudeRateLimitActive == true
+        let cliAvailable    = cliService != nil
+
+        // Need either CLI (no rate limit) or rate-limit-fallback via Copilot
+        if !rateLimitActive, !cliAvailable {
             var entry = ScheduledTaskLogEntry(
                 agentId: agent.id, startedAt: Date(), status: .failed, error: "CLI-Service nicht verfügbar."
             )
@@ -529,13 +539,31 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 instructions = preamble + "\n\n---\n\n" + body
             }
 
-            let stream = cli.send(
-                message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
-                systemPrompt: instructions.isEmpty ? nil : instructions,
-                model: agent.model.isEmpty ? nil : agent.model,
-                workingDirectory: agent.projectDirectory,
-                skipPermissions: true
-            )
+            let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
+
+            // Choose backend: Copilot when rate-limited, otherwise CLI
+            let stream: AsyncThrowingStream<StreamEvent, Error>
+            if rateLimitActive {
+                let fallbackModel = agent.model.hasPrefix("github/")
+                    ? agent.model
+                    : Self.copilotFallbackModel
+                let token = appState?.settings.token ?? ""
+                stream = ghModelsService.send(
+                    message: userMessage,
+                    model: fallbackModel,
+                    systemPrompt: instructions.isEmpty ? nil : instructions,
+                    history: [],
+                    githubToken: token
+                )
+            } else {
+                stream = cliService!.send(
+                    message: userMessage,
+                    systemPrompt: instructions.isEmpty ? nil : instructions,
+                    model: agent.model.isEmpty ? nil : agent.model,
+                    workingDirectory: agent.projectDirectory,
+                    skipPermissions: true
+                )
+            }
             let deadline = Date().addingTimeInterval(timeoutSeconds)
             for try await event in stream {
                 if Date() > deadline {

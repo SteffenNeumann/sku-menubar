@@ -117,7 +117,7 @@ final class AppState: ObservableObject {
     let cliService     = ClaudeCLIService()
     let ghModelsService = GitHubModelsService()
     let historyService = ChatHistoryService()
-    lazy var agentService: AgentService = AgentService(cliService: cliService)
+    lazy var agentService: AgentService = AgentService(cliService: cliService, appState: self)
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
 
     @Published var activeSessions: [ActiveCLISession] = []
