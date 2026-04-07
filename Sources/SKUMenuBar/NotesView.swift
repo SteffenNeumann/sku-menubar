@@ -13,6 +13,7 @@ struct NotesView: View {
     @Environment(\.appTheme) var theme
 
     @State private var selectedId: UUID?
+    @State private var newlyAddedId: UUID? = nil
     @State private var searchText: String = ""
     @State private var filterType: NoteType? = nil
     @State private var showingDone: Bool = false
@@ -78,7 +79,7 @@ struct NotesView: View {
 
             // Right: editor
             if let id = selectedId, let idx = state.notes.firstIndex(where: { $0.id == id }) {
-                NoteEditorView(note: $state.notes[idx])
+                NoteEditorView(note: $state.notes[idx], initialEditMode: newlyAddedId == id)
                     .id(id)
                     .environmentObject(state)
                     .environment(\.appTheme, theme)
@@ -477,6 +478,7 @@ struct NotesView: View {
         var note = NoteItem(type: type, title: "", body: "")
         if type == .task { note.taskLines = [TaskLine()] }
         state.notes.insert(note, at: 0)
+        newlyAddedId = note.id
         selectedId = note.id
     }
 
@@ -492,10 +494,7 @@ struct NotesView: View {
     }
 
     private func noteTypeColor(_ type: NoteType) -> Color {
-        switch type {
-        case .note:  return .blue
-        case .task:  return .green
-        }
+        return accentColor
     }
 
     private func noteTypeIcon(_ note: NoteItem) -> String {
@@ -511,7 +510,13 @@ struct NoteEditorView: View {
     @Environment(\.appTheme) var theme
     @EnvironmentObject var state: AppState
     @FocusState private var bodyFocused: Bool
-    @State private var showPreview: Bool = false
+    @State private var showPreview: Bool
+
+    init(note: Binding<NoteItem>, initialEditMode: Bool = false) {
+        self._note = note
+        // Neue Notiz → Edit-Modus; bestehende Notiz → Vorschau-Modus
+        self._showPreview = State(initialValue: !initialEditMode)
+    }
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -608,7 +613,9 @@ struct NoteEditorView: View {
                         if showPreview {
                             NotesPencilIcon(color: accentColor)
                         } else {
-                            NotesEyeIcon(color: theme.tertiaryText)
+                            Image(systemName: "book.pages")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(theme.tertiaryText)
                         }
                     }
                     .frame(width: 28, height: 28)
@@ -688,10 +695,7 @@ struct NoteEditorView: View {
     }
 
     private func noteTypeColor(_ type: NoteType) -> Color {
-        switch type {
-        case .note:  return .blue
-        case .task:  return .green
-        }
+        return accentColor
     }
 
     private func noteTypeMenuIcon(_ type: NoteType) -> String {

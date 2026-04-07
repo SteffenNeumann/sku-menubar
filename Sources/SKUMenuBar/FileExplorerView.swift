@@ -59,6 +59,10 @@ final class ExplorerNode: Identifiable, ObservableObject {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
+    var workspaceIcon: NSImage {
+        NSWorkspace.shared.icon(forFile: url.path)
+    }
+
     var fileExtension: String { url.pathExtension.lowercased() }
 
     var isPDF: Bool { fileExtension == "pdf" }
@@ -111,14 +115,14 @@ final class ExplorerNode: Identifiable, ObservableObject {
     }
 
     var iconColor: Color {
-        if isDirectory { return .indigo }
+        if isDirectory { return .indigo }  // overridden in view with accentColor
         switch fileExtension {
         case "swift":        return Color(red: 0.98, green: 0.45, blue: 0.20)
         case "py":           return .blue
         case "js", "jsx":   return .yellow
         case "ts", "tsx":   return Color(red: 0.17, green: 0.51, blue: 0.90)
         case "json":         return .orange
-        case "md":           return .teal
+        case "md":           return Color(red: 0.72, green: 0.52, blue: 0.35)  // warm braun
         case "sh", "bash", "zsh": return .green
         case "html":         return Color(red: 0.90, green: 0.35, blue: 0.2)
         case "css", "scss": return .purple
@@ -187,6 +191,11 @@ struct FileExplorerView: View {
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    /// Option C: Ordner → Theme-Akzentfarbe, Dateien → semantische Extension-Farbe
+    private func resolvedIconColor(_ node: ExplorerNode) -> Color {
+        node.isDirectory ? accentColor : node.iconColor
     }
 
     @State private var treePanelWidth: CGFloat = 300
@@ -429,9 +438,9 @@ struct FileExplorerView: View {
                 VStack(spacing: 0) {
                     // Preview header
                     HStack(spacing: 8) {
-                        Image(systemName: node.icon)
-                            .font(.system(size: 14))
-                            .foregroundStyle(node.iconColor)
+                        Image(nsImage: node.workspaceIcon)
+                            .resizable()
+                            .frame(width: 18, height: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(node.name)
                                 .font(.system(size: 13, weight: .semibold))
@@ -616,9 +625,10 @@ struct FileExplorerView: View {
                         }
                     } else {
                         VStack(spacing: 8) {
-                            Image(systemName: node.icon)
-                                .font(.system(size: 36))
-                                .foregroundStyle(node.iconColor.opacity(0.5))
+                            Image(nsImage: node.workspaceIcon)
+                                .resizable()
+                                .frame(width: 48, height: 48)
+                                .opacity(0.5)
                             Text("Keine Vorschau verfügbar")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
@@ -668,9 +678,9 @@ struct FileExplorerView: View {
                                 selectNode(child)
                             } label: {
                                 HStack(spacing: 8) {
-                                    Image(systemName: child.icon)
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(child.iconColor)
+                                    Image(nsImage: child.workspaceIcon)
+                                        .resizable()
+                                        .frame(width: 16, height: 16)
                                         .frame(width: 20)
                                     Text(child.name)
                                         .font(.system(size: 12))
@@ -1219,6 +1229,10 @@ struct ExplorerTreeRow: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    private func resolvedIconColor(_ node: ExplorerNode) -> Color {
+        node.isDirectory ? accentColor : node.iconColor
+    }
+
     private var isSelected: Bool { selectedNode?.id == node.id }
     private var isRenaming: Bool { renamingNode?.id == node.id }
 
@@ -1264,11 +1278,11 @@ struct ExplorerTreeRow: View {
             // Icon
             ZStack {
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
+                    .fill(isSelected ? accentColor.opacity(0.15) : Color.clear)
                     .frame(width: 22, height: 22)
-                Image(systemName: node.icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(isSelected ? accentColor : node.iconColor)
+                Image(nsImage: node.workspaceIcon)
+                    .resizable()
+                    .frame(width: 16, height: 16)
             }
 
             // Name / rename field
