@@ -124,7 +124,7 @@ extension AppTheme {
         bgBotR: 99,  bgBotG: 102,bgBotB: 241, bgBotA: 0.12,
         glowEnabled: true,
         acR: 124, acG: 58, acB: 237,
-        acTextR: 124, acTextG: 58, acTextB: 237,
+        acTextR: 167, acTextG: 139, acTextB: 250, // #A78BFA — 7.8:1 on dark bg
         isLight: false
     )
     static let coffeeDark = AppTheme(
@@ -151,7 +151,7 @@ extension AppTheme {
         bgBotR: 239, bgBotG: 226, bgBotB: 217, bgBotA: 0.94,
         glowEnabled: false,
         acR: 176, acG: 112, acB: 73,
-        acTextR: 176, acTextG: 112, acTextB: 73,
+        acTextR: 138, acTextG: 74, acTextB: 31, // #8A4A1F — 5.5:1 on cream
         isLight: true
     )
     static let bitterLight = AppTheme(
@@ -160,7 +160,7 @@ extension AppTheme {
         bgBotR: 240, bgBotG: 238, bgBotB: 235, bgBotA: 1.0,
         glowEnabled: false,
         acR: 255, acG: 35, acB: 1,
-        acTextR: 255, acTextG: 35, acTextB: 1,
+        acTextR: 192, acTextG: 26, acTextB: 0, // #C01A00 — 5.3:1 on off-white
         isLight: true
     )
     static let monoDark = AppTheme(
@@ -221,7 +221,7 @@ extension AppTheme {
         bgBotR: 220, bgBotG: 220, bgBotB: 220, bgBotA: 1.0,
         glowEnabled: false,
         acR: 59, acG: 130, acB: 246,
-        acTextR: 59, acTextG: 130, acTextB: 246,
+        acTextR: 14, acTextG: 77, acTextB: 161, // #0E4DA1 — 5.9:1 on light grey
         isLight: true
     )
     // Dusk — warmes Greige, Paper-Ton (Obsidian/Bear-Stil)
@@ -231,7 +231,7 @@ extension AppTheme {
         bgBotR: 200, bgBotG: 196, bgBotB: 190, bgBotA: 1.0,
         glowEnabled: false,
         acR: 124, acG: 58, acB: 237,
-        acTextR: 124, acTextG: 58, acTextB: 237,
+        acTextR: 90, acTextG: 30, acTextB: 140, // #5A1E8C — 6.3:1 on warm greige
         isLight: true
     )
     // Mist — kühles Blaugrau (Notion/Linear Light-Stil)
@@ -241,7 +241,7 @@ extension AppTheme {
         bgBotR: 191, bgBotG: 197, bgBotB: 204, bgBotA: 1.0,
         glowEnabled: false,
         acR: 59, acG: 130, acB: 246,
-        acTextR: 59, acTextG: 130, acTextB: 246,
+        acTextR: 14, acTextG: 77, acTextB: 161, // #0E4DA1 — 4.7:1 on blue-grey
         isLight: true
     )
     // Cement — neutrales Mittelgrau, kein Farbstich
@@ -300,7 +300,7 @@ extension AppTheme {
         bgBotR: 58, bgBotG: 58, bgBotB: 62, bgBotA: 1.0,
         glowEnabled: false,
         acR: 245, acG: 158, acB: 11,
-        acTextR: 245, acTextG: 158, acTextB: 11,
+        acTextR: 251, acTextG: 185, acTextB: 41, // #FBB929 — 4.7:1 on dark grey
         isLight: false
     )
     static let graphite = AppTheme(
