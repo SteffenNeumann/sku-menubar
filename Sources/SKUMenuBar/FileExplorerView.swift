@@ -562,9 +562,9 @@ struct FileExplorerView: View {
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .background(theme.windowBg)
 
-                    Divider().foregroundStyle(theme.cardBorder)
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
-                    // File info row
+                    // File info row — tinted like Code Review mode pills
                     HStack(spacing: 20) {
                         if !node.isDirectory {
                             infoChip(label: "Größe", value: formatSize(node.fileSize))
@@ -576,9 +576,9 @@ struct FileExplorerView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(theme.windowBg)
+                    .background(theme.cardBg.opacity(0.5))
 
-                    Divider().foregroundStyle(theme.cardBorder)
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
                     // Content area
                     if node.isDirectory {
