@@ -291,7 +291,7 @@ extension AppTheme {
         bgBotR: 130, bgBotG: 131, bgBotB: 140, bgBotA: 1.0,
         glowEnabled: false,
         acR: 16, acG: 210, acB: 176,
-        acTextR: 5, acTextG: 73, acTextB: 61,
+        acTextR: 2, acTextG: 50, acTextB: 38, // #023226 — 6.7:1 on #ACADB4
         isLight: false
     )
     static let stone = AppTheme(
