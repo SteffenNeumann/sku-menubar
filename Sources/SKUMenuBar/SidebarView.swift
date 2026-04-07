@@ -123,6 +123,7 @@ struct SidebarView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .contextMenu {
                 Button {
                     state.pendingChatNewProject = project.path
@@ -237,6 +238,7 @@ struct SidebarView: View {
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 
     // MARK: - Helpers
