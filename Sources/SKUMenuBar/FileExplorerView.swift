@@ -355,8 +355,8 @@ struct FileExplorerView: View {
             .buttonStyle(.plain)
             .help("Im Finder öffnen")
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .frame(minHeight: 40)
+        .padding(.horizontal, 10)
+        .frame(height: 48)
         .background(theme.cardBg.opacity(0.4))
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -439,16 +439,11 @@ struct FileExplorerView: View {
                         Image(nsImage: node.workspaceIcon)
                             .resizable()
                             .frame(width: 18, height: 18)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(node.name)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(theme.primaryText)
-                            Text(node.url.path)
-                                .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                        Text(node.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                            .help(node.url.path)
                         Spacer()
                         // Action buttons
                         HStack(spacing: 6) {
@@ -560,8 +555,8 @@ struct FileExplorerView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .frame(minHeight: 48)
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
                     .background(theme.cardBg.opacity(0.4))
 
                     Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -647,8 +642,8 @@ struct FileExplorerView: View {
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .frame(minHeight: 48)
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
                     .background(theme.cardBg.opacity(0.4))
 
                     Rectangle().fill(theme.cardBorder).frame(height: 0.5)
