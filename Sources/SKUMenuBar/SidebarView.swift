@@ -194,7 +194,7 @@ struct SidebarView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(isSelected
-                              ? accentColor.opacity(0.20)
+                              ? accentColor.opacity(0.30)
                               : theme.primaryText.opacity(0.06))
                         .frame(width: 26, height: 26)
                     Image(systemName: section.icon)
@@ -204,7 +204,7 @@ struct SidebarView: View {
 
                 Text(section.rawValue)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
+                    .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
 
                 Spacer()
 
@@ -233,10 +233,7 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? theme.accent : .clear)
-            )
+            .background(.clear)
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
