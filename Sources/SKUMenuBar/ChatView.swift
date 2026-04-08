@@ -1710,6 +1710,32 @@ struct SingleChatSessionView: View {
                 messages[assistantIndex].gitDiff = diff
             }
         }
+
+        // ── History sync ──────────────────────────────────────────────
+        if model.hasPrefix("github/") {
+            // GitHub Copilot chats bypass the CLI → save to ~/.claude history ourselves
+            let sid = currentSessionId ?? UUID().uuidString
+            if currentSessionId == nil { currentSessionId = sid }
+            let projPath = workingDirectory ?? NSHomeDirectory()
+            let snapshot = messages  // capture current state
+            state.historyService.saveGitHubChat(
+                sessionId: sid,
+                projectPath: projPath,
+                messages: snapshot,
+                model: model
+            )
+            // Reload after write (on background queue) completes (~300 ms)
+            Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await state.historyService.loadProjects()
+            }
+        } else {
+            // Claude CLI writes to history.jsonl itself; reload after a short delay
+            Task {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                await state.historyService.loadProjects()
+            }
+        }
     }
 
     private func fetchGitDiff(in directory: String) async -> String? {

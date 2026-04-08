@@ -32,6 +32,19 @@ struct HistoryView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                 Spacer()
+                if state.historyService.isLoading {
+                    ProgressView().scaleEffect(0.55)
+                } else {
+                    Button {
+                        Task { await state.historyService.loadProjects() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Verlauf neu laden")
+                }
             }
             .padding(.horizontal, 16)
             .frame(height: 48)

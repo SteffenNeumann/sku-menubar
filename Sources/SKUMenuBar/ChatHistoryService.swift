@@ -16,6 +16,106 @@ final class ChatHistoryService: ObservableObject {
         URL(fileURLWithPath: "\(home)/.claude/history.jsonl")
     }
 
+    // MARK: - Save GitHub Copilot chat to Claude history files
+
+    /// Writes a completed GitHub Copilot chat to ~/.claude/history.jsonl and the
+    /// matching session JSONL in ~/.claude/projects/ so it appears in HistoryView.
+    func saveGitHubChat(
+        sessionId: String,
+        projectPath: String,
+        messages: [ChatMessage],
+        model: String
+    ) {
+        Task.detached(priority: .utility) { [home = self.home] in
+            let projectsDir = URL(fileURLWithPath: "\(home)/.claude/projects")
+            let historyFile = URL(fileURLWithPath: "\(home)/.claude/history.jsonl")
+
+            // Encode project path the same way Claude CLI does: replace "/" with "-"
+            let encoded = projectPath.replacingOccurrences(of: "/", with: "-")
+            let sessionDir = projectsDir.appendingPathComponent(encoded)
+            let sessionFile = sessionDir.appendingPathComponent("\(sessionId).jsonl")
+
+            do {
+                try FileManager.default.createDirectory(at: sessionDir,
+                    withIntermediateDirectories: true)
+            } catch { return }
+
+            // Build session JSONL lines
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            var parentUuid: String? = nil
+            var sessionLines: [String] = []
+
+            for msg in messages where msg.role == .user || msg.role == .assistant {
+                let uuid = UUID().uuidString
+                let ts = iso.string(from: msg.timestamp)
+                let role = msg.role == .user ? "user" : "assistant"
+                let contentJson = (try? JSONSerialization.data(withJSONObject:
+                    [["type": "text", "text": msg.content]], options: []))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+
+                var dict: [String: Any] = [
+                    "type": role,
+                    "uuid": uuid,
+                    "timestamp": ts,
+                    "sessionId": sessionId,
+                    "cwd": projectPath,
+                    "message": [
+                        "role": role,
+                        "content": try? JSONSerialization.jsonObject(
+                            with: contentJson.data(using: .utf8) ?? Data()
+                        ) ?? []
+                    ] as [String: Any]
+                ]
+                if role == "assistant" {
+                    var msgDict = dict["message"] as! [String: Any]
+                    msgDict["model"] = model
+                    dict["message"] = msgDict
+                }
+                if let p = parentUuid { dict["parentUuid"] = p }
+                parentUuid = uuid
+
+                if let data = try? JSONSerialization.data(withJSONObject: dict),
+                   let line = String(data: data, encoding: .utf8) {
+                    sessionLines.append(line)
+                }
+            }
+
+            // Write (replace) session JSONL
+            let sessionContent = sessionLines.joined(separator: "\n") + "\n"
+            try? sessionContent.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+            // Append to history.jsonl (if entry for this sessionId not yet present)
+            let firstUserText = messages.first(where: { $0.role == .user })?.content ?? ""
+            let preview = String(firstUserText.prefix(80))
+                .components(separatedBy: "\n").first ?? ""
+            let ts = messages.first?.timestamp.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+            let histEntry: [String: Any] = [
+                "display":       preview,
+                "timestamp":     ts * 1000,
+                "project":       projectPath,
+                "sessionId":     sessionId,
+                "pastedContents": [String: String]()
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: histEntry),
+               let line = String(data: data, encoding: .utf8) {
+                // Check if sessionId already in file to avoid duplicates
+                let existing = (try? String(contentsOf: historyFile, encoding: .utf8)) ?? ""
+                if !existing.contains(sessionId) {
+                    let append = line + "\n"
+                    if let appendData = append.data(using: .utf8),
+                       let fh = try? FileHandle(forWritingTo: historyFile) {
+                        fh.seekToEndOfFile()
+                        fh.write(appendData)
+                        try? fh.close()
+                    } else {
+                        try? append.write(to: historyFile, atomically: false, encoding: .utf8)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Load projects from history.jsonl (fast path)
 
     func loadProjects() async {
