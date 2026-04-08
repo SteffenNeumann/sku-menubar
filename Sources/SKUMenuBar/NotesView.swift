@@ -63,27 +63,34 @@ struct NotesView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: list
-            VStack(spacing: 0) {
-                headerBar
-                filterBar
-                Divider().foregroundStyle(theme.cardBorder)
-                noteList
+        VStack(spacing: 0) {
+            headerBar
+
+            HStack(spacing: 0) {
+                // Left: list
+                VStack(spacing: 0) {
+                    filterBar
+                    Divider().foregroundStyle(theme.cardBorder)
+                    noteList
+                }
+                .frame(width: 260)
+                .background(theme.windowBg)
+
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+
+                // Right: editor
+                if let id = selectedId, let idx = state.notes.firstIndex(where: { $0.id == id }) {
+                    NoteEditorView(note: $state.notes[idx], initialEditMode: newlyAddedId == id)
+                        .id(id)
+                        .environmentObject(state)
+                        .environment(\.appTheme, theme)
+                } else {
+                    emptyEditor
+                }
             }
-            .frame(width: 260)
-            .background(theme.windowBg)
-
-            Rectangle().fill(theme.cardBorder).frame(width: 0.5)
-
-            // Right: editor
-            if let id = selectedId, let idx = state.notes.firstIndex(where: { $0.id == id }) {
-                NoteEditorView(note: $state.notes[idx], initialEditMode: newlyAddedId == id)
-                    .id(id)
-                    .environmentObject(state)
-                    .environment(\.appTheme, theme)
-            } else {
-                emptyEditor
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                theme.cardBorder.opacity(0.5).frame(height: 0.5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -147,10 +154,7 @@ struct NotesView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(minHeight: 40)
-        .background(theme.cardBg.opacity(0.4))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-        }
+        .background(theme.windowBg)
     }
 
     // MARK: - Filter bar

@@ -251,6 +251,9 @@ struct FileExplorerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(theme.windowBg)
+            .overlay(alignment: .top) {
+                theme.cardBorder.opacity(0.5).frame(height: 0.5)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.windowBg)
@@ -518,10 +521,7 @@ struct FileExplorerView: View {
             .frame(height: 48)
             .frame(maxWidth: .infinity)
         }
-        .background(theme.cardBg.opacity(0.4))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-        }
+        .background(theme.windowBg)
     }
 
     // MARK: - Tree Panel

@@ -22,22 +22,42 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            projectList
-                .frame(width: 220)
-
-            Divider().foregroundStyle(theme.cardBorder)
-
-            if let project = selectedProject {
-                sessionList(for: project)
-                    .frame(width: 260)
-                Divider().foregroundStyle(theme.cardBorder)
+        VStack(spacing: 0) {
+            // Unified header
+            HStack(spacing: 8) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 12))
+                    .foregroundStyle(accentColor)
+                Text("Verlauf")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .frame(height: 48)
+            .background(theme.windowBg)
 
-            if let session = selectedSession {
-                sessionDetail(for: session)
-            } else {
-                placeholderDetail
+            HStack(spacing: 0) {
+                projectList
+                    .frame(width: 220)
+
+                Divider().foregroundStyle(theme.cardBorder)
+
+                if let project = selectedProject {
+                    sessionList(for: project)
+                        .frame(width: 260)
+                    Divider().foregroundStyle(theme.cardBorder)
+                }
+
+                if let session = selectedSession {
+                    sessionDetail(for: session)
+                } else {
+                    placeholderDetail
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                theme.cardBorder.opacity(0.5).frame(height: 0.5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

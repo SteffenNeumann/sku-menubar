@@ -142,15 +142,23 @@ struct CodeReviewView: View {
     private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
 
     var body: some View {
-        HSplitView {
-            // Left: File picker + tree (collapsible)
-            if showFilePanel {
-                leftPanel
-                    .frame(minWidth: 160, idealWidth: 240, maxWidth: 400, maxHeight: .infinity)
-            }
+        VStack(spacing: 0) {
+            codeReviewHeader
 
-            // Right: Config + output
-            rightPanel
+            HSplitView {
+                // Left: File picker + tree (collapsible)
+                if showFilePanel {
+                    leftPanel
+                        .frame(minWidth: 160, idealWidth: 240, maxWidth: 400, maxHeight: .infinity)
+                }
+
+                // Right: Config + output
+                rightPanel
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                theme.cardBorder.opacity(0.5).frame(height: 0.5)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
@@ -158,34 +166,150 @@ struct CodeReviewView: View {
         }
     }
 
+    // MARK: - Unified Header
+
+    private var codeReviewHeader: some View {
+        HStack(spacing: 0) {
+            if showFilePanel {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(accentColor)
+                    Text("Dateien")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer()
+                    Button { pickDirectory() } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Verzeichnis öffnen")
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 48)
+                .frame(minWidth: 160, idealWidth: 240, maxWidth: 400)
+
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass.source.code")
+                    .font(.system(size: 12))
+                    .foregroundStyle(accentColor)
+                Text("Code Review")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5, height: 16)
+
+                Menu {
+                    ForEach(models, id: \.self) { m in
+                        Button(m) { selectedModel = m }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(selectedModel.replacingOccurrences(of: "claude-", with: ""))
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8))
+                    }
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                Toggle(isOn: $useCustomPrompt) {
+                    Text("Eigener Prompt")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+
+                Spacer()
+
+                HStack(spacing: 6) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFilePanel.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 11))
+                            .foregroundStyle(showFilePanel ? theme.secondaryText : accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showFilePanel ? "Dateien ausblenden" : "Dateien einblenden")
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.squares.left")
+                            .font(.system(size: 11))
+                            .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
+                }
+
+                if !reviewOutput.isEmpty {
+                    Button {
+                        reviewOutput = ""
+                        inputTokens = 0
+                        outputTokens = 0
+                        costUsd = 0
+                        errorMessage = nil
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Ergebnis löschen")
+                }
+
+                Button { startReview() } label: {
+                    HStack(spacing: 5) {
+                        if isReviewing {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .controlSize(.mini)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 10))
+                        }
+                        Text(isReviewing ? "Analysiere…" : "Review starten")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(canReview ? .white : theme.tertiaryText)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(
+                        canReview
+                            ? LinearGradient(colors: [accentColor, accentColor.opacity(0.8)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing)
+                            : LinearGradient(colors: [theme.cardBorder, theme.cardBorder],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 7)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canReview || isReviewing)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+        }
+        .background(theme.windowBg)
+    }
+
     // MARK: - Left panel
 
     private var leftPanel: some View {
         VStack(spacing: 0) {
-            // Header + directory picker
-            HStack(spacing: 8) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(accentColor)
-                Text("Dateien")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                Spacer()
-                Button { pickDirectory() } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(accentColor)
-                }
-                .buttonStyle(.plain)
-                .help("Verzeichnis öffnen")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(minHeight: 40)
-            .background(theme.cardBg.opacity(0.4))
-
-            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-
             if fileTree.isEmpty {
                 Spacer()
                 VStack(spacing: 10) {
@@ -312,11 +436,6 @@ struct CodeReviewView: View {
 
     private var rightPanel: some View {
         VStack(spacing: 0) {
-            // Top toolbar
-            reviewToolbar
-
-            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-
             // Review mode pills
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -362,123 +481,7 @@ struct CodeReviewView: View {
     }
 
     private var reviewToolbar: some View {
-        HStack(spacing: 8) {
-            // Title
-            Image(systemName: "magnifyingglass.source.code")
-                .font(.system(size: 12))
-                .foregroundStyle(accentColor)
-            Text("Code Review")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(theme.primaryText)
-
-            Rectangle().fill(theme.cardBorder).frame(width: 0.5, height: 16)
-
-            // Model
-            Menu {
-                ForEach(models, id: \.self) { m in
-                    Button(m) { selectedModel = m }
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Text(selectedModel.replacingOccurrences(of: "claude-", with: ""))
-                        .font(.system(size: 11, weight: .medium))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8))
-                }
-                .foregroundStyle(theme.secondaryText)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            // Custom prompt toggle
-            Toggle(isOn: $useCustomPrompt) {
-                Text("Eigener Prompt")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.secondaryText)
-            }
-            .toggleStyle(.checkbox)
-            .controlSize(.small)
-
-            Spacer()
-
-            // Sidebar toggles (like File Explorer header)
-            HStack(spacing: 6) {
-                // Toggle file panel (Dateien)
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { showFilePanel.toggle() }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 11))
-                        .foregroundStyle(showFilePanel ? theme.secondaryText : accentColor)
-                }
-                .buttonStyle(.plain)
-                .help(showFilePanel ? "Dateien ausblenden" : "Dateien einblenden")
-
-                // Toggle app sidebar
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
-                } label: {
-                    Image(systemName: "sidebar.squares.left")
-                        .font(.system(size: 11))
-                        .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
-                }
-                .buttonStyle(.plain)
-                .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
-            }
-
-            // Clear
-            if !reviewOutput.isEmpty {
-                Button {
-                    reviewOutput = ""
-                    inputTokens = 0
-                    outputTokens = 0
-                    costUsd = 0
-                    errorMessage = nil
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-                .buttonStyle(.plain)
-                .help("Ergebnis löschen")
-            }
-
-            // Run button
-            Button { startReview() } label: {
-                HStack(spacing: 5) {
-                    if isReviewing {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .controlSize(.mini)
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10))
-                    }
-                    Text(isReviewing ? "Analysiere…" : "Review starten")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(canReview ? .white : theme.tertiaryText)
-                .padding(.horizontal, 14).padding(.vertical, 6)
-                .background(
-                    canReview
-                        ? LinearGradient(colors: [accentColor, accentColor.opacity(0.8)],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [theme.cardBorder, theme.cardBorder],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 7)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!canReview || isReviewing)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(minHeight: 48)
-        .background(theme.cardBg.opacity(0.4))
+        EmptyView()
     }
 
     private var canReview: Bool {
