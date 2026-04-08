@@ -35,6 +35,10 @@ struct ChatView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                // Separator here — sits below the accent underline, never covers it
+                theme.cardBorder.opacity(0.5).frame(height: 0.5)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -65,37 +69,37 @@ struct ChatView: View {
     // MARK: - Tab Bar
 
     private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(state.chatTabs.indices, id: \.self) { i in
-                    tabButton(index: i)
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(state.chatTabs.indices, id: \.self) { i in
+                        tabButton(index: i)
+                    }
                 }
-                // New tab button
-                Button {
-                    let newTab = ChatTab(title: "Chat \(state.chatTabs.count + 1)")
-                    state.chatTabs.append(newTab)
-                    state.selectedChatTabIndex = state.chatTabs.count - 1
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(theme.secondaryText)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
+                .padding(.leading, 12)
             }
-            .padding(.horizontal, 8)
+
+            // Divider + new tab button pinned to the right
+            Rectangle()
+                .fill(theme.cardBorder)
+                .frame(width: 0.5)
+                .padding(.vertical, 8)
+
+            Button {
+                let newTab = ChatTab(title: "Chat \(state.chatTabs.count + 1)")
+                state.chatTabs.append(newTab)
+                state.selectedChatTabIndex = state.chatTabs.count - 1
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
         }
         .frame(height: 36)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) {
-            // Gradient separator — fades from cardBorder to transparent
-            LinearGradient(
-                colors: [theme.cardBorder.opacity(0.7), theme.cardBorder.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 0.5)
-        }
+        .background(theme.windowBg)
+        // No bottom overlay here — separator lives on the content area
     }
 
     private func tabButton(index: Int) -> some View {
@@ -105,14 +109,14 @@ struct ChatView: View {
         return HStack(spacing: 5) {
             if tab.isStreaming {
                 ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
-            } else {
+            } else if isSelected {
                 Image(systemName: tab.agentId.isEmpty ? "bubble.left" : "cpu")
                     .font(.system(size: 9))
-                    .foregroundStyle(isSelected ? accentColor : theme.tertiaryText)
+                    .foregroundStyle(accentColor)
             }
             Text(tab.title)
                 .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
+                .foregroundStyle(isSelected ? theme.primaryText : theme.tertiaryText)
                 .lineLimit(1)
 
             // Close button (only if more than 1 tab)
@@ -128,17 +132,17 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
+        .padding(.horizontal, 10).padding(.vertical, 0)
+        .frame(height: 36)
         .background(Color.clear)
         .overlay(alignment: .bottom) {
-            // 2px accent underline for active tab
             if isSelected {
                 accentColor
-                    .frame(height: 2)
-                    .clipShape(RoundedRectangle(cornerRadius: 1))
-                    .padding(.horizontal, 6)
+                    .frame(height: 3)
+                    .offset(y: -0.5)
             }
         }
+        .opacity(isSelected ? 1.0 : 0.45)
         .onTapGesture { state.selectedChatTabIndex = index }
         .frame(maxWidth: 160)
     }
