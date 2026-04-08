@@ -1443,10 +1443,17 @@ struct SingleChatSessionView: View {
                 guard msg.role == .user || msg.role == .assistant else { return nil }
                 return GitHubMessage(role: msg.role == .user ? "user" : "assistant", content: msg.content)
             }
+            // Projektkontext in System-Prompt injizieren (GitHub API hat keine --add-dir Option)
+            var ghSystemPrompt = agentSystemPrompt
+            if let wd = workingDirectory, !wd.isEmpty {
+                let projectName = URL(fileURLWithPath: wd).lastPathComponent
+                let projectCtx = "Du arbeitest im Projekt '\(projectName)' im Verzeichnis: \(wd)\nDu hast Zugriff auf alle Dateien in diesem Verzeichnis und solltest Antworten im Kontext dieses Projekts geben."
+                ghSystemPrompt = ghSystemPrompt.map { "\(projectCtx)\n\n\($0)" } ?? projectCtx
+            }
             stream = state.ghModelsService.send(
                 message: message,
                 model: model,
-                systemPrompt: agentSystemPrompt,
+                systemPrompt: ghSystemPrompt,
                 history: Array(historyMsgs),
                 githubToken: state.settings.token
             )
