@@ -1,20 +1,21 @@
 import Foundation
+import Security
 
-/// GitHub Models API Integration.
-/// Endpoint: https://models.inference.ai.azure.com/chat/completions
-/// Token: gh auth token (direkt, kein Exchange nötig)
+/// GitHub Copilot API Integration.
+/// Endpoint: https://api.githubcopilot.com/chat/completions
+/// Token: VS Code Keychain "GitHub - https://api.github.com" → hat Copilot-Scopes
 final class GitHubModelsService {
 
-    private let endpoint = URL(string: "https://models.inference.ai.azure.com/chat/completions")!
+    private let endpoint = URL(string: "https://api.githubcopilot.com/chat/completions")!
 
     private static let modelMap: [String: String] = [
-        "github/claude-sonnet-4-5":  "claude-sonnet-4.5",
+        "github/claude-sonnet-4-5":  "claude-sonnet-4.6",  // fallback: 4.5 nicht verfügbar
         "github/claude-opus-4-5":    "claude-opus-4.5",
         "github/claude-sonnet-4-6":  "claude-sonnet-4.6",
         "github/claude-opus-4-6":    "claude-opus-4.6",
         "github/claude-haiku-4-5":   "claude-haiku-4.5",
-        "github/claude-3-7-sonnet":  "claude-sonnet-4",
-        "github/claude-3-5-sonnet":  "claude-sonnet-4.5",
+        "github/claude-3-7-sonnet":  "claude-sonnet-4.6",
+        "github/claude-3-5-sonnet":  "claude-sonnet-4.6",
         "github/gpt-4.1":            "gpt-4.1",
         "github/gpt-4o":             "gpt-4o",
         "github/gpt-4o-mini":        "gpt-4o-mini",
@@ -28,7 +29,32 @@ final class GitHubModelsService {
         return stripped
     }
 
+    /// Liest den VS Code GitHub Token aus dem macOS Keychain (hat Copilot-Scopes).
     private func ghAuthToken() -> String? {
+        // 1. VS Code Keychain Token (hat Copilot-Berechtigung)
+        if let token = keychainToken(service: "GitHub - https://api.github.com", account: nil),
+           !token.isEmpty { return token }
+        // 2. Fallback: gh CLI Token
+        return ghCLIToken()
+    }
+
+    private func keychainToken(service: String, account: String?) -> String? {
+        var query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnData as String:  true,
+            kSecMatchLimit as String:  kSecMatchLimitOne
+        ]
+        if let acc = account { query[kSecAttrAccount as String] = acc }
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty else { return nil }
+        return token
+    }
+
+    private func ghCLIToken() -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["gh", "auth", "token"]
@@ -78,6 +104,7 @@ final class GitHubModelsService {
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    req.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
                     req.setValue(requestId, forHTTPHeaderField: "X-Request-Id")
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
