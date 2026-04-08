@@ -62,9 +62,7 @@ struct HistoryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
-            if state.historyService.projects.isEmpty {
-                await state.historyService.loadProjects()
-            }
+            await state.historyService.loadProjects()
         }
         .onChange(of: state.historySelectedProjectId) {
             guard let id = state.historySelectedProjectId,

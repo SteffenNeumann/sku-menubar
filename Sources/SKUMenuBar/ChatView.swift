@@ -1451,6 +1451,11 @@ struct SingleChatSessionView: View {
                 githubToken: state.settings.token
             )
         } else {
+            // Always include workingDirectory in --add-dir so Claude CLI can read project files
+            var effectiveAddDirs = addDirs
+            if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
+                effectiveAddDirs.insert(wd, at: 0)
+            }
             stream = state.cliService.send(
                 message: message,
                 sessionId: currentSessionId,
@@ -1458,7 +1463,7 @@ struct SingleChatSessionView: View {
                 model: model,
                 fallbackModel: fallback,
                 workingDirectory: workingDirectory,
-                addDirs: addDirs,
+                addDirs: effectiveAddDirs,
                 skipPermissions: autoApprove
             )
         }
