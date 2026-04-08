@@ -79,7 +79,8 @@ final class GitHubModelsService {
         model: String,
         systemPrompt: String?,
         history: [GitHubMessage] = [],
-        githubToken: String
+        githubToken: String,
+        imageAttachments: [GitHubImageAttachment] = []
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
@@ -91,12 +92,30 @@ final class GitHubModelsService {
                     let sessionId = UUID().uuidString
                     let requestId = UUID().uuidString
 
-                    var messages: [[String: String]] = []
+                    // Build messages as [[String: Any]] to support both text and vision content
+                    var messages: [[String: Any]] = []
                     if let sp = systemPrompt, !sp.isEmpty {
                         messages.append(["role": "system", "content": sp])
                     }
                     for h in history { messages.append(["role": h.role, "content": h.content]) }
-                    messages.append(["role": "user", "content": message])
+
+                    // Build user content: text + optional base64 images
+                    let userContent: Any
+                    if imageAttachments.isEmpty {
+                        userContent = message
+                    } else {
+                        var contentParts: [[String: Any]] = [
+                            ["type": "text", "text": message]
+                        ]
+                        for img in imageAttachments {
+                            contentParts.append([
+                                "type": "image_url",
+                                "image_url": ["url": "data:\(img.mimeType);base64,\(img.base64Data)"]
+                            ])
+                        }
+                        userContent = contentParts
+                    }
+                    messages.append(["role": "user", "content": userContent])
 
                     let body: [String: Any] = ["model": apiModel, "messages": messages, "stream": true]
 
@@ -157,6 +176,12 @@ enum GitHubModelsError: LocalizedError {
 struct GitHubMessage {
     let role: String
     let content: String
+}
+
+/// A single image attachment for vision-capable GitHub Models calls.
+struct GitHubImageAttachment {
+    let mimeType: String        // "image/png", "image/jpeg", etc.
+    let base64Data: String
 }
 
 extension StreamEvent {

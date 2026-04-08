@@ -1274,7 +1274,8 @@ struct SingleChatSessionView: View {
         }
     }
 
-    private func buildMessageWithAttachments(text: String) -> String {
+    /// Builds the text message for the AI. Images are handled separately via buildImageAttachments().
+    private func buildMessageWithAttachments(text: String, forGitHub: Bool = false) -> String {
         guard !attachedFiles.isEmpty else { return text }
 
         var parts: [String] = []
@@ -1286,13 +1287,10 @@ struct SingleChatSessionView: View {
                 parts.append("**\(file.name)**\n```\(lang)\n\(content)\n```")
             } else if file.url.pathExtension.lowercased() == "pdf",
                       let pdf = PDFDocument(url: file.url) {
-                // Extract text content from PDF pages
                 var pdfText = ""
                 for i in 0..<pdf.pageCount {
                     if let page = pdf.page(at: i),
-                       let pageText = page.string, !pageText.isEmpty {
-                        pdfText += pageText + "\n"
-                    }
+                       let pageText = page.string, !pageText.isEmpty { pdfText += pageText + "\n" }
                 }
                 if !pdfText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten)\n```\n\(pdfText.trimmingCharacters(in: .whitespacesAndNewlines))\n```")
@@ -1300,8 +1298,13 @@ struct SingleChatSessionView: View {
                     parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten — kein extrahierbarer Text, Pfad: `\(file.url.path)`)")
                 }
             } else if file.isImage {
-                // Images: pass path and directory access so Claude can reference the file
-                parts.append("**\(file.name)** (Bild, Pfad: `\(file.url.path)`)")
+                if forGitHub {
+                    // GitHub Models: image data sent separately as base64 — just mention name in text
+                    parts.append("[Bild: \(file.name)]")
+                } else {
+                    // Claude CLI: ask Claude to read the image file via its tools
+                    parts.append("[Bild angehängt: \(file.name), Pfad: \(file.url.path)\nBitte analysiere dieses Bild.]")
+                }
             } else {
                 parts.append("**\(file.name)** (Pfad: `\(file.url.path)`)")
             }
@@ -1309,6 +1312,22 @@ struct SingleChatSessionView: View {
 
         if !text.isEmpty { parts.append(text) }
         return parts.joined(separator: "\n\n")
+    }
+
+    /// Encodes all attached images as GitHubImageAttachments for vision-capable APIs.
+    private func buildImageAttachments(from files: [AttachedFile]) -> [GitHubImageAttachment] {
+        files.compactMap { file in
+            guard file.isImage, let data = try? Data(contentsOf: file.url) else { return nil }
+            let ext = file.url.pathExtension.lowercased()
+            let mime: String
+            switch ext {
+            case "jpg", "jpeg": mime = "image/jpeg"
+            case "gif":         mime = "image/gif"
+            case "webp":        mime = "image/webp"
+            default:            mime = "image/png"
+            }
+            return GitHubImageAttachment(mimeType: mime, base64Data: data.base64EncodedString())
+        }
     }
 
     @discardableResult
@@ -1352,7 +1371,10 @@ struct SingleChatSessionView: View {
             openDirectoryPicker()
         }
 
-        let fullMessage = buildMessageWithAttachments(text: text)
+        let isGitHub = (state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+            ? state.settings.copilotFallbackModel
+            : selectedModel).hasPrefix("github/")
+        let fullMessage = buildMessageWithAttachments(text: text, forGitHub: isGitHub)
         inputText = ""
         let sentFiles = attachedFiles
         attachedFiles = []
@@ -1392,8 +1414,8 @@ struct SingleChatSessionView: View {
         }() : nil
 
         Task { @MainActor in
-            // Collect unique directories of image/binary attachments so Claude's tools can access them
             let imageDirs = Array(Set(sentFiles.filter { $0.isImage }.map { $0.url.deletingLastPathComponent().path }))
+            let imageAttachments = buildImageAttachments(from: sentFiles)
             await performSend(
                 message: fullMessage,
                 assistantIndex: assistantIndex,
@@ -1401,7 +1423,8 @@ struct SingleChatSessionView: View {
                     ? state.settings.copilotFallbackModel
                     : selectedModel,
                 agentOverride: triggerAgent,
-                addDirs: imageDirs
+                addDirs: imageDirs,
+                imageAttachments: imageAttachments
             )
         }
     }
@@ -1413,6 +1436,7 @@ struct SingleChatSessionView: View {
         model: String,
         agentOverride: String? = nil,
         addDirs: [String] = [],
+        imageAttachments: [GitHubImageAttachment] = [],
         isFallbackAttempt: Bool = false
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
@@ -1459,7 +1483,8 @@ struct SingleChatSessionView: View {
                 model: model,
                 systemPrompt: ghSystemPrompt,
                 history: Array(historyMsgs),
-                githubToken: state.settings.token
+                githubToken: state.settings.token,
+                imageAttachments: imageAttachments
             )
         } else {
             // Always include workingDirectory in --add-dir so Claude CLI can read project files
@@ -1585,6 +1610,7 @@ struct SingleChatSessionView: View {
                                     model: state.settings.copilotFallbackModel,
                                     agentOverride: agentOverride,
                                     addDirs: addDirs,
+                                    imageAttachments: imageAttachments,
                                     isFallbackAttempt: true
                                 )
                                 return
@@ -1638,6 +1664,7 @@ struct SingleChatSessionView: View {
                         model: state.settings.copilotFallbackModel,
                         agentOverride: agentOverride,
                         addDirs: addDirs,
+                        imageAttachments: imageAttachments,
                         isFallbackAttempt: true
                     )
                     return
@@ -2558,10 +2585,8 @@ struct MessageBubbleView: View {
                     .foregroundStyle(theme.secondaryText)
             }
             if !message.content.isEmpty {
-                Text(message.content)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundStyle(theme.primaryText)
-                    .textSelection(.enabled)
+                MarkdownTextView(text: message.content)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
