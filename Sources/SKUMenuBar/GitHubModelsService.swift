@@ -166,7 +166,7 @@ extension StreamEvent {
                     isError: nil, result: nil, error: nil)
     }
     static func textDelta(_ text: String, model: String, sessionId: String) -> StreamEvent {
-        let content = StreamContent(type: "text", text: text, thinking: nil, id: nil, name: nil)
+        let content = StreamContent(type: "text", text: text)
         let msg = StreamMessage(role: "assistant", content: [content], model: model, usage: nil)
         return StreamEvent(type: "assistant", subtype: nil, sessionId: sessionId,
                            message: msg, costUsd: nil, inputTokens: nil, outputTokens: nil,

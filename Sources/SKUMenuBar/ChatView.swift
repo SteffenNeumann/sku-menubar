@@ -1239,7 +1239,11 @@ struct SingleChatSessionView: View {
                                     }
                                 case "tool_use":
                                     let name = block.name ?? "tool"
-                                    messages[idx].toolCalls.append(ToolCall(name: name, input: ""))
+                                    messages[idx].toolCalls.append(ToolCall(
+                                        name: name,
+                                        input: block.toolInput?.displayText ?? "",
+                                        toolUseId: block.id
+                                    ))
                                 default: break
                                 }
                             }
@@ -1507,7 +1511,11 @@ struct SingleChatSessionView: View {
                                     pendingTokenCount = 0
                                 }
                                 let name = block.name ?? "tool"
-                                let tool = ToolCall(name: name, input: "")
+                                let tool = ToolCall(
+                                    name: name,
+                                    input: block.toolInput?.displayText ?? "",
+                                    toolUseId: block.id
+                                )
                                 messages[assistantIndex].toolCalls.append(tool)
                             default: break
                             }
@@ -1524,6 +1532,20 @@ struct SingleChatSessionView: View {
                     // Track rate-limit for UI indicator (--fallback-model handles the actual switch)
                     if event.error == "rate_limit" {
                         state.claudeRateLimitActive = true
+                    }
+
+                case "user":
+                    // Tool result events — match by tool_use_id and store output
+                    if let content = event.message?.content {
+                        for block in content where block.type == "tool_result" {
+                            guard let toolId = block.toolUseId,
+                                  let resultText = block.toolResultText,
+                                  !resultText.isEmpty else { continue }
+                            if let idx = messages[assistantIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
+                                // Cap output to 4000 chars to avoid blowing up the UI
+                                messages[assistantIndex].toolCalls[idx].result = String(resultText.prefix(4000))
+                            }
+                        }
                     }
 
                 case "rate_limit_event":
@@ -2478,6 +2500,7 @@ struct MessageBubbleView: View {
     let message: ChatMessage
     var onDiffTap: ((String) -> Void)?
     @Environment(\.appTheme) var theme
+    @State private var toolsExpanded: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -2608,19 +2631,49 @@ struct MessageBubbleView: View {
     }
 
     private func toolCallView(_ tool: ToolCall) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "wrench.and.screwdriver.fill")
-                .font(.system(size: 10)).foregroundStyle(.orange)
-            Text(tool.name)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.orange.opacity(0.9))
+        VStack(alignment: .leading, spacing: 4) {
+            // Header row: icon + tool name + command summary
+            HStack(spacing: 5) {
+                Image(systemName: tool.name == "Bash" ? "terminal.fill" : "wrench.and.screwdriver.fill")
+                    .font(.system(size: 9)).foregroundStyle(.orange)
+                Text(tool.name)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.orange.opacity(0.85))
+                if !tool.input.isEmpty {
+                    Text(tool.input)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer()
+                if tool.result != nil {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 9)).foregroundStyle(.green.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+
+            // Output block (shown when expanded)
+            if toolsExpanded, let result = tool.result, !result.isEmpty {
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(result)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 200)
+                .padding(8)
+                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder.opacity(0.4), lineWidth: 0.5))
+            }
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func toolsSummaryView(_ tools: [ToolCall]) -> some View {
-        // Count unique tool names, preserve order of first appearance
+        // Compact summary header that toggles the expanded detail list
         var seen = Set<String>()
         var counts: [(name: String, count: Int)] = []
         for t in tools {
@@ -2634,15 +2687,43 @@ struct MessageBubbleView: View {
             }
         }
         let label = counts.map { $0.count > 1 ? "\($0.name) ×\($0.count)" : $0.name }.joined(separator: "  ·  ")
-        return HStack(spacing: 6) {
-            Image(systemName: "wrench.and.screwdriver.fill")
-                .font(.system(size: 9)).foregroundStyle(.orange.opacity(0.55))
-            Text(label)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.orange.opacity(0.5))
+        let hasResults = tools.contains { $0.result != nil }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            // Tap to expand/collapse
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { toolsExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 9)).foregroundStyle(.orange.opacity(0.55))
+                    Text(label)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.orange.opacity(0.5))
+                    if hasResults {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 9)).foregroundStyle(.green.opacity(0.6))
+                    }
+                    Spacer()
+                    Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+
+            // Expanded per-tool detail
+            if toolsExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(tools) { tool in
+                        toolCallView(tool)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var streamingDots: some View {

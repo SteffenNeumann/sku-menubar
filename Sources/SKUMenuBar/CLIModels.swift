@@ -143,9 +143,16 @@ enum ChatProviderSource: String, Codable {
 
 struct ToolCall: Identifiable, Equatable {
     let id = UUID()
+    let toolUseId: String?   // matches StreamContent.id for pairing with tool_result
     let name: String
-    let input: String
-    var result: String?
+    let input: String        // human-readable command / path summary
+    var result: String?      // stdout / output from the tool execution
+
+    init(name: String, input: String, toolUseId: String? = nil) {
+        self.name = name
+        self.input = input
+        self.toolUseId = toolUseId
+    }
 
     static func == (lhs: ToolCall, rhs: ToolCall) -> Bool {
         lhs.id == rhs.id
@@ -185,12 +192,68 @@ struct StreamMessage: Decodable {
     let usage: StreamUsage?
 }
 
+// Input payload of a tool_use block (fields vary per tool)
+struct StreamToolInput: Decodable {
+    let command: String?      // Bash
+    let filePath: String?     // Read / Write / Edit
+    let pattern: String?      // Glob / Grep
+    let path: String?         // LS
+    let description: String?  // misc
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case filePath    = "file_path"
+        case pattern
+        case path
+        case description
+    }
+
+    /// Human-readable single-line summary for UI display
+    var displayText: String? {
+        command ?? filePath ?? pattern ?? path ?? description
+    }
+}
+
 struct StreamContent: Decodable {
     let type: String    // "text", "tool_use", "tool_result", "thinking"
     let text: String?
     let thinking: String?
-    let id: String?
+    let id: String?          // tool_use id
     let name: String?
+    let toolInput: StreamToolInput?   // decoded from tool_use.input
+    let toolUseId: String?            // tool_result: references tool_use.id
+    let toolResultText: String?       // tool_result: stdout/stderr text
+
+    enum CodingKeys: String, CodingKey {
+        case type, text, thinking, id, name, input, content
+        case toolUseId = "tool_use_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type           = (try? c.decode(String.self, forKey: .type)) ?? ""
+        text           = try? c.decodeIfPresent(String.self, forKey: .text)
+        thinking       = try? c.decodeIfPresent(String.self, forKey: .thinking)
+        id             = try? c.decodeIfPresent(String.self, forKey: .id)
+        name           = try? c.decodeIfPresent(String.self, forKey: .name)
+        toolInput      = try? c.decodeIfPresent(StreamToolInput.self, forKey: .input)
+        toolUseId      = try? c.decodeIfPresent(String.self, forKey: .toolUseId)
+        toolResultText = try? c.decodeIfPresent(String.self, forKey: .content)
+    }
+
+    /// Convenience init for programmatic creation (e.g. in GitHubModelsService)
+    init(type: String, text: String? = nil, thinking: String? = nil,
+         id: String? = nil, name: String? = nil,
+         toolInput: StreamToolInput? = nil, toolUseId: String? = nil, toolResultText: String? = nil) {
+        self.type           = type
+        self.text           = text
+        self.thinking       = thinking
+        self.id             = id
+        self.name           = name
+        self.toolInput      = toolInput
+        self.toolUseId      = toolUseId
+        self.toolResultText = toolResultText
+    }
 }
 
 struct StreamUsage: Decodable {
