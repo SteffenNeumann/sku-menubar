@@ -203,52 +203,54 @@ struct FileExplorerView: View {
     private let treePanelMaxWidth: CGFloat = 600
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: tree panel (collapsible)
-            if showFileTree {
-                VStack(spacing: 0) {
-                    toolbar
+        VStack(spacing: 0) {
+            unifiedHeader
+            HStack(spacing: 0) {
+                // Left: tree panel (collapsible)
+                if showFileTree {
                     treePanel
+                        .frame(width: treePanelWidth)
+                        .background(theme.windowBg)
+                        .transition(.move(edge: .leading))
+
+                    // Draggable divider
+                    PanelResizeHandle(width: $treePanelWidth, minWidth: treePanelMinWidth, maxWidth: treePanelMaxWidth, growsRight: true)
+                        .frame(width: 10)
                 }
-                .frame(width: treePanelWidth)
-                .background(theme.windowBg)
-                .transition(.move(edge: .leading))
 
-                // Draggable divider
-                PanelResizeHandle(width: $treePanelWidth, minWidth: treePanelMinWidth, maxWidth: treePanelMaxWidth, growsRight: true)
-                    .frame(width: 10)
-            }
-
-            // Right: preview / info panel
-            previewPanel
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .bottom) {
-                    if showSaveToast {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text("Gespeichert")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(theme.primaryText)
+                // Right: preview / info panel
+                previewPanel
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        if showSaveToast {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("Gespeichert")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.primaryText)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                            .padding(.bottom, 16)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-                        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                }
-                .animation(.spring(duration: 0.25), value: showSaveToast)
-                .background {
-                    // Hidden Cmd+S button — active only while editing
-                    if isEditing, let node = selectedNode {
-                        Button("") { quickSaveFile(node: node) }
-                            .keyboardShortcut("s", modifiers: .command)
-                            .frame(width: 0, height: 0)
-                            .opacity(0)
+                    .animation(.spring(duration: 0.25), value: showSaveToast)
+                    .background {
+                        // Hidden Cmd+S button — active only while editing
+                        if isEditing, let node = selectedNode {
+                            Button("") { quickSaveFile(node: node) }
+                                .keyboardShortcut("s", modifiers: .command)
+                                .frame(width: 0, height: 0)
+                                .opacity(0)
+                        }
                     }
-                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(theme.windowBg)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.windowBg)
@@ -285,78 +287,237 @@ struct FileExplorerView: View {
 
     // MARK: - Toolbar
 
-    private var toolbar: some View {
-        HStack(spacing: 6) {
-            // Current root (truncated) — menu with recent projects
-            Menu {
-                let projects = state.historyService.projects
-                if !projects.isEmpty {
-                    Section("Letzte Projekte") {
-                        ForEach(projects.prefix(8)) { project in
-                            Button {
-                                rootPath = project.path
-                                reload()
-                            } label: {
-                                Label(project.displayName, systemImage: "folder")
+    // MARK: - Unified Header
+
+    private var unifiedHeader: some View {
+        HStack(spacing: 0) {
+            // Left: folder nav (only when file tree is visible)
+            if showFileTree {
+                HStack(spacing: 6) {
+                    Menu {
+                        let projects = state.historyService.projects
+                        if !projects.isEmpty {
+                            Section("Letzte Projekte") {
+                                ForEach(projects.prefix(8)) { project in
+                                    Button {
+                                        rootPath = project.path
+                                        reload()
+                                    } label: {
+                                        Label(project.displayName, systemImage: "folder")
+                                    }
+                                }
                             }
+                            Divider()
                         }
+                        Button {
+                            pickDirectory()
+                        } label: {
+                            Label("Anderer Ordner…", systemImage: "folder.badge.plus")
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(accentColor)
+                            Text(URL(fileURLWithPath: rootPath).lastPathComponent)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(Color.clear)
                     }
-                    Divider()
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Verzeichnis wählen")
+
+                    Spacer()
+
+                    Button {
+                        showHidden.toggle()
+                    } label: {
+                        Image(systemName: showHidden ? "eye.fill" : "eye.slash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Versteckte Dateien")
+
+                    Button {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: rootPath))
+                    } label: {
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Im Finder öffnen")
                 }
-                Button {
-                    pickDirectory()
-                } label: {
-                    Label("Anderer Ordner…", systemImage: "folder.badge.plus")
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(accentColor)
-                    Text(URL(fileURLWithPath: rootPath).lastPathComponent)
-                        .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(width: treePanelWidth, height: 48)
+
+                // Vertical separator — aligns with panel divider
+                Rectangle().fill(theme.cardBorder).frame(width: 0.5)
+                Color.clear.frame(width: 9.5)
+            }
+
+            // Right: preview info
+            HStack(spacing: 8) {
+                if let node = selectedNode {
+                    Image(nsImage: node.workspaceIcon)
+                        .resizable()
+                        .frame(width: 18, height: 18)
+                    Text(node.name)
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
-                        .truncationMode(.middle)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8))
+                        .help(node.url.path)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        if !node.isDirectory && node.isWebPreviewable {
+                            Button {
+                                showLivePreview.toggle()
+                            } label: {
+                                Label("Live Preview", systemImage: showLivePreview ? "eye.fill" : "eye")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(showLivePreview ? accentColor : theme.secondaryText)
+                                    .padding(.horizontal, 7).padding(.vertical, 3)
+                                    .background(
+                                        showLivePreview ? accentColor.opacity(0.12) : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: 5)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .strokeBorder(showLivePreview ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if !node.isDirectory && node.isTextFile {
+                            if isEditing {
+                                Button {
+                                    saveFile(node: node)
+                                } label: {
+                                    Label(isDirty ? "Speichern *" : "Speichern", systemImage: "checkmark.circle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.green)
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    isEditing = false; isDirty = false
+                                    editText = previewText ?? ""
+                                } label: {
+                                    Label("Abbrechen", systemImage: "xmark.circle")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(theme.secondaryText)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Button {
+                                    enterEditMode(node: node)
+                                } label: {
+                                    Label("Bearbeiten", systemImage: "pencil")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(accentColor)
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    NSWorkspace.shared.open(node.url)
+                                } label: {
+                                    Label("Öffnen", systemImage: "arrow.up.forward.square")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(accentColor)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        } else if !node.isDirectory {
+                            Button {
+                                NSWorkspace.shared.open(node.url)
+                            } label: {
+                                Label("Öffnen", systemImage: "arrow.up.forward.square")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(accentColor)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(node.url.path, forType: .string)
+                        } label: {
+                            Label("Pfad kopieren", systemImage: "doc.on.clipboard")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([node.url])
+                        } label: {
+                            Label("Im Finder", systemImage: "folder")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().frame(height: 14)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                                .font(.system(size: 11))
+                                .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
+                                .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
+                        } label: {
+                            Image(systemName: "sidebar.squares.left")
+                                .font(.system(size: 11))
+                                .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                                .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
+                    Text("Vorschau")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                    Spacer()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 11))
+                            .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
+                            .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
+                    } label: {
+                        Image(systemName: "sidebar.squares.left")
+                            .font(.system(size: 11))
+                            .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
+                            .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(Color.clear)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Verzeichnis wählen")
-
-            Spacer()
-
-            // Hidden files toggle
-            Button {
-                showHidden.toggle()
-            } label: {
-                Image(systemName: showHidden ? "eye.fill" : "eye.slash")
-                    .font(.system(size: 12))
-                    .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .help("Versteckte Dateien")
-
-            // Open in Finder
-            Button {
-                NSWorkspace.shared.open(URL(fileURLWithPath: rootPath))
-            } label: {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.tertiaryText)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .help("Im Finder öffnen")
+            .padding(.horizontal, 16)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 10)
-        .frame(height: 48)
         .background(theme.cardBg.opacity(0.4))
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -434,133 +595,6 @@ struct FileExplorerView: View {
         Group {
             if let node = selectedNode {
                 VStack(spacing: 0) {
-                    // Preview header
-                    HStack(spacing: 8) {
-                        Image(nsImage: node.workspaceIcon)
-                            .resizable()
-                            .frame(width: 18, height: 18)
-                        Text(node.name)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(theme.primaryText)
-                            .lineLimit(1)
-                            .help(node.url.path)
-                        Spacer()
-                        // Action buttons
-                        HStack(spacing: 6) {
-                            if !node.isDirectory && node.isWebPreviewable {
-                                Button {
-                                    showLivePreview.toggle()
-                                } label: {
-                                    Label("Live Preview", systemImage: showLivePreview ? "eye.fill" : "eye")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(showLivePreview ? accentColor : theme.secondaryText)
-                                        .padding(.horizontal, 7).padding(.vertical, 3)
-                                        .background(
-                                            showLivePreview ? accentColor.opacity(0.12) : Color.clear,
-                                            in: RoundedRectangle(cornerRadius: 5)
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 5)
-                                                .strokeBorder(showLivePreview ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            if !node.isDirectory && node.isTextFile {
-                                if isEditing {
-                                    Button {
-                                        saveFile(node: node)
-                                    } label: {
-                                        Label(isDirty ? "Speichern *" : "Speichern", systemImage: "checkmark.circle.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.green)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button {
-                                        isEditing = false; isDirty = false
-                                        editText = previewText ?? ""
-                                    } label: {
-                                        Label("Abbrechen", systemImage: "xmark.circle")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(theme.secondaryText)
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    Button {
-                                        enterEditMode(node: node)
-                                    } label: {
-                                        Label("Bearbeiten", systemImage: "pencil")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(accentColor)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button {
-                                        NSWorkspace.shared.open(node.url)
-                                    } label: {
-                                        Label("Öffnen", systemImage: "arrow.up.forward.square")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(accentColor)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            } else if !node.isDirectory {
-                                Button {
-                                    NSWorkspace.shared.open(node.url)
-                                } label: {
-                                    Label("Öffnen", systemImage: "arrow.up.forward.square")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(node.url.path, forType: .string)
-                            } label: {
-                                Label("Pfad kopieren", systemImage: "doc.on.clipboard")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(theme.secondaryText)
-                            }
-                            .buttonStyle(.plain)
-                            Button {
-                                NSWorkspace.shared.activateFileViewerSelecting([node.url])
-                            } label: {
-                                Label("Im Finder", systemImage: "folder")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(theme.secondaryText)
-                            }
-                            .buttonStyle(.plain)
-
-                            Divider().frame(height: 14)
-
-                            // Focus mode toggles
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
-                            } label: {
-                                Image(systemName: showFileTree ? "sidebar.left" : "sidebar.left")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
-                                    .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
-                            } label: {
-                                Image(systemName: state.hideSidebar ? "sidebar.squares.left" : "sidebar.squares.left")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
-                                    .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 48)
-                    .background(theme.cardBg.opacity(0.4))
-
-                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-
                     // File info row — tinted like Code Review mode pills
                     HStack(spacing: 20) {
                         if !node.isDirectory {
@@ -631,33 +665,15 @@ struct FileExplorerView: View {
                     }
                 }
             } else {
-                VStack(spacing: 0) {
-                    // Empty state header — same pattern as file header
-                    HStack(spacing: 8) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText)
-                        Text("Vorschau")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(theme.secondaryText)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 48)
-                    .background(theme.cardBg.opacity(0.4))
-
-                    Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-
-                    VStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 40))
-                            .foregroundStyle(accentColor.opacity(0.3))
-                        Text("Datei oder Ordner auswählen")
-                            .font(.system(size: 13))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 12) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(accentColor.opacity(0.3))
+                    Text("Datei oder Ordner auswählen")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.tertiaryText)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(theme.windowBg)
