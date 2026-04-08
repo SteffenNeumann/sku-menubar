@@ -2,10 +2,15 @@ import Foundation
 
 /// GitHub Copilot API Integration.
 /// Endpoint: https://api.githubcopilot.com/chat/completions
-/// Token: aus `gh auth token` (Keychain, hat Copilot-Zugriff)
+/// Token: GitHub OAuth → Exchange bei api.github.com/copilot_internal/v2/token → Copilot Bearer Token
 final class GitHubModelsService {
 
     private let endpoint = URL(string: "https://api.githubcopilot.com/chat/completions")!
+    private let tokenExchangeURL = URL(string: "https://api.github.com/copilot_internal/v2/token")!
+
+    // Cached Copilot token + expiry
+    private var cachedCopilotToken: String?
+    private var copilotTokenExpiry: Date = .distantPast
 
     private static let modelMap: [String: String] = [
         "github/claude-sonnet-4-5":  "claude-sonnet-4.5",
@@ -48,6 +53,37 @@ final class GitHubModelsService {
         } catch { return nil }
     }
 
+    /// Tauscht einen GitHub OAuth Token gegen einen kurzlebigen Copilot Token (30 min) aus.
+    private func exchangeCopilotToken(githubToken: String) async throws -> String {
+        // Cache prüfen (1 Minute Puffer vor Ablauf)
+        if let cached = cachedCopilotToken, copilotTokenExpiry > Date().addingTimeInterval(60) {
+            return cached
+        }
+        var req = URLRequest(url: tokenExchangeURL)
+        req.httpMethod = "GET"
+        req.setValue("Bearer \(githubToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
+        req.setValue("vscode/1.99.0", forHTTPHeaderField: "Editor-Version")
+        req.setValue("copilot-chat/0.26.0", forHTTPHeaderField: "Editor-Plugin-Version")
+        req.setValue("GitHubCopilotChat/0.26.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("2023-07-07", forHTTPHeaderField: "X-GitHub-Api-Version")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw GitHubModelsError.tokenExchangeFailed(http.statusCode, msg)
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["token"] as? String
+        else { throw GitHubModelsError.tokenExchangeFailed(0, "Ungültige Antwort vom Token-Exchange") }
+        cachedCopilotToken = token
+        if let expiresAt = json["expires_at"] as? TimeInterval {
+            copilotTokenExpiry = Date(timeIntervalSince1970: expiresAt)
+        } else {
+            copilotTokenExpiry = Date().addingTimeInterval(1500) // 25 min Fallback
+        }
+        return token
+    }
+
     func send(
         message: String,
         model: String,
@@ -58,11 +94,15 @@ final class GitHubModelsService {
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
                 do {
-                    let token = self.ghAuthToken() ?? githubToken
-                    guard !token.isEmpty else { throw GitHubModelsError.noToken }
+                    let oauthToken = self.ghAuthToken() ?? githubToken
+                    guard !oauthToken.isEmpty else { throw GitHubModelsError.noToken }
+
+                    // Copilot Token via Exchange holen (gecacht)
+                    let token = try await self.exchangeCopilotToken(githubToken: oauthToken)
 
                     let apiModel = Self.copilotModelId(for: model)
                     let sessionId = UUID().uuidString
+                    let requestId = UUID().uuidString
 
                     var messages: [[String: String]] = []
                     if let sp = systemPrompt, !sp.isEmpty {
@@ -78,6 +118,12 @@ final class GitHubModelsService {
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     req.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
+                    req.setValue("vscode/1.99.0", forHTTPHeaderField: "Editor-Version")
+                    req.setValue("copilot-chat/0.26.0", forHTTPHeaderField: "Editor-Plugin-Version")
+                    req.setValue("GitHubCopilotChat/0.26.0", forHTTPHeaderField: "User-Agent")
+                    req.setValue("conversation-panel", forHTTPHeaderField: "Openai-Intent")
+                    req.setValue(requestId, forHTTPHeaderField: "X-Request-Id")
+                    req.setValue("2023-07-07", forHTTPHeaderField: "X-GitHub-Api-Version")
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
                     let (stream, response) = try await URLSession.shared.bytes(for: req)
@@ -117,10 +163,12 @@ final class GitHubModelsService {
 
 enum GitHubModelsError: LocalizedError {
     case httpError(Int, String)
+    case tokenExchangeFailed(Int, String)
     case noToken
     var errorDescription: String? {
         switch self {
         case .httpError(let code, let msg): return "GitHub Copilot API Error \(code): \(msg)"
+        case .tokenExchangeFailed(let code, let msg): return "Copilot Token-Exchange fehlgeschlagen (\(code)): \(msg)"
         case .noToken: return "Kein GitHub Token. Bitte `gh auth login` ausführen."
         }
     }
