@@ -269,6 +269,12 @@ final class AgentService: ObservableObject {
     private func buildContextPreamble(for agent: AgentDefinition) -> String {
         var parts: [String] = []
 
+        // Current date — so agents write correct timestamps
+        let dateFmt = DateFormatter()
+        dateFmt.dateFormat = "yyyy-MM-dd"
+        let todayString = dateFmt.string(from: Date())
+        parts.append("## Current Date\nToday is \(todayString). Always use this date when writing timestamps or \"Last updated\" markers.")
+
         let memDir = writableMemoryDir(for: agent)
         let memPath = memDir.appendingPathComponent("MEMORY.md").path
 

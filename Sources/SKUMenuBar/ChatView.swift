@@ -1375,6 +1375,10 @@ struct SingleChatSessionView: View {
             ? state.settings.copilotFallbackModel
             : selectedModel).hasPrefix("github/")
         let fullMessage = buildMessageWithAttachments(text: text, forGitHub: isGitHub)
+        guard !fullMessage.isEmpty else {
+            errorMessage = "Nachricht ist leer — bitte Text eingeben oder Datei anhängen."
+            return
+        }
         inputText = ""
         let sentFiles = attachedFiles
         attachedFiles = []

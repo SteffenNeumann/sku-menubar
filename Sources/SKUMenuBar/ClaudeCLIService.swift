@@ -51,7 +51,13 @@ final class ClaudeCLIService: ObservableObject {
                 for dir in addDirs where !dir.isEmpty {
                     args += ["--add-dir", dir]
                 }
-                args.append(message)
+                guard !message.isEmpty else {
+                    continuation.finish(throwing: NSError(domain: "ClaudeCLI", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Kein Prompt eingegeben."]))
+                    return
+                }
+                // Always pipe the message via stdin — positional args break when --add-dir
+                // or --continue is present in newer Claude CLI versions.
 
                 let process = Process()
                 let home = NSHomeDirectory()
@@ -74,8 +80,10 @@ final class ClaudeCLIService: ObservableObject {
 
                 let stdoutPipe = Pipe()
                 let stderrPipe = Pipe()
+                let stdinPipe  = Pipe()
                 process.standardOutput = stdoutPipe
                 process.standardError  = stderrPipe
+                process.standardInput  = stdinPipe
 
                 var lineBuffer = Data()
                 var stderrBuffer = Data()
@@ -126,6 +134,11 @@ final class ClaudeCLIService: ObservableObject {
 
                 do {
                     try process.run()
+                    // Write message via stdin, then close to signal EOF
+                    if let data = message.data(using: .utf8) {
+                        try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
+                        try? stdinPipe.fileHandleForWriting.close()
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
