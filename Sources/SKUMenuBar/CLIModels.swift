@@ -90,9 +90,29 @@ struct NoteItem: Identifiable, Codable {
     var title: String = ""
     var body: String = ""
     var done: Bool = false
+    var pinned: Bool = false
     var createdAt: Date = Date()
     var tags: [String] = []
     var taskLines: [TaskLine] = []
+
+    init(type: NoteType = .note, title: String = "", body: String = "") {
+        self.type = type
+        self.title = title
+        self.body = body
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(UUID.self,        forKey: .id)
+        type      = try c.decode(NoteType.self,    forKey: .type)
+        title     = try c.decode(String.self,      forKey: .title)
+        body      = try c.decode(String.self,      forKey: .body)
+        done      = try c.decode(Bool.self,        forKey: .done)
+        pinned    = try c.decodeIfPresent(Bool.self,      forKey: .pinned)    ?? false
+        createdAt = try c.decode(Date.self,        forKey: .createdAt)
+        tags      = try c.decodeIfPresent([String].self,  forKey: .tags)      ?? []
+        taskLines = try c.decodeIfPresent([TaskLine].self, forKey: .taskLines) ?? []
+    }
 }
 
 // MARK: - Chat Messages
@@ -211,6 +231,15 @@ struct StreamToolInput: Decodable {
     /// Human-readable single-line summary for UI display
     var displayText: String? {
         command ?? filePath ?? pattern ?? path ?? description
+    }
+
+    /// Convenience init for programmatic creation (e.g. GitHub tool_calls)
+    init(description: String) {
+        self.command     = nil
+        self.filePath    = nil
+        self.pattern     = nil
+        self.path        = nil
+        self.description = description
     }
 }
 

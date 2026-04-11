@@ -174,6 +174,9 @@ struct SingleChatSessionView: View {
     @State private var isDragOver: Bool = false
     @State private var sessionTitle: String = ""
     @State private var workingDirectory: String?
+    @State private var gitBranch: String?
+    @State private var gitBranches: [String] = []
+    @State private var showBranchPicker = false
     @State private var selectedOrchestrators: Set<String> = []
     @State private var showModelPicker    = false
     @State private var showAgentPicker    = false
@@ -199,6 +202,7 @@ struct SingleChatSessionView: View {
         showOrchPicker    = false
         showSnippetPicker = false
         showPermPicker    = false
+        showBranchPicker  = false
     }
     @FocusState private var inputFocused: Bool
 
@@ -376,6 +380,7 @@ struct SingleChatSessionView: View {
             // Restore state from tab
             if !tab.inputText.isEmpty { inputText = tab.inputText }
             if let wd = tab.workingDirectory { workingDirectory = wd }
+            fetchGitBranch()
             if let sid = tab.sessionId {
                 currentSessionId = sid
                 sessionTitle = tab.title
@@ -408,7 +413,10 @@ struct SingleChatSessionView: View {
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
-        .onChange(of: workingDirectory) { tab.workingDirectory = workingDirectory }
+        .onChange(of: workingDirectory) {
+            tab.workingDirectory = workingDirectory
+            fetchGitBranch()
+        }
         // Wenn Rate-Limit-Status sich ändert → Modell live umschalten
         .onChange(of: state.claudeRateLimitActive) {
             applyFallbackModelIfNeeded()
@@ -600,17 +608,15 @@ struct SingleChatSessionView: View {
             }
             .onAppear { scrollProxy = proxy }
             .onChange(of: messages.count) {
-                // Don't scroll mid-stream (new message added = user sent or placeholder inserted)
-                // Streaming scroll handled by isStreaming onChange below
-                if !isStreaming { scrollToBottom(proxy) }
-            }
-            // Only scroll on content change when NOT streaming to avoid
-            // calling scrollTo on every single streaming token
-            .onChange(of: messages.last?.content) {
-                guard !isStreaming else { return }
+                // Always scroll when messages are added (user send + assistant placeholder)
+                // Use Task so layout settles before scrollTo fires
                 scrollToBottom(proxy)
             }
-            // Scroll once when streaming ends
+            // Follow streaming output as it arrives
+            .onChange(of: messages.last?.content) {
+                scrollToBottom(proxy)
+            }
+            // Scroll once more when streaming ends (ensures final content visible)
             .onChange(of: isStreaming) {
                 if !isStreaming { scrollToBottom(proxy) }
             }
@@ -618,8 +624,11 @@ struct SingleChatSessionView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo("bottom", anchor: .bottom)
+        // Defer by one runloop so LazyVStack layout settles before scroll
+        Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
         }
     }
 
@@ -809,6 +818,9 @@ struct SingleChatSessionView: View {
                 Text(label)
                     .font(.system(size: 10))
                     .foregroundStyle(active ? accentColor : theme.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 80)
                 Image(systemName: isPresented.wrappedValue ? "chevron.down" : "chevron.up")
                     .font(.system(size: 7, weight: .medium))
                     .foregroundStyle(theme.tertiaryText.opacity(0.5))
@@ -853,6 +865,7 @@ struct SingleChatSessionView: View {
 
     // Minimal icon row at the very bottom of the input card
     private var controlStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 0) {
             // Attach file
             stripButton(icon: "paperclip", active: false, help: "Datei anhängen") {
@@ -863,6 +876,24 @@ struct SingleChatSessionView: View {
 
             // Working directory
             stripDirButton
+
+            // Git branch picker (only when workingDirectory is a git repo)
+            if gitBranch != nil {
+                stripSep
+                pickerButton(
+                    icon: "arrow.triangle.branch",
+                    label: gitBranch ?? "",
+                    active: false,
+                    isPresented: $showBranchPicker
+                ) {
+                    ForEach(gitBranches, id: \.self) { b in
+                        pickerRow(label: b, selected: b == gitBranch) {
+                            switchGitBranch(b)
+                            showBranchPicker = false
+                        }
+                    }
+                }
+            }
 
             stripSep
 
@@ -1043,6 +1074,7 @@ struct SingleChatSessionView: View {
             }
         }
         .padding(.horizontal, 8)
+        }
         .padding(.bottom, 6)
     }
 
@@ -1088,6 +1120,63 @@ struct SingleChatSessionView: View {
         }
         if panel.runModal() == .OK, let url = panel.url {
             workingDirectory = url.path
+        }
+    }
+
+    private func fetchGitBranch() {
+        guard let cwd = workingDirectory, !cwd.isEmpty else {
+            gitBranch = nil
+            gitBranches = []
+            return
+        }
+        Task.detached(priority: .utility) {
+            // Current branch
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            proc.arguments = ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"]
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = Pipe()
+            try? proc.run()
+            proc.waitUntilExit()
+            let branch = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let current = (branch?.isEmpty == false && branch != "HEAD") ? branch : nil
+
+            // All local branches
+            let proc2 = Process()
+            proc2.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            proc2.arguments = ["-C", cwd, "branch", "--format=%(refname:short)"]
+            let pipe2 = Pipe()
+            proc2.standardOutput = pipe2
+            proc2.standardError = Pipe()
+            try? proc2.run()
+            proc2.waitUntilExit()
+            let branchList = String(data: pipe2.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
+
+            await MainActor.run {
+                gitBranch = current
+                gitBranches = branchList
+            }
+        }
+    }
+
+    private func switchGitBranch(_ branch: String) {
+        guard let cwd = workingDirectory, !cwd.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            proc.arguments = ["-C", cwd, "checkout", branch]
+            proc.standardOutput = Pipe()
+            proc.standardError = Pipe()
+            try? proc.run()
+            proc.waitUntilExit()
+            await MainActor.run {
+                gitBranch = branch
+            }
         }
     }
 
@@ -2574,7 +2663,11 @@ struct MessageBubbleView: View {
     }
 
     private var sourceColor: Color {
-        resolvedSource == .copilot ? .orange : accentColor
+        guard resolvedSource == .copilot else { return accentColor }
+        // Darker burnt-amber for light/medium backgrounds (orange alone fails WCAG contrast)
+        return (theme.isLight || theme.isMedium)
+            ? Color(red: 0.72, green: 0.35, blue: 0.0)
+            : .orange
     }
 
     private var modelLabel: String {
@@ -2891,20 +2984,29 @@ private struct ResearchAnimationView: View {
     let recentTool: String
     @State private var rotation: Double = 0
     @State private var pulse: CGFloat = 1.0
+    @Environment(\.appTheme) var theme
+
+    /// Darker burnt-amber on light/medium backgrounds for WCAG contrast; bright orange on dark.
+    private var searchColor: Color {
+        (theme.isLight || theme.isMedium)
+            ? Color(red: 0.72, green: 0.35, blue: 0.0)
+            : Color.orange
+    }
+    private var bgOpacity: Double { (theme.isLight || theme.isMedium) ? 0.13 : 0.08 }
 
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
                 ForEach(0..<3, id: \.self) { i in
                     Circle()
-                        .fill(Color.orange.opacity(i == 0 ? 0.85 : i == 1 ? 0.5 : 0.25))
+                        .fill(searchColor.opacity(i == 0 ? 0.85 : i == 1 ? 0.5 : 0.25))
                         .frame(width: i == 0 ? 4 : 3, height: i == 0 ? 4 : 3)
                         .offset(y: -9)
                         .rotationEffect(.degrees(rotation + Double(i) * 120))
                 }
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(searchColor)
                     .scaleEffect(pulse)
             }
             .frame(width: 22, height: 22)
@@ -2919,16 +3021,16 @@ private struct ResearchAnimationView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Searching…")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(searchColor)
                 if !recentTool.isEmpty {
                     Text(recentTool)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Color.orange.opacity(0.6))
+                        .foregroundStyle(searchColor.opacity(0.65))
                 }
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .background(searchColor.opacity(bgOpacity), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

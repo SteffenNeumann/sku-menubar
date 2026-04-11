@@ -138,16 +138,66 @@ final class GitHubModelsService {
                     continuation.yield(.systemInit(sessionId: sessionId))
                     var accumulated = ""
 
+                    // Accumulate streaming tool_calls (OpenAI delta format: partial arguments per chunk)
+                    struct PendingTool { var id: String; var name: String; var args: String }
+                    var pendingTools: [Int: PendingTool] = [:]
+                    var toolsFlushed = false
+
                     for try await line in stream.lines {
                         guard line.hasPrefix("data: ") else { continue }
-                        let data = String(line.dropFirst(6))
-                        if data == "[DONE]" { break }
-                        guard let jsonData = data.data(using: .utf8),
+                        let rawData = String(line.dropFirst(6))
+                        if rawData == "[DONE]" {
+                            // Flush any remaining tool calls that never got a follow-up content chunk
+                            if !toolsFlushed {
+                                for key in pendingTools.keys.sorted() {
+                                    guard let t = pendingTools[key] else { continue }
+                                    continuation.yield(.toolUseEvent(
+                                        id: t.id, name: t.name,
+                                        input: Self.extractToolDisplay(from: t.args),
+                                        model: "github/\(apiModel)", sessionId: sessionId
+                                    ))
+                                }
+                            }
+                            break
+                        }
+                        guard let jsonData = rawData.data(using: .utf8),
                               let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                               let choices = obj["choices"] as? [[String: Any]],
-                              let delta = choices.first?["delta"] as? [String: Any],
-                              let text = delta["content"] as? String, !text.isEmpty
+                              let delta = choices.first?["delta"] as? [String: Any]
                         else { continue }
+
+                        // Parse tool_call chunks (web search / function calling)
+                        if let tcs = delta["tool_calls"] as? [[String: Any]] {
+                            for tc in tcs {
+                                let idx = tc["index"] as? Int ?? 0
+                                if let id = tc["id"] as? String,
+                                   let fn = tc["function"] as? [String: Any],
+                                   let nm = fn["name"] as? String {
+                                    pendingTools[idx] = PendingTool(id: id, name: nm, args: "")
+                                }
+                                if let fn = tc["function"] as? [String: Any],
+                                   let argChunk = fn["arguments"] as? String, !argChunk.isEmpty {
+                                    pendingTools[idx, default: PendingTool(id: UUID().uuidString, name: "search", args: "")].args += argChunk
+                                }
+                            }
+                            continue
+                        }
+
+                        // Text content — flush pending tool calls first (once)
+                        guard let text = delta["content"] as? String, !text.isEmpty else { continue }
+
+                        if !pendingTools.isEmpty && !toolsFlushed {
+                            for key in pendingTools.keys.sorted() {
+                                guard let t = pendingTools[key] else { continue }
+                                continuation.yield(.toolUseEvent(
+                                    id: t.id, name: t.name,
+                                    input: Self.extractToolDisplay(from: t.args),
+                                    model: "github/\(apiModel)", sessionId: sessionId
+                                ))
+                            }
+                            toolsFlushed = true
+                        }
+
                         accumulated += text
                         continuation.yield(.textDelta(text, model: "github/\(apiModel)", sessionId: sessionId))
                     }
@@ -184,7 +234,31 @@ struct GitHubImageAttachment {
     let base64Data: String
 }
 
+extension GitHubModelsService {
+    /// Extracts a human-readable display string from JSON tool-call arguments.
+    fileprivate static func extractToolDisplay(from argsJson: String) -> String {
+        guard !argsJson.isEmpty,
+              let data = argsJson.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return String(argsJson.prefix(80)) }
+        // Common search/query field names
+        for key in ["query", "q", "input", "search", "prompt", "text"] {
+            if let v = obj[key] as? String { return v }
+        }
+        return obj.values.compactMap { $0 as? String }.first ?? String(argsJson.prefix(80))
+    }
+}
+
 extension StreamEvent {
+    static func toolUseEvent(id: String, name: String, input: String, model: String, sessionId: String) -> StreamEvent {
+        let toolInput = StreamToolInput(description: input)
+        let block = StreamContent(type: "tool_use", id: id, name: name, toolInput: toolInput)
+        let msg = StreamMessage(role: "assistant", content: [block], model: model, usage: nil)
+        return StreamEvent(type: "assistant", subtype: nil, sessionId: sessionId,
+                           message: msg, costUsd: nil, inputTokens: nil, outputTokens: nil,
+                           isError: nil, result: nil, error: nil)
+    }
+
     static func systemInit(sessionId: String) -> StreamEvent {
         StreamEvent(type: "system", subtype: "init", sessionId: sessionId,
                     message: nil, costUsd: nil, inputTokens: nil, outputTokens: nil,

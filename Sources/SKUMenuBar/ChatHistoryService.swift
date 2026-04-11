@@ -122,25 +122,29 @@ final class ChatHistoryService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Read global history file for fast session index
-        guard let data = try? Data(contentsOf: historyFile) else { return }
-        let lines = String(data: data, encoding: .utf8)?
-            .components(separatedBy: "\n")
-            .filter { !$0.isEmpty } ?? []
-
         let decoder = JSONDecoder()
         var byProject: [String: [(session: String, preview: String, ts: Date)]] = [:]
 
-        for line in lines {
-            guard let lineData = line.data(using: .utf8),
-                  let entry = try? decoder.decode(GlobalHistoryEntry.self, from: lineData),
-                  let project = entry.project,
-                  let sessionId = entry.sessionId else { continue }
+        // Read global history file for fast session index (may not exist)
+        if let data = try? Data(contentsOf: historyFile) {
+            let lines = String(data: data, encoding: .utf8)?
+                .components(separatedBy: "\n")
+                .filter { !$0.isEmpty } ?? []
 
-            let ts = entry.timestamp.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
-            let preview = entry.display ?? ""
-            byProject[project, default: []].append((sessionId, preview, ts))
+            for line in lines {
+                guard let lineData = line.data(using: .utf8),
+                      let entry = try? decoder.decode(GlobalHistoryEntry.self, from: lineData),
+                      let project = entry.project,
+                      let sessionId = entry.sessionId else { continue }
+
+                let ts = entry.timestamp.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
+                let preview = entry.display ?? ""
+                byProject[project, default: []].append((sessionId, preview, ts))
+            }
         }
+
+        // Supplement with sessions found directly on disk (not in history.jsonl)
+        supplementFromDisk(into: &byProject)
 
         var result: [ProjectHistory] = []
         for (path, entries) in byProject {
@@ -170,6 +174,69 @@ final class ChatHistoryService: ObservableObject {
             result.append(ProjectHistory(id: path, path: path, sessions: unique))
         }
         projects = result.sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    // MARK: - Disk fallback: scan ~/.claude/projects/ for sessions missing from history.jsonl
+
+    /// Fills `byProject` with sessions found on disk but absent from history.jsonl.
+    /// Decodes the encoded directory name back to a path and reads each JSONL file
+    /// for a timestamp + preview.
+    private func supplementFromDisk(
+        into byProject: inout [String: [(session: String, preview: String, ts: Date)]]
+    ) {
+        let fm = FileManager.default
+        guard let projectDirs = try? fm.contentsOfDirectory(
+            at: projectsDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return }
+
+        // Build a set of already-known session IDs for quick lookup
+        var knownSessions = Set<String>()
+        for entries in byProject.values {
+            for e in entries { knownSessions.insert(e.session) }
+        }
+
+        let isoFull = ISO8601DateFormatter()
+        isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoBasic = ISO8601DateFormatter()
+
+        for dir in projectDirs where dir.hasDirectoryPath {
+            guard let files = try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: .skipsHiddenFiles
+            ) else { continue }
+
+            for file in files where file.pathExtension == "jsonl" {
+                let sessionId = file.deletingPathExtension().lastPathComponent
+                guard !knownSessions.contains(sessionId) else { continue }
+
+                // Fallback timestamp from file modification date
+                let modDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))
+                    .flatMap { $0.contentModificationDate } ?? .distantPast
+
+                // Read first line to get real cwd + timestamp
+                var ts = modDate
+                var projectPath: String? = nil
+
+                if let handle = try? FileHandle(forReadingFrom: file) {
+                    let data = handle.readData(ofLength: 1024)
+                    try? handle.close()
+                    if let firstLine = String(data: data, encoding: .utf8)?
+                        .components(separatedBy: "\n").first(where: { !$0.isEmpty }),
+                       let lineData = firstLine.data(using: .utf8),
+                       let raw = try? JSONDecoder().decode(RawCLIMessage.self, from: lineData) {
+                        projectPath = raw.cwd
+                        if let tsStr = raw.timestamp {
+                            ts = isoFull.date(from: tsStr) ?? isoBasic.date(from: tsStr) ?? modDate
+                        }
+                    }
+                }
+
+                guard let path = projectPath, !path.isEmpty else { continue }
+
+                knownSessions.insert(sessionId)
+                byProject[path, default: []].append((sessionId, "", ts))
+            }
+        }
     }
 
     // MARK: - Load messages for a session

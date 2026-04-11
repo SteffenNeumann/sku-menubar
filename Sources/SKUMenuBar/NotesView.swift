@@ -44,7 +44,10 @@ struct NotesView: View {
             }
             return matchesType && matchesDone && matchesHide && matchesSearch && matchesTag
         }
-        .sorted { $0.createdAt > $1.createdAt }
+        .sorted {
+            if $0.pinned != $1.pinned { return $0.pinned }
+            return $0.createdAt > $1.createdAt
+        }
     }
 
     /// Alle eindeutigen Tags aus der ungefilterten (ohne Tag-Filter) Liste
@@ -363,11 +366,18 @@ struct NotesView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(displayTitle(note))
-                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
-                        .strikethrough(note.done && note.type == .task)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(displayTitle(note))
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
+                            .strikethrough(note.done && note.type == .task)
+                            .lineLimit(1)
+                        if note.pinned {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(accentColor.opacity(0.7))
+                        }
+                    }
                     // Fortschritt bei Tasks mit Sub-Items
                     if note.type == .task && !note.taskLines.isEmpty {
                         let doneCount = note.taskLines.filter(\.done).count
@@ -447,6 +457,10 @@ struct NotesView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            Button { togglePin(note) } label: {
+                Label(note.pinned ? "Nicht mehr anpinnen" : "Anpinnen",
+                      systemImage: note.pinned ? "pin.slash" : "pin")
+            }
             if note.type == .task {
                 Button { toggleDone(note) } label: {
                     Label(note.done ? "Als offen markieren" : "Als erledigt markieren",
@@ -487,6 +501,12 @@ struct NotesView: View {
     private func deleteNote(_ note: NoteItem) {
         if selectedId == note.id { selectedId = nil }
         state.notes.removeAll { $0.id == note.id }
+    }
+
+    private func togglePin(_ note: NoteItem) {
+        if let idx = state.notes.firstIndex(where: { $0.id == note.id }) {
+            state.notes[idx].pinned.toggle()
+        }
     }
 
     private func toggleDone(_ note: NoteItem) {
