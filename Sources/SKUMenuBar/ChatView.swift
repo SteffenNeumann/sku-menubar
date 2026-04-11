@@ -794,10 +794,120 @@ struct SingleChatSessionView: View {
         }
         .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
+        .overlay(alignment: .bottomLeading) {
+            // Picker dropdowns rendered HERE (inputBar level) — never clipped by the inner ScrollView
+            pickerDropdownPanel
+                .padding(.leading, 12)
+                .padding(.bottom, 40) // push above control strip + bottom padding
+        }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
     }
 
-    // Generic upward-opening themed picker button (custom overlay, no system popover)
+    // MARK: - Active picker panel (rendered at inputBar level, not inside ScrollView)
+
+    @ViewBuilder
+    private var pickerDropdownPanel: some View {
+        let panelStyle = pickerPanelModifier
+        if showBranchPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(gitBranches, id: \.self) { b in
+                    pickerRow(label: b, selected: b == gitBranch) {
+                        switchGitBranch(b); showBranchPicker = false
+                    }
+                }
+            }
+            .modifier(panelStyle)
+        } else if showPermPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                pickerRow(label: "🛡  Standard", selected: !autoApprove) {
+                    autoApprove = false; showPermPicker = false
+                }
+                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove) {
+                    autoApprove = true; showPermPicker = false
+                }
+            }
+            .modifier(panelStyle)
+        } else if showModelPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                pickerSectionHeader("Claude (Anthropic)")
+                ForEach(models, id: \.self) { m in
+                    pickerRow(label: m, selected: m == selectedModel) {
+                        selectedModel = m; showModelPicker = false
+                    }
+                }
+                pickerSectionHeader("GitHub Copilot")
+                ForEach(copilotModels) { m in
+                    pickerRow(label: m.name, selected: m.apiName == selectedModel) {
+                        selectedModel = m.apiName; showModelPicker = false
+                    }
+                }
+            }
+            .modifier(panelStyle)
+        } else if showAgentPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty) {
+                    selectedAgent = ""; showAgentPicker = false
+                }
+                ForEach(state.agentService.agents) { a in
+                    pickerRow(label: a.name, selected: selectedAgent == a.id) {
+                        selectedAgent = a.id; showAgentPicker = false
+                    }
+                }
+            }
+            .modifier(panelStyle)
+        } else if showOrchPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(state.agentService.agents) { a in
+                    orchRow(label: a.name, selected: selectedOrchestrators.contains(a.id)) {
+                        if selectedOrchestrators.contains(a.id) {
+                            selectedOrchestrators.remove(a.id)
+                        } else {
+                            selectedOrchestrators.insert(a.id)
+                        }
+                    }
+                }
+                if !selectedOrchestrators.isEmpty {
+                    orchRow(label: "Auswahl aufheben", selected: false) {
+                        selectedOrchestrators.removeAll(); showOrchPicker = false
+                    }
+                }
+            }
+            .modifier(panelStyle)
+        } else if showSnippetPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                if state.snippets.isEmpty {
+                    Text("Keine Snippets")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                } else {
+                    ForEach(state.snippets) { snippet in
+                        SnippetRowView(
+                            snippet: snippet,
+                            accent: accentColor,
+                            fg: theme.primaryText,
+                            secondary: theme.tertiaryText
+                        ) {
+                            inputText = snippet.text; showSnippetPicker = false; inputFocused = true
+                        } onDelete: {
+                            state.snippets.removeAll { $0.id == snippet.id }
+                        }
+                    }
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5).padding(.horizontal, 6)
+                }
+                pickerRow(label: "+ Snippet hinzufügen", selected: false) {
+                    showSnippetPicker = false; newSnippetTitle = ""; newSnippetText = ""; showSnippetSheet = true
+                }
+            }
+            .modifier(panelStyle)
+        }
+    }
+
+    private var pickerPanelModifier: PickerPanelModifier {
+        PickerPanelModifier(bg: theme.windowBg, border: theme.cardBorder)
+    }
+
+    // Generic upward-opening themed picker button — just the button, no overlay (overlay is at inputBar level)
     private func pickerButton<Content: View>(
         icon: String,
         label: String,
@@ -828,19 +938,6 @@ struct SingleChatSessionView: View {
             .padding(.horizontal, 6).padding(.vertical, 4)
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottomLeading) {
-            if isPresented.wrappedValue {
-                VStack(alignment: .leading, spacing: 0) { content() }
-                    .padding(4)
-                    .frame(minWidth: 180)
-                    .fixedSize()
-                    .background(theme.windowBg)
-                    .overlay(Rectangle().strokeBorder(theme.cardBorder, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: -3)
-                    .offset(y: -28)
-            }
-        }
-        .zIndex(isPresented.wrappedValue ? 100 : 0)
     }
 
     // Single row for single-select pickers (hover-capable)
@@ -3031,6 +3128,22 @@ private struct ResearchAnimationView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(searchColor.opacity(bgOpacity), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Picker Panel Style Modifier
+
+private struct PickerPanelModifier: ViewModifier {
+    let bg: Color
+    let border: Color
+    func body(content: Content) -> some View {
+        content
+            .padding(4)
+            .frame(minWidth: 180)
+            .fixedSize()
+            .background(bg)
+            .overlay(Rectangle().strokeBorder(border, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.28), radius: 10, x: 0, y: -4)
     }
 }
 
