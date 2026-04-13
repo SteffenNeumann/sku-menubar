@@ -243,6 +243,38 @@ struct SettingsFormView: View {
                                                 .font(.system(size: 10))
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
+                                        Divider().foregroundStyle(theme.cardBorder)
+                                        // ── Token-Optimierung ──────────────────────────────────────
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            Text("Token-Optimierung")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundStyle(theme.primaryText)
+                                            HStack(spacing: 12) {
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    fieldLabel("History-Fenster (GitHub Modelle) — Turns")
+                                                    HStack(spacing: 6) {
+                                                        TextField("8", value: $draft.historyWindowSize, formatter: NumberFormatter())
+                                                            .styledInput(theme: theme)
+                                                            .frame(width: 60)
+                                                        Text("Turns (~\(draft.historyWindowSize * 2) Nachrichten)")
+                                                            .font(.system(size: 10))
+                                                            .foregroundStyle(theme.tertiaryText)
+                                                    }
+                                                }
+                                                Spacer()
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    fieldLabel("Max. Turns Claude CLI (0 = aus)")
+                                                    HStack(spacing: 6) {
+                                                        TextField("10", value: $draft.maxTurns, formatter: NumberFormatter())
+                                                            .styledInput(theme: theme)
+                                                            .frame(width: 60)
+                                                        Text("--max-turns")
+                                                            .font(.system(size: 10))
+                                                            .foregroundStyle(theme.tertiaryText)
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

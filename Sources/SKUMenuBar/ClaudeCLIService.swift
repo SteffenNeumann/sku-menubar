@@ -22,7 +22,8 @@ final class ClaudeCLIService: ObservableObject {
         fallbackModel: String? = nil,
         workingDirectory: String? = nil,
         addDirs: [String] = [],
-        skipPermissions: Bool = false
+        skipPermissions: Bool = false,
+        maxTurns: Int? = nil
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -47,6 +48,9 @@ final class ClaudeCLIService: ObservableObject {
                 }
                 if let fb = fallbackModel, !fb.isEmpty {
                     args += ["--fallback-model", fb]
+                }
+                if let mt = maxTurns, mt > 0 {
+                    args += ["--max-turns", "\(mt)"]
                 }
                 for dir in addDirs where !dir.isEmpty {
                     args += ["--add-dir", dir]

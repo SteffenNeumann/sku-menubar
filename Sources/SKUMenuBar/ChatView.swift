@@ -195,6 +195,8 @@ struct SingleChatSessionView: View {
     @State private var filePreviewPanelWidth: CGFloat = 380
     @State private var inputBarHeight: CGFloat = 56
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
+    @State private var isCompacting: Bool = false
+    @State private var compactedSummary: String? = nil
 
     private func closeAllPickers() {
         showModelPicker   = false
@@ -409,6 +411,8 @@ struct SingleChatSessionView: View {
             tab.isStreaming = isStreaming
             // Flush final messages when streaming ends
             if !isStreaming { tab.messages = messages }
+            // Compact-Abschluss verarbeiten
+            if !isStreaming && isCompacting { finishCompact() }
         }
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
@@ -1153,6 +1157,30 @@ struct SingleChatSessionView: View {
 
             Spacer()
 
+            // Token Counter für aktuelle Konversation
+            if !messages.isEmpty {
+                let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
+                let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
+                if totalIn > 0 || totalOut > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.circle")
+                            .font(.system(size: 8))
+                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                        Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText)
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 8))
+                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                        Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .padding(.horizontal, 6)
+                    .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
+                }
+            }
+
             // Session resume badge
             if !sessionTitle.isEmpty {
                 Image(systemName: "clock.arrow.circlepath")
@@ -1528,6 +1556,9 @@ struct SingleChatSessionView: View {
         case "/model":
             showModelPicker = true
             return true
+        case "/compact":
+            compactSession()
+            return true
         case "/help":
             let helpText = slashCommands
                 .map { "**\($0.name)** — \($0.description)" }
@@ -1535,8 +1566,46 @@ struct SingleChatSessionView: View {
             messages.append(ChatMessage(role: .assistant, content: "**Verfügbare Slash-Befehle:**\n\n\(helpText)"))
             return true
         default:
-            // /compact and unknown commands pass through to Claude
+            // unknown commands pass through to Claude
             return false
+        }
+    }
+
+    /// Sendet eine Verdichtungsanfrage an Claude. Nach Abschluss (über isCompacting-Flag)
+    /// wird die Session zurückgesetzt und die Zusammenfassung als Kontext gespeichert.
+    private func compactSession() {
+        guard !messages.isEmpty, !isStreaming else { return }
+        inputText = ""
+        showSlashMenu = false
+        let summaryPrompt = "Fasse unser bisheriges Gespräch in maximal 5 Sätzen zusammen. Antworte NUR mit der kompakten Zusammenfassung, ohne Kommentar oder Einleitung."
+        messages.append(ChatMessage(role: .user, content: "⏳ Konversation wird verdichtet…"))
+        var assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        assistantMsg.model = selectedModel
+        messages.append(assistantMsg)
+        let idx = messages.count - 1
+        isStreaming = true
+        isCompacting = true
+
+        Task { @MainActor in
+            await performSend(message: summaryPrompt, assistantIndex: idx, model: selectedModel)
+        }
+    }
+
+    /// Wird nach Ende des Compact-Streams aufgerufen (via onChange(isStreaming)).
+    private func finishCompact() {
+        isCompacting = false
+        guard let summary = messages.last?.content, !summary.isEmpty else { return }
+        compactedSummary = summary
+        // Neue Session starten — Summary bleibt als Kontext erhalten
+        let summaryNote = ChatMessage(
+            role: .assistant,
+            content: "**Konversation verdichtet.** Zusammenfassung wird als Kontext für weitere Nachrichten verwendet:\n\n\(summary)"
+        )
+        withAnimation(.spring(response: 0.3)) {
+            messages = [summaryNote]
+            currentSessionId = nil
+            errorMessage = nil
+            sessionTitle = ""
         }
     }
 
@@ -1657,12 +1726,15 @@ struct SingleChatSessionView: View {
 
         if model.hasPrefix("github/") {
             // Direkt über GitHub Models API (CLI unterstützt github/ Provider nicht)
-            let historyMsgs = messages.dropLast(2).compactMap { msg -> GitHubMessage? in
-                guard msg.role == .user || msg.role == .assistant else { return nil }
+            // Sliding window: nur die letzten historyWindowSize Turns mitschicken um Input-Tokens zu sparen
+            let windowSize = max(1, state.settings.historyWindowSize) * 2  // turns × 2 (user+assistant)
+            let allHistory = messages.dropLast(2).filter { $0.role == .user || $0.role == .assistant }
+            let windowedHistory = allHistory.count > windowSize ? Array(allHistory.dropFirst(allHistory.count - windowSize)) : Array(allHistory)
+            let historyMsgs = windowedHistory.compactMap { msg -> GitHubMessage? in
                 return GitHubMessage(role: msg.role == .user ? "user" : "assistant", content: msg.content)
             }
             // Projektkontext in System-Prompt injizieren (GitHub API hat keine --add-dir Option)
-            var ghSystemPrompt = agentSystemPrompt
+            var ghSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
             if let wd = workingDirectory, !wd.isEmpty {
                 let projectName = URL(fileURLWithPath: wd).lastPathComponent
                 let projectCtx = "Du arbeitest im Projekt '\(projectName)' im Verzeichnis: \(wd)\nDu hast Zugriff auf alle Dateien in diesem Verzeichnis und solltest Antworten im Kontext dieses Projekts geben."
@@ -1682,15 +1754,19 @@ struct SingleChatSessionView: View {
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
                 effectiveAddDirs.insert(wd, at: 0)
             }
+            // Inject compacted summary as system prompt if no agent prompt is set
+            let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
+            let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
             stream = state.cliService.send(
                 message: message,
                 sessionId: currentSessionId,
-                systemPrompt: agentSystemPrompt,
+                systemPrompt: effectiveSystemPrompt,
                 model: model,
                 fallbackModel: fallback,
                 workingDirectory: workingDirectory,
                 addDirs: effectiveAddDirs,
-                skipPermissions: autoApprove
+                skipPermissions: autoApprove,
+                maxTurns: effectiveMaxTurns
             )
         }
 
@@ -1817,10 +1893,20 @@ struct SingleChatSessionView: View {
 
                     // If CLI intercepted the message as a slash command (e.g. unknown skill),
                     // it may return text only in result.result without an assistant event.
+                    // Also used by GitHub Models resultSuccess (accumulated full text).
+                    // Clear pendingContent to prevent double-flush at end of loop.
                     if let resultText = event.result, !resultText.isEmpty,
                        messages.indices.contains(assistantIndex),
                        messages[assistantIndex].content.isEmpty {
-                        messages[assistantIndex].content = resultText
+                        // Flush any pending buffered tokens first; if there are any,
+                        // they already contain the full text — don't overwrite with resultText.
+                        if pendingContent.isEmpty {
+                            messages[assistantIndex].content = resultText
+                        } else {
+                            messages[assistantIndex].content += pendingContent
+                            pendingContent = ""
+                            pendingTokenCount = 0
+                        }
                     }
 
                     state.lastChatProvider = source
@@ -2852,7 +2938,7 @@ struct MessageBubbleView: View {
             if !message.toolCalls.isEmpty {
                 if message.isStreaming {
                     ResearchAnimationView(recentTool: message.toolCalls.last?.name ?? "")
-                } else {
+                } else if message.source != .copilot {
                     toolsSummaryView(message.toolCalls)
                 }
             }

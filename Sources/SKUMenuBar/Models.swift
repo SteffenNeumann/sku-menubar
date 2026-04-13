@@ -20,6 +20,9 @@ struct GitHubSettings: Codable {
     // Copilot Fallback
     var copilotFallbackEnabled: Bool   = false
     var copilotFallbackModel:   String = "github/claude-sonnet-4-5"
+    // Token Optimierung
+    var historyWindowSize: Int = 8   // Anzahl Turns (= Nachrichten-Paare) die im GitHub-Models-Verlauf mitgesendet werden
+    var maxTurns: Int = 10           // --max-turns für Claude CLI (0 = deaktiviert)
 
     init() {}
 
@@ -43,6 +46,8 @@ struct GitHubSettings: Codable {
         // Migrate old saved value that was missing github/ prefix
         if savedModel == "claude-sonnet-4-5" { savedModel = "github/claude-sonnet-4-5" }
         copilotFallbackModel = savedModel
+        historyWindowSize = (try? c.decodeIfPresent(Int.self, forKey: .historyWindowSize)) ?? 8
+        maxTurns          = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))          ?? 10
     }
 }
 

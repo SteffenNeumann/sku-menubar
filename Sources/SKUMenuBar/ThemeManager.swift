@@ -20,7 +20,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     let isLight: Bool
 
     // Medium-tone themes (mid-grey range, ~96–140 brightness) — need dark text like light themes
-    var isMedium: Bool { ["slate", "pewter", "ash"].contains(id) }
+    var isMedium: Bool { ["slate", "pewter"].contains(id) }
 
     // Computed accent colors using Mirror's opacity scale
     var accentSoft:         Color { Color(r: acR, g: acG, b: acB, a: 0.10) }
@@ -281,17 +281,16 @@ extension AppTheme {
         acTextR: 58, acTextG: 27, acTextB: 4,
         isLight: false
     )
-    // Ash — Neutral blue-grey, clean macOS / Notion feel
-    // Content: cool neutral (172,173,180) → WCAG AA ~4.9:1 with black text
-    // Sidebar: 38 pts darker, clean split without warmth or coolness bias
-    // Accent: vivid teal-mint, high saturation for visibility on neutral grey
+    // Ash — Deep charcoal #202325 mit Steel-Blue Akzent #6C96B4
+    // Content: near-black cool charcoal → dark theme, helles Text
+    // Accent: steel-blue #6C96B4 — ruhig, professionell auf dunklem Grund
     static let ash = AppTheme(
         id: "ash", name: "Ash",
-        bgTopR: 172, bgTopG: 173, bgTopB: 180, bgTopA: 1.0,
-        bgBotR: 130, bgBotG: 131, bgBotB: 140, bgBotA: 1.0,
+        bgTopR: 32,  bgTopG: 35,  bgTopB: 37,  bgTopA: 1.0,
+        bgBotR: 18,  bgBotG: 20,  bgBotB: 22,  bgBotA: 1.0,
         glowEnabled: false,
-        acR: 16, acG: 210, acB: 176,
-        acTextR: 2, acTextG: 50, acTextB: 38, // #023226 — 6.7:1 on #ACADB4
+        acR: 108, acG: 150, acB: 180,
+        acTextR: 108, acTextG: 150, acTextB: 180, // #6C96B4 — lesbar auf dunklem Charcoal
         isLight: false
     )
     static let stone = AppTheme(
