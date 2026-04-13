@@ -305,30 +305,6 @@ struct SingleChatSessionView: View {
                 VStack(spacing: 0) {
                     // Header strip with panel toggles (right-aligned)
                     HStack(spacing: 2) {
-                        // Token Counter für aktuelle Session
-                        let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
-                        let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
-                        if totalIn > 0 || totalOut > 0 {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.up.circle")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.7))
-                                Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText)
-                                Image(systemName: "arrow.down.circle")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.7))
-                                Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText)
-                                Text("tokens")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.6))
-                            }
-                            .padding(.leading, 10)
-                            .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
-                        }
                         Spacer()
                         Button {
                             withAnimation { state.hideSidebar.toggle() }
@@ -375,6 +351,36 @@ struct SingleChatSessionView: View {
                     } else {
                         messagesArea.onTapGesture { closeAllPickers() }
                     }
+
+                    // Token Counter — direkt über der Texteingabe
+                    let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
+                    let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
+                    if totalIn > 0 || totalOut > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                            Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                            Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                            Text("tokens")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 5)
+                        .background(theme.windowBg)
+                        .overlay(Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5), alignment: .top)
+                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
+                    }
+
                     inputBar
                         .background(GeometryReader { geo in
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
