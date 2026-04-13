@@ -137,6 +137,8 @@ final class GitHubModelsService {
 
                     continuation.yield(.systemInit(sessionId: sessionId))
                     var accumulated = ""
+                    var usageInputTokens: Int? = nil
+                    var usageOutputTokens: Int? = nil
 
                     // Accumulate streaming tool_calls (OpenAI delta format: partial arguments per chunk)
                     struct PendingTool { var id: String; var name: String; var args: String }
@@ -164,7 +166,16 @@ final class GitHubModelsService {
                               let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                               let choices = obj["choices"] as? [[String: Any]],
                               let delta = choices.first?["delta"] as? [String: Any]
-                        else { continue }
+                        else {
+                            // Letzter Chunk kann usage ohne choices enthalten
+                            if let jsonData = rawData.data(using: .utf8),
+                               let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                               let usage = obj["usage"] as? [String: Any] {
+                                usageInputTokens  = usage["prompt_tokens"]     as? Int
+                                usageOutputTokens = usage["completion_tokens"] as? Int
+                            }
+                            continue
+                        }
 
                         // Parse tool_call chunks (web search / function calling)
                         if let tcs = delta["tool_calls"] as? [[String: Any]] {
@@ -206,7 +217,7 @@ final class GitHubModelsService {
                         }
                     }
 
-                    continuation.yield(.resultSuccess(text: accumulated, model: "github/\(apiModel)", sessionId: sessionId))
+                    continuation.yield(.resultSuccess(text: accumulated, model: "github/\(apiModel)", sessionId: sessionId, inputTokens: usageInputTokens, outputTokens: usageOutputTokens))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -275,9 +286,9 @@ extension StreamEvent {
                            message: msg, costUsd: nil, inputTokens: nil, outputTokens: nil,
                            isError: nil, result: nil, error: nil)
     }
-    static func resultSuccess(text: String, model: String, sessionId: String) -> StreamEvent {
+    static func resultSuccess(text: String, model: String, sessionId: String, inputTokens: Int? = nil, outputTokens: Int? = nil) -> StreamEvent {
         StreamEvent(type: "result", subtype: "success", sessionId: sessionId,
-                    message: nil, costUsd: 0, inputTokens: nil, outputTokens: nil,
+                    message: nil, costUsd: 0, inputTokens: inputTokens, outputTokens: outputTokens,
                     isError: false, result: text, error: nil)
     }
 }

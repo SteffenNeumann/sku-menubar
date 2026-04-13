@@ -377,7 +377,6 @@ struct SingleChatSessionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 5)
                         .background(theme.windowBg)
-                        .overlay(Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5), alignment: .top)
                         .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
                     }
 
@@ -1963,6 +1962,9 @@ struct SingleChatSessionView: View {
 
                 case "result":
                     messages[assistantIndex].costUsd = event.costUsd
+                    // Token-Zählung aus result-Event übernehmen (GitHub Models liefert sie hier)
+                    if let it = event.inputTokens,  it > 0 { messages[assistantIndex].inputTokens  = it }
+                    if let ot = event.outputTokens, ot > 0 { messages[assistantIndex].outputTokens = ot }
                     if let sid = event.sessionId {
                         currentSessionId = sid
                     }
