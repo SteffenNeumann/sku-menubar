@@ -84,10 +84,10 @@ struct SourceBreakdownCard: View {
             // Title row
             HStack(spacing: 6) {
                 Image(systemName: "tag.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
                 Text(period == .today ? "Quellen \u{2013} Heute" : "Quellen \u{2013} Dieser Monat")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if state.isLoading {
                     ProgressView().scaleEffect(0.55)
@@ -97,7 +97,7 @@ struct SourceBreakdownCard: View {
 
             if sorted.isEmpty {
                 Text(state.isLoading ? "Wird geladen\u{2026}" : "Keine Daten")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 12)
@@ -117,10 +117,10 @@ struct SourceBreakdownCard: View {
                 HStack {
                     HStack(spacing: 5) {
                         Image(systemName: "sum")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.secondaryText)
                         Text("Gesamt")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
@@ -147,16 +147,16 @@ struct SourceBreakdownCard: View {
                         .fill(clr.opacity(0.15))
                         .frame(width: 26, height: 26)
                     Image(systemName: icon(for: product))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(clr)
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(displayName(for: product))
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Text(subtitle(for: product))
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                 }
@@ -165,11 +165,11 @@ struct SourceBreakdownCard: View {
 
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(fmt(amount))
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                     if sorted.count > 1 {
                         Text("\(Int(pct * 100))%")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(clr.opacity(0.85))
                     }
                 }

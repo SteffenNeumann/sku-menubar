@@ -22,10 +22,10 @@ struct SidebarView: View {
                 // Traffic-light spacer + current date & time
                 HStack(spacing: 6) {
                     Text(Date(), style: .date)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Text(Date(), style: .time)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
                 }
@@ -87,7 +87,7 @@ struct SidebarView: View {
     @ViewBuilder
     private var recentProjectsSection: some View {
         Text("LETZTE PROJEKTE")
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.tertiaryText)
             .kerning(0.8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,11 +108,11 @@ struct SidebarView: View {
                             .fill(theme.primaryText.opacity(0.06))
                             .frame(width: 26, height: 26)
                         Image(systemName: "folder")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                     }
                     Text(project.displayName)
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -167,7 +167,7 @@ struct SidebarView: View {
     private func sectionGroup(title: String?, items: [AppSection]) -> some View {
         if let title {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
                 .kerning(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -199,12 +199,12 @@ struct SidebarView: View {
                               : theme.primaryText.opacity(0.06))
                         .frame(width: 26, height: 26)
                     Image(systemName: section.icon)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
                 }
 
                 Text(section.rawValue)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
 
                 Spacer()
@@ -245,7 +245,7 @@ struct SidebarView: View {
 
     private func badge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(accentColor)
     }
 
@@ -272,17 +272,17 @@ struct SidebarView: View {
             if fallbackActive {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.isLight ? Color.black.opacity(0.7) : .white)
                     Text("Copilot Fallback aktiv")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(theme.isLight ? Color.black.opacity(0.7) : .white)
                     Spacer()
                     Button {
                         state.claudeRateLimitActive = false
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(theme.isLight ? Color.black.opacity(0.5) : Color.white.opacity(0.8))
                     }
                     .buttonStyle(.plain)
@@ -296,10 +296,10 @@ struct SidebarView: View {
             if let lastProvider {
                 HStack(spacing: 5) {
                     Image(systemName: lastProvider.icon)
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(lastProvider == .copilot ? .orange : accentColor)
                     Text("Letzte Antwort: \(lastProvider.label)")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
                 }
@@ -307,18 +307,18 @@ struct SidebarView: View {
 
             HStack {
                 Image(systemName: "bolt.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(accentColor)
                 Text("Heute")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(state.fmt(todayCost))
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                     Text("\(formatTokens(state.localTodayTokens + state.copilotTodayTokens)) tok")
-                        .font(.system(size: 8))
+                        .font(.system(size: 10))
                         .foregroundStyle(theme.tertiaryText)
                 }
             }
@@ -327,19 +327,19 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Image(systemName: "calendar.badge.clock")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(barColor)
                     Text("Diese Woche")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
                     if weekLimit > 0 {
                         Text("\(state.fmt(weekCost)) / \(state.fmt(weekLimit))")
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(barColor)
                     } else {
                         Text(state.fmt(weekCost))
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -372,13 +372,13 @@ struct SidebarView: View {
     private var sidebarFooter: some View {
         HStack(spacing: 4) {
             Text(BuildInfo.buildDate)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(theme.secondaryText.opacity(0.7))
             Text("·")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.secondaryText.opacity(0.4))
             Text(BuildInfo.commitHash)
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(theme.secondaryText.opacity(0.5))
         }
         .frame(maxWidth: .infinity, alignment: .leading)

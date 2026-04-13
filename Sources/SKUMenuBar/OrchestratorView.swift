@@ -102,7 +102,7 @@ struct OrchestratorView: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(theme.primaryText)
                 Text(headerSubtitle)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .animation(.easeInOut, value: phase)
             }
@@ -113,7 +113,7 @@ struct OrchestratorView: View {
                     .padding(.trailing, 12)
                 Button { reset() } label: {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(accentColor)
                 }
                 .buttonStyle(.plain)
@@ -156,7 +156,7 @@ struct OrchestratorView: View {
                         }
                     }
                     Text(label)
-                        .font(.system(size: 9, weight: isCurrent ? .semibold : .regular))
+                        .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
                         .foregroundStyle(isActive ? accentColor : theme.tertiaryText)
                 }
                 if i < 3 {
@@ -190,7 +190,7 @@ struct OrchestratorView: View {
                 // Task input
                 VStack(alignment: .leading, spacing: 8) {
                     Text("AUFGABE")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .kerning(0.8)
                     ZStack(alignment: .topLeading) {
@@ -218,7 +218,7 @@ struct OrchestratorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("AGENT-POOL")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
                             .kerning(0.8)
                         Spacer()
@@ -232,7 +232,7 @@ struct OrchestratorView: View {
                             } label: {
                                 Text(selectedAgentIds.count == state.agentService.agents.count + 1
                                      ? "Alle abwählen" : "Alle auswählen")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(accentColor)
                             }
                             .buttonStyle(.plain)
@@ -246,10 +246,10 @@ struct OrchestratorView: View {
                         if !masterTask.isEmpty && !matched.isEmpty {
                             HStack(spacing: 4) {
                                 Image(systemName: "bolt.fill")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(accentColor)
                                 Text("\(matched.count) Agent\(matched.count == 1 ? "" : "s") durch Trigger erkannt")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                                     .foregroundStyle(accentColor)
                             }
                             .padding(.bottom, 2)
@@ -300,13 +300,13 @@ struct OrchestratorView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(accentColor)
                 Text("Noch keine Agents vorhanden")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.primaryText)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("So erstellst du Agents:")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
 
                 ForEach([
@@ -317,12 +317,12 @@ struct OrchestratorView: View {
                 ], id: \.0) { step, text in
                     HStack(alignment: .top, spacing: 8) {
                         Text(step)
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(accentColor)
                             .frame(width: 14, height: 14)
                             .background(Circle().fill(accentColor.opacity(0.15)))
                         Text(LocalizedStringKey(text))
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -334,7 +334,7 @@ struct OrchestratorView: View {
             )
 
             Text("Du kannst den Orchestrator auch mit **Claude (kein Agent)** als einzigem Pool-Member starten.")
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
         }
     }
@@ -358,21 +358,21 @@ struct OrchestratorView: View {
                             .fill(isSelected ? accentColor.opacity(0.2) : theme.cardBorder.opacity(0.5))
                             .frame(width: 28, height: 28)
                         Image(systemName: isSelected ? "checkmark" : icon)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(name)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(theme.primaryText)
                                 .lineLimit(1)
                             if isMatched {
                                 HStack(spacing: 2) {
                                     Image(systemName: "bolt.fill")
-                                        .font(.system(size: 7))
+                                        .font(.system(size: 9))
                                     Text("Match")
-                                        .font(.system(size: 8, weight: .semibold))
+                                        .font(.system(size: 10, weight: .semibold))
                                 }
                                 .foregroundStyle(accentColor)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
@@ -380,7 +380,7 @@ struct OrchestratorView: View {
                             }
                         }
                         Text(desc)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.tertiaryText)
                             .lineLimit(1)
                     }
@@ -423,7 +423,7 @@ struct OrchestratorView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.primaryText)
                 Text("Claude wählt die besten Agents und verteilt die Aufgaben optimal")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -431,7 +431,7 @@ struct OrchestratorView: View {
             if !plannerOutput.isEmpty {
                 ScrollView {
                     Text(plannerOutput)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -454,11 +454,11 @@ struct OrchestratorView: View {
                     if !planDescription.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("PLAN")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(theme.tertiaryText)
                                 .kerning(0.8)
                             Text(planDescription)
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                                 .foregroundStyle(theme.secondaryText)
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -473,7 +473,7 @@ struct OrchestratorView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("SUBTASKS (\(subtasks.count))")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
                             .kerning(0.8)
                         ForEach(subtasks.indices, id: \.self) { i in
@@ -489,7 +489,7 @@ struct OrchestratorView: View {
             HStack(spacing: 12) {
                 Button { reset() } label: {
                     Text("Zurück")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                         .padding(.horizontal, 16).padding(.vertical, 8)
                         .background(
@@ -502,7 +502,7 @@ struct OrchestratorView: View {
                 Spacer()
                 Button { startExecution() } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "play.fill").font(.system(size: 11))
+                        Image(systemName: "play.fill").font(.system(size: 13))
                         Text("Agents starten").font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundStyle(.white)
@@ -525,19 +525,19 @@ struct OrchestratorView: View {
             ZStack {
                 Circle().fill(accentColor.opacity(0.15)).frame(width: 28, height: 28)
                 Text("\(index + 1)")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(accentColor)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(subtask.agentName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(accentColor)
                 Text(subtask.task)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.primaryText)
                 if !subtask.rationale.isEmpty {
                     Text(subtask.rationale)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                         .italic()
                 }
@@ -578,7 +578,7 @@ struct OrchestratorView: View {
                     } else {
                         Image(systemName: subtask.isDone ? "checkmark"
                               : subtask.error != nil ? "exclamationmark" : "clock")
-                            .font(.system(size: 12))
+                            .font(.system(size: 14))
                             .foregroundStyle(subtask.isDone ? .green
                                              : subtask.error != nil ? .red : accentColor)
                     }
@@ -590,7 +590,7 @@ struct OrchestratorView: View {
                     Text(subtask.isDone ? "Fertig"
                          : subtask.isStreaming ? "Läuft..."
                          : subtask.error != nil ? "Fehler" : "Wartet")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(subtask.isDone ? .green
                                          : subtask.isStreaming ? accentColor
                                          : subtask.error != nil ? .red : theme.tertiaryText)
@@ -598,7 +598,7 @@ struct OrchestratorView: View {
                 Spacer()
                 if let err = subtask.error {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red).font(.system(size: 12))
+                        .foregroundStyle(.red).font(.system(size: 14))
                         .help(err)
                 }
             }
@@ -606,7 +606,7 @@ struct OrchestratorView: View {
             .background(theme.cardSurface)
 
             Text(subtask.task)
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
                 .lineLimit(2)
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -616,7 +616,7 @@ struct OrchestratorView: View {
 
             ScrollView {
                 Text(subtask.output.isEmpty ? "Warte auf Ausgabe..." : subtask.output)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(subtask.output.isEmpty ? theme.tertiaryText : theme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
@@ -644,7 +644,7 @@ struct OrchestratorView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.primaryText)
                 Text("Alle Agent-Ergebnisse werden zu einem kohärenten Gesamtergebnis zusammengeführt")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -652,7 +652,7 @@ struct OrchestratorView: View {
             if !finalOutput.isEmpty {
                 ScrollView {
                     Text(finalOutput)
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -682,7 +682,7 @@ struct OrchestratorView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.primaryText)
                 Text("Jeder Agent reflektiert seine Arbeit und dokumentiert Erkenntnisse in seiner Memory")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
@@ -700,16 +700,16 @@ struct OrchestratorView: View {
                                 ProgressView().scaleEffect(0.55)
                             } else {
                                 Image(systemName: statusIcon(status))
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                                     .foregroundStyle(statusColor(status))
                             }
                         }
                         Text(subtask.agentName)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.primaryText)
                         Spacer()
                         Text(statusLabel(status))
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(statusColor(status))
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
@@ -766,9 +766,9 @@ struct OrchestratorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green).font(.system(size: 12))
+                            .foregroundStyle(.green).font(.system(size: 14))
                         Text("FINALES ERGEBNIS")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
                             .kerning(0.8)
                     }
@@ -788,7 +788,7 @@ struct OrchestratorView: View {
                 // Agent outputs — prominent headers
                 VStack(alignment: .leading, spacing: 8) {
                     Text("AGENT-AUSGABEN")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .kerning(0.8)
 
@@ -798,16 +798,16 @@ struct OrchestratorView: View {
                                 if let status = reflectionStatus[subtask.id], status == .done {
                                     HStack(spacing: 4) {
                                         Image(systemName: "brain.head.profile")
-                                            .font(.system(size: 9))
+                                            .font(.system(size: 11))
                                             .foregroundStyle(accentColor)
                                         Text("Lessons Learned gespeichert")
-                                            .font(.system(size: 9))
+                                            .font(.system(size: 11))
                                             .foregroundStyle(accentColor)
                                     }
                                     .padding(.top, 4)
                                 }
                                 Text(subtask.output.isEmpty ? "Keine Ausgabe" : subtask.output)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(theme.secondaryText)
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -827,14 +827,14 @@ struct OrchestratorView: View {
                                 Text("·")
                                     .foregroundStyle(theme.tertiaryText)
                                 Text(subtask.task)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(theme.tertiaryText)
                                     .lineLimit(1)
                                 Spacer()
                                 // Memory badge
                                 if let status = reflectionStatus[subtask.id], status == .done {
                                     Label("Memory", systemImage: "brain.head.profile")
-                                        .font(.system(size: 9))
+                                        .font(.system(size: 11))
                                         .foregroundStyle(accentColor)
                                         .padding(.horizontal, 6).padding(.vertical, 2)
                                         .background(Capsule().fill(accentColor.opacity(0.1)))
@@ -1168,7 +1168,7 @@ private struct FlexTriggerRow: View {
                 ForEach(triggers, id: \.self) { trigger in
                     let isHit = highlight.contains(where: { $0.lowercased() == trigger.lowercased() })
                     Text(trigger)
-                        .font(.system(size: 8, weight: isHit ? .semibold : .regular))
+                        .font(.system(size: 10, weight: isHit ? .semibold : .regular))
                         .foregroundStyle(isHit ? accentColor : theme.tertiaryText)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(
