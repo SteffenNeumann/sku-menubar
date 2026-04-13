@@ -369,82 +369,65 @@ struct SingleChatSessionView: View {
                         let isCritical = threshold > 0 && totalIn >= threshold
                         let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
                         let progress: Double = threshold > 0 ? min(1.0, Double(totalIn) / Double(threshold)) : 0
-                        let barColor: Color = isCritical ? .red : (isWarning ? .orange : .green)
-                        VStack(spacing: 0) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.up.circle")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(tokenColor.opacity(0.7))
-                                Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(tokenColor)
-                                Image(systemName: "arrow.down.circle")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.6))
-                                Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText)
-                                Text("tokens")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.5))
-                                if threshold > 0 {
-                                    Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundStyle(theme.tertiaryText.opacity(0.4))
-                                }
-                                Spacer()
-                                if isWarning && !isCompacting && !isStreaming {
-                                    Button {
-                                        compactSession()
-                                    } label: {
-                                        HStack(spacing: 3) {
-                                            Image(systemName: "scissors")
-                                                .font(.system(size: 9, weight: .medium))
-                                            Text(isCritical ? "Compact jetzt!" : "Compact")
-                                                .font(.system(size: 10, weight: .medium))
-                                        }
-                                        .foregroundStyle(isCritical ? .red : .orange)
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 3)
-                                        .background((isCritical ? Color.red : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
-                                        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder((isCritical ? Color.red : Color.orange).opacity(0.3), lineWidth: 0.5))
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help(isCritical ? "Kontext-Limit erreicht — Konversation jetzt verdichten" : "Kontext ist halb voll — Konversation verdichten spart Tokens")
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 5)
-
-                            // Context progress bar
+                        let arcColor: Color = isCritical ? .red : (isWarning ? .orange : .green)
+                        HStack(spacing: 6) {
+                            // Arc progress ring (only when threshold is set)
                             if threshold > 0 {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        // Track
-                                        Rectangle()
-                                            .fill(theme.cardBorder.opacity(0.25))
-                                            .frame(height: 3)
-                                        // Fill
-                                        Rectangle()
-                                            .fill(barColor.opacity(0.75))
-                                            .frame(width: geo.size.width * progress, height: 3)
-                                            .animation(.easeInOut(duration: 0.4), value: progress)
-                                        // Milestone at 50% — Zusammenfassung empfohlen
-                                        Rectangle()
-                                            .fill(theme.secondaryText.opacity(0.4))
-                                            .frame(width: 1, height: 5)
-                                            .offset(x: geo.size.width * 0.5 - 0.5, y: -1)
-                                        // Milestone at 80% — dringend
-                                        Rectangle()
-                                            .fill(theme.secondaryText.opacity(0.4))
-                                            .frame(width: 1, height: 5)
-                                            .offset(x: geo.size.width * 0.8 - 0.5, y: -1)
-                                    }
+                                ZStack {
+                                    Circle()
+                                        .stroke(theme.cardBorder.opacity(0.3), lineWidth: 1.5)
+                                    Circle()
+                                        .trim(from: 0, to: progress)
+                                        .stroke(arcColor.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                                        .rotationEffect(.degrees(-90))
+                                        .animation(.easeInOut(duration: 0.4), value: progress)
                                 }
-                                .frame(height: 3)
+                                .frame(width: 14, height: 14)
                                 .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))%")
                             }
+                            Image(systemName: "arrow.up.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(tokenColor.opacity(0.7))
+                            Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(tokenColor)
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                            Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                            Text("tokens")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                            if threshold > 0 {
+                                Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                            }
+                            Spacer()
+                            if isWarning && !isCompacting && !isStreaming {
+                                Button {
+                                    compactSession()
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "scissors")
+                                            .font(.system(size: 9, weight: .medium))
+                                        Text(isCritical ? "Compact jetzt!" : "Compact")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundStyle(isCritical ? .red : .orange)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background((isCritical ? Color.red : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder((isCritical ? Color.red : Color.orange).opacity(0.3), lineWidth: 0.5))
+                                }
+                                .buttonStyle(.plain)
+                                .help(isCritical ? "Kontext-Limit erreicht — Konversation jetzt verdichten" : "Kontext ist halb voll — Konversation verdichten spart Tokens")
+                            }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 5)
                         .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
                         .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output\(threshold > 0 ? " · Schwelle: \(threshold)" : "")")
                     }
