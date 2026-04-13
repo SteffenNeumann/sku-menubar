@@ -222,6 +222,7 @@ struct SingleChatSessionView: View {
         .init(name: "/clear",   description: "Chat-Verlauf löschen"),
         .init(name: "/new",     description: "Neue Session starten"),
         .init(name: "/compact", description: "Konversation komprimieren"),
+        .init(name: "/files",   description: "Dateien in Kontext laden — z.B. /files *.swift"),
         .init(name: "/model",   description: "Modell wechseln"),
         .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
     ]
@@ -1559,6 +1560,10 @@ struct SingleChatSessionView: View {
         case "/compact":
             compactSession()
             return true
+        case _ where lower.hasPrefix("/files"):
+            let glob = String(lower.dropFirst("/files".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            loadFilesIntoContext(glob: glob.isEmpty ? "*" : glob)
+            return true
         case "/help":
             let helpText = slashCommands
                 .map { "**\($0.name)** — \($0.description)" }
@@ -1568,6 +1573,111 @@ struct SingleChatSessionView: View {
         default:
             // unknown commands pass through to Claude
             return false
+        }
+    }
+
+    /// Erstellt einen kompakten Dateibaum-String (wie `tree`) für ein Verzeichnis.
+    /// Wird synchron aufgerufen — nur beim ersten Send (kurz genug dafür).
+    private func buildFileTree(at path: String, maxDepth: Int) -> String {
+        let fm = FileManager.default
+        let baseURL = URL(fileURLWithPath: path)
+        let ignoredNames: Set<String> = [".git", ".build", "node_modules", ".DS_Store",
+                                          "build", "DerivedData", ".swp", "xcuserdata",
+                                          ".xcworkspace", "Pods", ".gradle", "__pycache__"]
+        var lines: [String] = []
+        func traverse(_ url: URL, depth: Int, prefix: String) {
+            guard depth <= maxDepth else { return }
+            guard let children = try? fm.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            ) else { return }
+            let sorted = children
+                .filter { !ignoredNames.contains($0.lastPathComponent) }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            for (i, child) in sorted.enumerated() {
+                let isLast = i == sorted.count - 1
+                let connector = isLast ? "└── " : "├── "
+                let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                lines.append("\(prefix)\(connector)\(child.lastPathComponent)\(isDir ? "/" : "")")
+                if isDir {
+                    let newPrefix = prefix + (isLast ? "    " : "│   ")
+                    traverse(child, depth: depth + 1, prefix: newPrefix)
+                }
+            }
+        }
+        lines.append(baseURL.lastPathComponent + "/")
+        traverse(baseURL, depth: 1, prefix: "")
+        return lines.joined(separator: "\n")
+    }
+
+    /// Liest alle Dateien die dem Glob im workingDirectory entsprechen und fügt sie als
+    /// Text-Attachments in den aktuellen Chat-Kontext ein (für alle Modelle nutzbar).
+    private func loadFilesIntoContext(glob: String) {
+        guard let cwd = workingDirectory, !cwd.isEmpty else {
+            messages.append(ChatMessage(role: .assistant,
+                content: "⚠️ Kein Arbeitsverzeichnis gesetzt. Bitte zuerst einen Ordner wählen."))
+            return
+        }
+        inputText = ""
+        showSlashMenu = false
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let baseURL = URL(fileURLWithPath: cwd)
+            // Rekursiver Dateibaum mit maximal 3 Ebenen Tiefe
+            guard let enumerator = fm.enumerator(
+                at: baseURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                await MainActor.run {
+                    self.messages.append(ChatMessage(role: .assistant,
+                        content: "⚠️ Verzeichnis konnte nicht gelesen werden."))
+                }
+                return
+            }
+
+            // Glob-Muster in NSPredicate umwandeln
+            let predicate = NSPredicate(format: "SELF LIKE %@", glob)
+
+            var loaded: [(name: String, content: String)] = []
+            var skipped = 0
+            let maxFileSize = 80_000  // ~80KB pro Datei
+            let maxFiles = 20
+
+            for case let fileURL as URL in enumerator {
+                guard loaded.count < maxFiles else { skipped += 1; continue }
+                guard let vals = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                      vals.isRegularFile == true else { continue }
+
+                let filename = fileURL.lastPathComponent
+                // Depth check: maximal 3 Ebenen unter cwd
+                let rel = fileURL.path.dropFirst(baseURL.path.count + 1)
+                let depth = rel.components(separatedBy: "/").count
+                guard depth <= 4 else { skipped += 1; continue }
+
+                guard predicate.evaluate(with: filename) else { continue }
+
+                guard let data = try? Data(contentsOf: fileURL),
+                      data.count <= maxFileSize,
+                      let text = String(data: data, encoding: .utf8) else {
+                    skipped += 1
+                    continue
+                }
+                let ext = fileURL.pathExtension.lowercased()
+                loaded.append((name: String(rel), content: "```\(ext)\n\(text)\n```"))
+            }
+
+            await MainActor.run {
+                if loaded.isEmpty {
+                    self.messages.append(ChatMessage(role: .assistant,
+                        content: "⚠️ Keine Dateien gefunden für `\(glob)` in `\(cwd)`."))
+                    return
+                }
+                let summary = loaded.map { "**\($0.name)**\n\($0.content)" }.joined(separator: "\n\n")
+                let note = skipped > 0 ? "\n\n*\(skipped) Datei(en) übersprungen (zu groß, binär oder Limit \(maxFiles) erreicht).*" : ""
+                self.messages.append(ChatMessage(role: .assistant,
+                    content: "📂 **\(loaded.count) Datei(en) geladen** (`\(glob)`):\(note)\n\n\(summary)"))
+            }
         }
     }
 
@@ -1616,7 +1726,7 @@ struct SingleChatSessionView: View {
         }
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         // Handle slash commands before normal send
-        if text.hasPrefix("/"), !text.contains(" ") || text == "/compact" {
+        if text.hasPrefix("/"), !text.contains(" ") || text == "/compact" || text.hasPrefix("/files") {
             if handleSlashCommand(text) { return }
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
@@ -1737,7 +1847,10 @@ struct SingleChatSessionView: View {
             var ghSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
             if let wd = workingDirectory, !wd.isEmpty {
                 let projectName = URL(fileURLWithPath: wd).lastPathComponent
-                let projectCtx = "Du arbeitest im Projekt '\(projectName)' im Verzeichnis: \(wd)\nDu hast Zugriff auf alle Dateien in diesem Verzeichnis und solltest Antworten im Kontext dieses Projekts geben."
+                // Option A: Dateibaum (max 3 Ebenen, ohne hidden/build) in System-Prompt
+                let fileTree = buildFileTree(at: wd, maxDepth: 3)
+                let treeSection = fileTree.isEmpty ? "" : "\n\nDateistruktur:\n```\n\(fileTree)\n```"
+                let projectCtx = "Du arbeitest im Projekt '\(projectName)' im Verzeichnis: \(wd)\(treeSection)\n\nDu kannst Dateien aus diesem Projekt per /files <glob> in den Kontext laden (z.B. /files *.swift)."
                 ghSystemPrompt = ghSystemPrompt.map { "\(projectCtx)\n\n\($0)" } ?? projectCtx
             }
             stream = state.ghModelsService.send(

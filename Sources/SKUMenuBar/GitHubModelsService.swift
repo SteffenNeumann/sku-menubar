@@ -199,7 +199,11 @@ final class GitHubModelsService {
                         }
 
                         accumulated += text
-                        continuation.yield(.textDelta(text, model: "github/\(apiModel)", sessionId: sessionId))
+                        // Wenn ein Tool-Call stattgefunden hat (toolsFlushed), Zwischentext nicht streamen —
+                        // nur am Ende via resultSuccess sauber ausgeben (kein Research-Rauschen).
+                        if !toolsFlushed {
+                            continuation.yield(.textDelta(text, model: "github/\(apiModel)", sessionId: sessionId))
+                        }
                     }
 
                     continuation.yield(.resultSuccess(text: accumulated, model: "github/\(apiModel)", sessionId: sessionId))
