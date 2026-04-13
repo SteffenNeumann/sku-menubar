@@ -91,7 +91,17 @@
       "Bash(cp /tmp/skill_shadcn_clean.md /Users/steffen/.claude/skills/shadcn/SKILL.md)",
       "Bash(cp /tmp/skill_ui_ux_pro_max_clean.md /Users/steffen/.claude/skills/ui-ux-pro-max/SKILL.md)",
       "Bash(wc -l /Users/steffen/.claude/skills/*/SKILL.md)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(grep -n \"200k\\\\|contextWindow\\\\|maxContext\\\\|200000\\\\|model.*limit\" /Users/steffen/Documents/GitHub/sku-menubar/sku-menubar/.claude/worktrees/funny-mcclintock/Sources/SKUMenuBar/*.swift)",
+      "Bash(ls -la /Users/steffen/Documents/GitHub/sku-menubar/sku-menubar/.claude/worktrees/funny-mcclintock/Sources/SKUMenuBar/*.swift)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(grep -rn \"contextWindow\\\\|context_window\\\\|200\\\\|maxTokens\\\\|max_tokens\\\\|limit.*token\" /Users/steffen/Documents/GitHub/sku-menubar/sku-menubar/.claude/worktrees/funny-mcclintock/Sources/SKUMenuBar/*.swift)",
+      "Bash(xcodebuild -scheme SKUMenuBar -configuration Debug -derivedDataPath .build/DerivedData build)",
+      "Bash(xcodebuild -scheme SKUMenuBar -configuration Debug -derivedDataPath .build/DerivedData -destination 'platform=macOS' build)",
+      "Bash(xcodebuild -scheme SKUMenuBar -configuration Debug -derivedDataPath /tmp/myClaude-build -destination 'platform=macOS' build)",
+      "Bash(cp /tmp/myClaude-build/Build/Products/Debug/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude)",
+      "Bash(cp -R /tmp/myClaude-build/Build/Products/Debug/SKUMenuBar_myClaude.bundle ~/Applications/myClaude.app/Contents/MacOS/SKUMenuBar_myClaude.bundle)",
+      "Bash(gh pr create --title 'feat: context progress bar im chat token-counter' --body ':*)"
     ],
     "defaultMode": "bypassPermissions"
   }
