@@ -364,28 +364,28 @@ struct SingleChatSessionView: View {
                     let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
                     let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
                     if totalIn > 0 || totalOut > 0 {
-                        let threshold = state.settings.autoCompactThreshold
-                        let isWarning  = threshold > 0 && totalIn >= threshold / 2
-                        let isCritical = threshold > 0 && totalIn >= threshold
+                        let compactThreshold = state.settings.autoCompactThreshold
+                        // Kontextfenster des aktuellen Modells (Fallback 200k)
+                        let contextWindow = (KnownModel.all.first { $0.apiName == selectedModel }?.contextK ?? 200) * 1000
+                        let isWarning  = totalIn >= contextWindow / 2
+                        let isCritical = totalIn >= contextWindow
                         let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
-                        let progress: Double = threshold > 0 ? min(1.0, Double(totalIn) / Double(threshold)) : 0
+                        let progress: Double = min(1.0, Double(totalIn) / Double(contextWindow))
                         let arcColor: Color = isCritical ? .red : (isWarning ? .orange : .green)
                         let dimOpacity: Double = (theme.isLight || theme.isMedium) ? 0.45 : 0.75
                         HStack(spacing: 6) {
-                            // Arc progress ring (only when threshold is set)
-                            if threshold > 0 {
-                                ZStack {
-                                    Circle()
-                                        .stroke(theme.cardBorder.opacity(0.3), lineWidth: 1.5)
-                                    Circle()
-                                        .trim(from: 0, to: progress)
-                                        .stroke(arcColor.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                                        .rotationEffect(.degrees(-90))
-                                        .animation(.easeInOut(duration: 0.4), value: progress)
-                                }
-                                .frame(width: 16, height: 16)
-                                .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))%")
+                            // Arc progress ring gegen echtes Kontextfenster
+                            ZStack {
+                                Circle()
+                                    .stroke(theme.cardBorder.opacity(0.3), lineWidth: 1.5)
+                                Circle()
+                                    .trim(from: 0, to: progress)
+                                    .stroke(arcColor.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                                    .rotationEffect(.degrees(-90))
+                                    .animation(.easeInOut(duration: 0.4), value: progress)
                             }
+                            .frame(width: 16, height: 16)
+                            .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))% von \(contextWindow / 1000)k")
                             Image(systemName: "arrow.up.circle")
                                 .font(.system(size: 13))
                                 .foregroundStyle(tokenColor.opacity(0.7))
@@ -401,13 +401,16 @@ struct SingleChatSessionView: View {
                             Text("tokens")
                                 .font(.system(size: 13))
                                 .foregroundStyle(theme.secondaryText.opacity(0.5))
-                            if threshold > 0 {
-                                Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
-                                    .font(.system(size: 13, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText.opacity(0.4))
+                            Text("/ \(contextWindow / 1000)k")
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText.opacity(0.4))
+                            if compactThreshold > 0 {
+                                Text("· compact bei \(compactThreshold >= 1000 ? String(format: "%.0fk", Double(compactThreshold) / 1000) : "\(compactThreshold)")")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText.opacity(0.3))
                             }
                             Spacer()
-                            if isWarning && !isCompacting && !isStreaming {
+                            if compactThreshold > 0 && totalIn >= compactThreshold / 2 && !isCompacting && !isStreaming {
                                 Button {
                                     compactSession()
                                 } label: {
@@ -430,7 +433,7 @@ struct SingleChatSessionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 5)
                         .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
-                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output\(threshold > 0 ? " · Schwelle: \(threshold)" : "")")
+                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
                     }
 
                     inputBar
