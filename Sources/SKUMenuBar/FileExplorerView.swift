@@ -237,7 +237,7 @@ struct FileExplorerView: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
                                 Text("Gespeichert")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(theme.primaryText)
                             }
                             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -320,15 +320,15 @@ struct FileExplorerView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(accentColor)
                     Text(URL(fileURLWithPath: rootPath).lastPathComponent)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8))
+                        .font(.system(size: 10))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
@@ -344,7 +344,7 @@ struct FileExplorerView: View {
                 showHidden.toggle()
             } label: {
                 Image(systemName: showHidden ? "eye.fill" : "eye.slash")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
                     .frame(width: 26, height: 26)
             }
@@ -355,7 +355,7 @@ struct FileExplorerView: View {
                 NSWorkspace.shared.open(URL(fileURLWithPath: rootPath))
             } label: {
                 Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 26, height: 26)
             }
@@ -388,7 +388,7 @@ struct FileExplorerView: View {
                             showLivePreview.toggle()
                         } label: {
                             Label("Live Preview", systemImage: showLivePreview ? "eye.fill" : "eye")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(showLivePreview ? accentColor : theme.secondaryText)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
                                 .background(
@@ -406,30 +406,30 @@ struct FileExplorerView: View {
                         if isEditing {
                             Button { saveFile(node: node) } label: {
                                 Label(isDirty ? "Speichern *" : "Speichern", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 10)).foregroundStyle(.green)
+                                    .font(.system(size: 12)).foregroundStyle(.green)
                             }
                             .buttonStyle(.plain)
                             Button { isEditing = false; isDirty = false; editText = previewText ?? "" } label: {
                                 Label("Abbrechen", systemImage: "xmark.circle")
-                                    .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                                    .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                             }
                             .buttonStyle(.plain)
                         } else {
                             Button { enterEditMode(node: node) } label: {
                                 Label("Bearbeiten", systemImage: "pencil")
-                                    .font(.system(size: 10)).foregroundStyle(accentColor)
+                                    .font(.system(size: 12)).foregroundStyle(accentColor)
                             }
                             .buttonStyle(.plain)
                             Button { NSWorkspace.shared.open(node.url) } label: {
                                 Label("Öffnen", systemImage: "arrow.up.forward.square")
-                                    .font(.system(size: 10)).foregroundStyle(accentColor)
+                                    .font(.system(size: 12)).foregroundStyle(accentColor)
                             }
                             .buttonStyle(.plain)
                         }
                     } else if !node.isDirectory {
                         Button { NSWorkspace.shared.open(node.url) } label: {
                             Label("Öffnen", systemImage: "arrow.up.forward.square")
-                                .font(.system(size: 10)).foregroundStyle(accentColor)
+                                .font(.system(size: 12)).foregroundStyle(accentColor)
                         }
                         .buttonStyle(.plain)
                     }
@@ -438,19 +438,19 @@ struct FileExplorerView: View {
                         NSPasteboard.general.setString(node.url.path, forType: .string)
                     } label: {
                         Label("Pfad kopieren", systemImage: "doc.on.clipboard")
-                            .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                     }
                     .buttonStyle(.plain)
                     Button { NSWorkspace.shared.activateFileViewerSelecting([node.url]) } label: {
                         Label("Im Finder", systemImage: "folder")
-                            .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                     }
                     .buttonStyle(.plain)
                     Divider().frame(height: 14)
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
                     } label: {
-                        Image(systemName: "sidebar.left").font(.system(size: 11))
+                        Image(systemName: "sidebar.left").font(.system(size: 13))
                             .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
                             .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
                     }
@@ -458,20 +458,20 @@ struct FileExplorerView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
                     } label: {
-                        Image(systemName: "sidebar.squares.left").font(.system(size: 11))
+                        Image(systemName: "sidebar.squares.left").font(.system(size: 13))
                             .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
                             .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
                     }
                     .buttonStyle(.plain)
                 }
             } else {
-                Image(systemName: "doc.text").font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+                Image(systemName: "doc.text").font(.system(size: 14)).foregroundStyle(theme.tertiaryText)
                 Text("Vorschau").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.secondaryText)
                 Spacer()
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { showFileTree.toggle() }
                 } label: {
-                    Image(systemName: "sidebar.left").font(.system(size: 11))
+                    Image(systemName: "sidebar.left").font(.system(size: 13))
                         .foregroundStyle(showFileTree ? theme.secondaryText : accentColor)
                         .help(showFileTree ? "Dateibaum ausblenden" : "Dateibaum einblenden")
                 }
@@ -479,7 +479,7 @@ struct FileExplorerView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
                 } label: {
-                    Image(systemName: "sidebar.squares.left").font(.system(size: 11))
+                    Image(systemName: "sidebar.squares.left").font(.system(size: 13))
                         .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
                         .help(state.hideSidebar ? "Sidebar einblenden" : "Sidebar ausblenden")
                 }
@@ -540,10 +540,10 @@ struct FileExplorerView: View {
     private func newItemRow(parent: ExplorerNode) -> some View {
         HStack(spacing: 6) {
             Image(systemName: newItemIsDir ? "folder.badge.plus" : "doc.badge.plus")
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(accentColor)
             TextField(newItemIsDir ? "Ordnername…" : "Dateiname…", text: $newItemName)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.primaryText)
                 .textFieldStyle(.plain)
                 .onSubmit { commitNewItem(parent: parent) }
@@ -551,7 +551,7 @@ struct FileExplorerView: View {
                 newItemParent = nil
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
             }
             .buttonStyle(.plain)
@@ -629,7 +629,7 @@ struct FileExplorerView: View {
                                 .frame(width: 48, height: 48)
                                 .opacity(0.5)
                             Text("Keine Vorschau verfügbar")
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -653,11 +653,11 @@ struct FileExplorerView: View {
     private func infoChip(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
                 .kerning(0.5)
             Text(value)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(theme.primaryText)
         }
     }
@@ -668,7 +668,7 @@ struct FileExplorerView: View {
                 if let children = node.children {
                     if children.isEmpty {
                         Text("Leeres Verzeichnis")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.tertiaryText)
                             .padding(16)
                     } else {
@@ -682,12 +682,12 @@ struct FileExplorerView: View {
                                         .frame(width: 16, height: 16)
                                         .frame(width: 20)
                                     Text(child.name)
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 14))
                                         .foregroundStyle(theme.primaryText)
                                     Spacer()
                                     if !child.isDirectory {
                                         Text(formatSize(child.fileSize))
-                                            .font(.system(size: 11))
+                                            .font(.system(size: 13))
                                             .foregroundStyle(theme.tertiaryText)
                                     }
                                 }
@@ -740,17 +740,17 @@ struct FileExplorerView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "globe")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(accentColor)
                     Text("Live Preview")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
                     if isEditing && isDirty {
                         HStack(spacing: 4) {
                             Circle().fill(.orange).frame(width: 6, height: 6)
                             Text("Ungespeichert")
-                                .font(.system(size: 9))
+                                .font(.system(size: 11))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                     }
@@ -767,7 +767,7 @@ struct FileExplorerView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -861,7 +861,7 @@ struct FileExplorerView: View {
                 Spacer()
                 if !gitBranch.isEmpty {
                     Text(gitBranch)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(theme.cardSurface, in: RoundedRectangle(cornerRadius: 4))
@@ -878,11 +878,11 @@ struct FileExplorerView: View {
                     // Commit message
                     VStack(alignment: .leading, spacing: 4) {
                         Text("COMMIT-NACHRICHT")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
                             .kerning(0.5)
                         TextField("Commit-Nachricht…", text: $commitMessage)
-                            .font(.system(size: 12))
+                            .font(.system(size: 14))
                             .foregroundStyle(theme.primaryText)
                             .textFieldStyle(.plain)
                             .padding(8)
@@ -894,13 +894,13 @@ struct FileExplorerView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(isOn: $doPush) {
                             Text("Nach Commit pushen (git push)")
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                                 .foregroundStyle(theme.secondaryText)
                         }
                         .toggleStyle(.checkbox)
                         .disabled(gitDone || isGitRunning)
                         Text("Vor dem Commit wird automatisch git pull ausgeführt.")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
 
@@ -908,12 +908,12 @@ struct FileExplorerView: View {
                     if !gitLog.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("OUTPUT")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(theme.tertiaryText)
                                 .kerning(0.5)
                             ScrollView {
                                 Text(gitLog)
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(.system(size: 12, design: .monospaced))
                                     .foregroundStyle(gitHadError ? Color.red : theme.primaryText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(8)
@@ -929,7 +929,7 @@ struct FileExplorerView: View {
                             NSWorkspace.shared.open(prURL)
                         } label: {
                             Label("Pull Request erstellen", systemImage: "arrow.triangle.pull")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .background(accentColor, in: RoundedRectangle(cornerRadius: 6))
@@ -947,7 +947,7 @@ struct FileExplorerView: View {
                 if isGitRunning {
                     ProgressView().scaleEffect(0.7)
                     Text("Läuft…")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
@@ -955,7 +955,7 @@ struct FileExplorerView: View {
                     showCommitSheet = false
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: 14))
                 .foregroundStyle(theme.secondaryText)
 
                 if !gitDone {
@@ -963,7 +963,7 @@ struct FileExplorerView: View {
                         runCommit()
                     } label: {
                         Text(doPush ? "Commit & Push" : "Commit")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14).padding(.vertical, 6)
                             .background(commitMessage.isEmpty ? Color.gray : accentColor,
@@ -1267,7 +1267,7 @@ struct ExplorerTreeRow: View {
             // Expand arrow (directories only)
             if node.isDirectory {
                 Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 12)
             } else {
@@ -1287,7 +1287,7 @@ struct ExplorerTreeRow: View {
             // Name / rename field
             if isRenaming {
                 TextField("", text: $renameText)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                     .onSubmit { onRename() }
@@ -1342,7 +1342,7 @@ struct ExplorerTreeRow: View {
     private func toolbarIconBtn(_ icon: String, help: String, color: Color = .secondary, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(color)
                 .frame(width: 20, height: 20)
         }

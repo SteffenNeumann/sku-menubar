@@ -198,7 +198,7 @@ struct DashboardView: View {
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(theme.primaryText)
                         Text("Echtzeit-Verbrauch und Budget-Tracking.")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
@@ -207,7 +207,7 @@ struct DashboardView: View {
                             Circle().fill(state.errorMsg != nil ? Color.red : Color.green)
                                 .frame(width: 6, height: 6)
                             Text(state.errorMsg != nil ? "FEHLER" : "LIVE")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(state.errorMsg != nil ? Color.red : Color.green)
                                 .kerning(0.8)
                         }
@@ -243,7 +243,7 @@ struct DashboardView: View {
                 if let err = state.errorMsg {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text(err).font(.system(size: 11)).foregroundStyle(theme.primaryText).lineLimit(3)
+                        Text(err).font(.system(size: 13)).foregroundStyle(theme.primaryText).lineLimit(3)
                     }
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.1))
@@ -386,7 +386,7 @@ struct DashboardView: View {
                 HStack {
                     if let t = state.lastUpdate {
                         Label(t.formatted(date: .omitted, time: .shortened), systemImage: "clock")
-                            .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                            .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
                     }
                     Spacer()
                 }
@@ -428,16 +428,16 @@ struct DashboardView: View {
                         .fill(iconColor.opacity(0.15))
                         .frame(width: 28, height: 28)
                     Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(iconColor)
                 }
                 Text(label)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.tertiaryText)
                     .kerning(0.8)
                 Spacer()
                 Text(badge)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(badgeColor)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(badgeColor.opacity(0.12), in: Capsule())
@@ -457,7 +457,7 @@ struct DashboardView: View {
                 }
                 .frame(height: 3)
                 Text(sub)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
             }
         }

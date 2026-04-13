@@ -26,7 +26,7 @@ struct HistoryView: View {
             // Unified header
             HStack(spacing: 8) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(accentColor)
                 Text("Verlauf")
                     .font(.system(size: 13, weight: .semibold))
@@ -39,7 +39,7 @@ struct HistoryView: View {
                         Task { await state.historyService.loadProjects() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -91,9 +91,9 @@ struct HistoryView: View {
         VStack(spacing: 0) {
             // Search bar
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(theme.tertiaryText)
                 TextField("Suchen…", text: $searchText)
-                    .textFieldStyle(.plain).font(.system(size: 12))
+                    .textFieldStyle(.plain).font(.system(size: 14))
             }
             .padding(8)
             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
@@ -104,14 +104,14 @@ struct HistoryView: View {
 
             if state.historyService.isLoading {
                 Spacer()
-                ProgressView("Wird geladen…").font(.system(size: 12))
+                ProgressView("Wird geladen…").font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
             } else if filteredProjects.isEmpty {
                 Spacer()
                 VStack(spacing: 6) {
                     Image(systemName: "clock.badge.questionmark").font(.system(size: 28)).foregroundStyle(theme.tertiaryText)
-                    Text("Keine Projekte gefunden").font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                    Text("Keine Projekte gefunden").font(.system(size: 14)).foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
             } else {
@@ -143,17 +143,17 @@ struct HistoryView: View {
                         .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
                         .frame(width: 26, height: 26)
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(project.displayName)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                     Text("\(project.sessions.count) Session\(project.sessions.count == 1 ? "" : "s")")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
 
@@ -161,7 +161,7 @@ struct HistoryView: View {
 
                 // Session count badge
                 Text("\(project.sessions.count)")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(theme.primaryText.opacity(0.06), in: Capsule())
@@ -186,12 +186,12 @@ struct HistoryView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(project.displayName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 Spacer()
                 Text("\(project.sessions.count)")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(10)
@@ -221,13 +221,13 @@ struct HistoryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(session.timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                        .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9)).foregroundStyle(theme.tertiaryText.opacity(0.5))
+                        .font(.system(size: 11)).foregroundStyle(theme.tertiaryText.opacity(0.5))
                 }
                 Text(session.preview.isEmpty ? "Leere Session" : session.preview)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -265,11 +265,11 @@ struct HistoryView: View {
                         return session.preview.isEmpty ? "Session" : session.preview
                     }()
                     Text(sessionTitle)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(2)
                     Text(session.sessionId)
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
@@ -292,7 +292,7 @@ struct HistoryView: View {
                     state.pendingChatWorkingDirectory = session.projectPath
                 } label: {
                     Label("In Chat öffnen", systemImage: "arrow.right.circle.fill")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.borderedProminent)
@@ -330,14 +330,14 @@ struct HistoryView: View {
                 // Role header
                 HStack(spacing: 4) {
                     if msg.role == .assistant, let model = msg.model {
-                        Image(systemName: "cpu.fill").font(.system(size: 9)).foregroundStyle(accentColor)
-                        Text(model.replacing("claude-", with: "")).font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                        Image(systemName: "cpu.fill").font(.system(size: 11)).foregroundStyle(accentColor)
+                        Text(model.replacing("claude-", with: "")).font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
                     }
                     if msg.role == .user {
-                        Text("Du").font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                        Text("Du").font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
                     }
                     Text(msg.timestamp.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10)).foregroundStyle(theme.tertiaryText.opacity(0.7))
+                        .font(.system(size: 12)).foregroundStyle(theme.tertiaryText.opacity(0.7))
                 }
 
                 // Content
@@ -345,15 +345,15 @@ struct HistoryView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(msg.toolCalls) { tc in
                             HStack(spacing: 4) {
-                                Image(systemName: "wrench.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                                Text(tc.name).font(.system(size: 11, design: .monospaced)).foregroundStyle(.orange.opacity(0.8))
+                                Image(systemName: "wrench.fill").font(.system(size: 11)).foregroundStyle(.orange)
+                                Text(tc.name).font(.system(size: 13, design: .monospaced)).foregroundStyle(.orange.opacity(0.8))
                             }
                         }
                     }
                     .padding(8).background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 } else if !msg.content.isEmpty {
                     Text(msg.content)
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(msg.role == .user ? .white : theme.primaryText)
                         .textSelection(.enabled)
                         .padding(.horizontal, 10).padding(.vertical, 8)
@@ -373,10 +373,10 @@ struct HistoryView: View {
                 if msg.role == .assistant && (msg.inputTokens > 0 || msg.outputTokens > 0) {
                     HStack(spacing: 6) {
                         Text("\(msg.inputTokens)↓ \(msg.outputTokens)↑")
-                            .font(.system(size: 9, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.tertiaryText)
                         if msg.cacheTokens > 0 {
                             Text("cache: \(msg.cacheTokens)")
-                                .font(.system(size: 9, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+                                .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.tertiaryText)
                         }
                     }
                 }
@@ -388,8 +388,8 @@ struct HistoryView: View {
 
     private func statBadge(_ text: String, icon: String, color: Color) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 8))
-            Text(text).font(.system(size: 10, design: .monospaced))
+            Image(systemName: icon).font(.system(size: 10))
+            Text(text).font(.system(size: 12, design: .monospaced))
         }
         .foregroundStyle(color.opacity(0.8))
         .padding(.horizontal, 6).padding(.vertical, 3)
@@ -405,7 +405,7 @@ struct HistoryView: View {
             Text("Session auswählen")
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(theme.secondaryText)
             Text("Wähle ein Projekt und eine\nSession um den Verlauf zu sehen.")
-                .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+                .font(.system(size: 14)).foregroundStyle(theme.tertiaryText)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

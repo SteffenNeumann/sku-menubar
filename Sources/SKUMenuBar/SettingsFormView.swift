@@ -44,7 +44,7 @@ struct SettingsFormView: View {
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(theme.primaryText)
                     Text("Passe deinen myClaude Workspace mit präzisen Einstellungen an.")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
@@ -53,7 +53,7 @@ struct SettingsFormView: View {
                     Task { await state.refresh() }
                 } label: {
                     Label("Speichern & Laden", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
@@ -214,7 +214,7 @@ struct SettingsFormView: View {
                                         HStack(spacing: 10) {
                                             Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
                                                 .toggleStyle(AccentToggleStyle(accentColor: theme.accentFull))
-                                                .font(.system(size: 12))
+                                                .font(.system(size: 14))
                                                 .foregroundStyle(theme.primaryText)
                                             Spacer()
                                         }
@@ -240,14 +240,14 @@ struct SettingsFormView: View {
                                                 .cornerRadius(6)
                                             }
                                             Text("Wird automatisch aktiviert wenn Claude einen Rate-Limit-Fehler zurückgibt. Indikator erscheint in der Seitenleiste.")
-                                                .font(.system(size: 10))
+                                                .font(.system(size: 12))
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
                                         Divider().foregroundStyle(theme.cardBorder)
                                         // ── Token-Optimierung ──────────────────────────────────────
                                         VStack(alignment: .leading, spacing: 10) {
                                             Text("Token-Optimierung")
-                                                .font(.system(size: 11, weight: .semibold))
+                                                .font(.system(size: 13, weight: .semibold))
                                                 .foregroundStyle(theme.primaryText)
                                             HStack(spacing: 12) {
                                                 VStack(alignment: .leading, spacing: 4) {
@@ -257,7 +257,7 @@ struct SettingsFormView: View {
                                                             .styledInput(theme: theme)
                                                             .frame(width: 60)
                                                         Text("Turns (~\(draft.historyWindowSize * 2) Nachrichten)")
-                                                            .font(.system(size: 10))
+                                                            .font(.system(size: 12))
                                                             .foregroundStyle(theme.tertiaryText)
                                                     }
                                                 }
@@ -269,7 +269,7 @@ struct SettingsFormView: View {
                                                             .styledInput(theme: theme)
                                                             .frame(width: 60)
                                                         Text("--max-turns")
-                                                            .font(.system(size: 10))
+                                                            .font(.system(size: 12))
                                                             .foregroundStyle(theme.tertiaryText)
                                                     }
                                                 }
@@ -282,14 +282,14 @@ struct SettingsFormView: View {
                                                             .styledInput(theme: theme)
                                                             .frame(width: 80)
                                                         Text(draft.autoCompactThreshold > 0 ? "≥ \(draft.autoCompactThreshold >= 1000 ? String(format: "%.0fk", Double(draft.autoCompactThreshold) / 1000) : "\(draft.autoCompactThreshold)") Tokens → automatisch /compact" : "deaktiviert")
-                                                            .font(.system(size: 10))
+                                                            .font(.system(size: 12))
                                                             .foregroundStyle(theme.tertiaryText)
                                                     }
                                                 }
                                                 Spacer()
                                             }
                                             Text("Ab dieser Schwelle wird /compact automatisch nach einer Antwort ausgelöst. Warnung (orange) ab 50%, kritisch (rot) ab 100%.")
-                                                .font(.system(size: 10))
+                                                .font(.system(size: 12))
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
                                     }
@@ -358,7 +358,7 @@ struct SettingsFormView: View {
                 .padding(.vertical, 20)
             }
         }
-        .font(.system(size: 12))
+        .font(.system(size: 14))
         .onAppear { draft = state.settings }
     }
 
@@ -383,7 +383,7 @@ struct SettingsFormView: View {
                 }
                 if let hint {
                     Text(hint)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                         .padding(.leading, 22)
                 }
@@ -409,7 +409,7 @@ struct SettingsFormView: View {
     @ViewBuilder
     private func fieldLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.tertiaryText)
             .kerning(0.5)
     }
@@ -420,10 +420,10 @@ struct SettingsFormView: View {
     private func themeGroupHeader(label: String, icon: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
             Text(label)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
                 .kerning(0.5)
         }
@@ -549,11 +549,11 @@ struct SettingsFormView: View {
                 // Name + dark/light badge
                 HStack(spacing: 3) {
                     Text(t.name)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(isSelected ? ac : theme.secondaryText)
                         .lineLimit(1)
                     Image(systemName: t.isLight ? "sun.max.fill" : "moon.fill")
-                        .font(.system(size: 7))
+                        .font(.system(size: 9))
                         .foregroundStyle(theme.tertiaryText)
                 }
             }
@@ -569,7 +569,7 @@ private struct StyledInput: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 12))
+            .font(.system(size: 14))
             .foregroundStyle(theme.primaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)

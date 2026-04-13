@@ -22,7 +22,7 @@ struct OrchestratorView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(theme.primaryText)
                     Text("Weise Aufgaben an mehrere Agents gleichzeitig zu")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
@@ -30,7 +30,7 @@ struct OrchestratorView: View {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.7)
                         Text("\(lanes.filter { $0.isStreaming }.count) aktiv")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -56,7 +56,7 @@ struct OrchestratorView: View {
                 // Task input
                 VStack(alignment: .leading, spacing: 8) {
                     Text("AUFGABE")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .kerning(0.8)
                     ZStack(alignment: .topLeading) {
@@ -81,13 +81,13 @@ struct OrchestratorView: View {
                 // Agent selection
                 VStack(alignment: .leading, spacing: 8) {
                     Text("AGENTS AUSWÄHLEN")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .kerning(0.8)
 
                     if state.agentService.agents.isEmpty {
                         Text("Keine Agents gefunden. Erstelle Agents in ~/.claude/agents/")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.tertiaryText)
                             .padding(12)
                     } else {
@@ -142,16 +142,16 @@ struct OrchestratorView: View {
                         .fill(isSelected ? accentColor.opacity(0.2) : theme.cardBorder.opacity(0.5))
                         .frame(width: 28, height: 28)
                     Image(systemName: isSelected ? "checkmark" : icon)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                     Text(desc)
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(2)
                 }
@@ -172,7 +172,7 @@ struct OrchestratorView: View {
             // Control bar
             HStack {
                 Text(masterTask)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
                 Spacer()
@@ -181,7 +181,7 @@ struct OrchestratorView: View {
                     isRunning = false
                 } label: {
                     Label("Neue Orchestration", systemImage: "arrow.counterclockwise")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(accentColor)
                 }
                 .buttonStyle(.plain)
@@ -256,16 +256,16 @@ struct OrchestratorLaneView: View {
                         ProgressView().scaleEffect(0.6)
                     } else {
                         Image(systemName: lane.isDone ? "checkmark" : "cpu")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(lane.isDone ? .green : accentColor)
                     }
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(lane.agentName)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Text(lane.isDone ? "Fertig" : lane.isStreaming ? "Läuft..." : "Bereit")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(lane.isDone ? .green : lane.isStreaming ? accentColor : theme.tertiaryText)
                 }
                 Spacer()
@@ -283,7 +283,7 @@ struct OrchestratorLaneView: View {
             // Output
             ScrollView {
                 Text(lane.output.isEmpty ? "Warte auf Ausgabe..." : lane.output)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(lane.output.isEmpty ? theme.tertiaryText : theme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)

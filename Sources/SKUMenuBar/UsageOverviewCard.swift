@@ -36,14 +36,14 @@ struct UsageOverviewCard: View {
             // ── Title ────────────────────────────────────────────────
             HStack(spacing: 6) {
                 Image(systemName: "bolt.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.yellow)
                 Text("Verbrauchsübersicht")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if claudeMode {
                     Text("Claude")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.purple.opacity(0.8))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(.purple.opacity(0.12), in: Capsule())
@@ -84,14 +84,14 @@ struct UsageOverviewCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(tint)
                 Text(label)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
                 Text(fmt(amount))
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
             }
 
@@ -114,16 +114,16 @@ struct UsageOverviewCard: View {
             HStack {
                 if limit > 0 {
                     Text("Limit \(fmt(limit))  ·  verbleibend \(fmt(max(0, limit - amount)))")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 } else {
                     Text("Kein Limit konfiguriert")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
                 Text("\(Int(pct * 100))%")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(barTint(pct, tint).opacity(0.85))
             }
         }

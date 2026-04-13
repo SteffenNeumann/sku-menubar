@@ -55,10 +55,10 @@ struct BudgetBarsView: View {
 
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(iconColor)
                 Text(title)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -73,12 +73,12 @@ struct BudgetBarsView: View {
 
                 HStack {
                     Text(subtitle)
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                     Spacer()
                     Text("\(Int(pct * 100))%")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(tint.opacity(0.9))
                 }
             }
@@ -108,7 +108,7 @@ struct BudgetBarsView: View {
                     .animation(.spring(response: 0.6, dampingFraction: 0.8), value: state.remainPct)
 
                 Text("\(Int(state.remainPct * 100))")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(remainColor(state.remainPct))
             }
             .frame(width: 52, height: 52)
@@ -117,10 +117,10 @@ struct BudgetBarsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Image(systemName: "gauge.with.dots.needle.33percent")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.secondaryText)
                     Text("Noch verfügbar")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                 }
 
@@ -131,7 +131,7 @@ struct BudgetBarsView: View {
 
                     if budget > 0 {
                         Text("im Budget")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                 }
@@ -146,7 +146,7 @@ struct BudgetBarsView: View {
                         .font(.system(size: 18))
                         .foregroundStyle(todayPct < 0.75 ? .green : .orange)
                     Text(todayPct < 0.75 ? "unter Limit" : "über Limit")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 }
             }

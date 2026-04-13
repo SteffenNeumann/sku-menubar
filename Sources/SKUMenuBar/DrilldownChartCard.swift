@@ -82,15 +82,15 @@ struct DrilldownChartCard: View {
                         .fill(accentColor.opacity(0.15))
                         .frame(width: 28, height: 28)
                     Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(accentColor)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Text(subtitle)
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
@@ -100,9 +100,9 @@ struct DrilldownChartCard: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                             Text(backLabel)
-                                .font(.system(size: 9, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundStyle(accentColor)
                         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -116,13 +116,13 @@ struct DrilldownChartCard: View {
             // -- Level label + hovered value --
             HStack {
                 Text(levelTitle)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
                 if let hov = hoveredBar,
                    let item = chartItems.first(where: { $0.id == hov }) {
                     Text(fmtFn(item.value))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                         .foregroundStyle(accentColor)
                         .transition(.opacity)
                 }
@@ -136,8 +136,8 @@ struct DrilldownChartCard: View {
             } else if let err = errorMsg {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange).font(.system(size: 11))
-                    Text(err).font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                        .foregroundStyle(.orange).font(.system(size: 13))
+                    Text(err).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)
@@ -146,7 +146,7 @@ struct DrilldownChartCard: View {
                 .padding(.horizontal, 14).padding(.bottom, 12)
             } else if chartItems.isEmpty {
                 Text("Keine Daten")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(maxWidth: .infinity, minHeight: 150, alignment: .center)
             } else {
@@ -176,7 +176,7 @@ struct DrilldownChartCard: View {
                         AxisValueLabel {
                             if let d = val.as(Double.self) {
                                 Text(fmtFn(d))
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(theme.secondaryText)
                             }
                         }
@@ -187,7 +187,7 @@ struct DrilldownChartCard: View {
                         AxisValueLabel {
                             if let s = val.as(String.self) {
                                 Text(s)
-                                    .font(.system(size: 9, weight: .medium))
+                                    .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(theme.secondaryText)
                             }
                         }
@@ -223,7 +223,7 @@ struct DrilldownChartCard: View {
             // -- Hint text --
             if let hint = hint {
                 Text(hint)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.bottom, 10)

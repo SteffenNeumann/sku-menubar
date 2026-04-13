@@ -323,7 +323,7 @@ struct MCPView: View {
             if isLoading && servers.isEmpty {
                 Spacer()
                 ProgressView("MCP Server werden abgefragt…")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
             } else if filteredServers.isEmpty && !servers.isEmpty {
@@ -337,7 +337,7 @@ struct MCPView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                     Button("Filter zurücksetzen") { scopeFilter = nil }
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(accentColor)
                         .buttonStyle(.plain)
                     Spacer()
@@ -392,7 +392,7 @@ struct MCPView: View {
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(theme.primaryText)
                     Text("Orchestrate your Model Context Protocol server nodes")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                 }
 
@@ -407,8 +407,8 @@ struct MCPView: View {
                     } label: {
                         HStack(spacing: 5) {
                             if isLoading { ProgressView().scaleEffect(0.55).frame(width: 12, height: 12) }
-                            else { Image(systemName: "arrow.2.circlepath").font(.system(size: 10)) }
-                            Text("Aktualisieren").font(.system(size: 12, weight: .medium))
+                            else { Image(systemName: "arrow.2.circlepath").font(.system(size: 12)) }
+                            Text("Aktualisieren").font(.system(size: 14, weight: .medium))
                         }
                         .foregroundStyle(theme.primaryText)
                         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -422,8 +422,8 @@ struct MCPView: View {
                         showAddSheet = true
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "plus.circle.fill").font(.system(size: 11))
-                            Text("Hinzufügen").font(.system(size: 12, weight: .semibold))
+                            Image(systemName: "plus.circle.fill").font(.system(size: 13))
+                            Text("Hinzufügen").font(.system(size: 14, weight: .semibold))
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -443,10 +443,10 @@ struct MCPView: View {
             if let msg = profileFeedback {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text(msg).font(.system(size: 11)).foregroundStyle(theme.primaryText)
+                    Text(msg).font(.system(size: 13)).foregroundStyle(theme.primaryText)
                     Spacer()
                     Button { profileFeedback = nil } label: {
-                        Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                        Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                     }.buttonStyle(.plain)
                 }
                 .padding(.horizontal, 22).padding(.bottom, 10)
@@ -471,11 +471,11 @@ struct MCPView: View {
         let active = scopeFilter == scope
         return Button { withAnimation(.easeInOut(duration: 0.15)) { scopeFilter = scope } } label: {
             HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9))
-                Text(label).font(.system(size: 11, weight: active ? .semibold : .regular))
+                Image(systemName: icon).font(.system(size: 11))
+                Text(label).font(.system(size: 13, weight: active ? .semibold : .regular))
                 if let c = count {
                     Text("\(c)")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .background(active ? accentColor.opacity(0.2) : theme.cardBorder.opacity(0.6), in: Capsule())
                 }
@@ -519,9 +519,9 @@ struct MCPView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "bookmark.fill").font(.system(size: 10))
-                Text("Profile").font(.system(size: 12, weight: .medium))
-                Image(systemName: "chevron.down").font(.system(size: 9))
+                Image(systemName: "bookmark.fill").font(.system(size: 12))
+                Text("Profile").font(.system(size: 14, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 11))
             }
             .foregroundStyle(theme.primaryText)
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -594,14 +594,14 @@ struct MCPView: View {
                     HStack(spacing: 4) {
                         Circle().fill(.green).frame(width: 6, height: 6)
                         Text("LIVE")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundStyle(.green)
                             .tracking(1)
                     }
                 }
             }
             Text(header)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(theme.tertiaryText)
                 .tracking(1.2)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -613,7 +613,7 @@ struct MCPView: View {
                     .foregroundStyle(valueColor)
             }
             Text(footnote)
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
                 .lineLimit(1)
         }
@@ -657,11 +657,11 @@ struct MCPView: View {
             // Endpoint section
             VStack(alignment: .leading, spacing: 3) {
                 Text("ENDPOINT")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(theme.tertiaryText)
                     .tracking(1)
                 Text(serverEndpoint(for: server))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -676,11 +676,11 @@ struct MCPView: View {
             HStack(alignment: .center, spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Health Status")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                         .tracking(0.5)
                     Text(statusText)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(statusColor)
                         .lineLimit(1)
                 }
@@ -692,7 +692,7 @@ struct MCPView: View {
                     editingServer = server
                 } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 26, height: 26)
                         .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
@@ -710,7 +710,7 @@ struct MCPView: View {
                         ProgressView().scaleEffect(0.5).frame(width: 26, height: 26)
                     } else {
                         Image(systemName: "minus.circle")
-                            .font(.system(size: 12))
+                            .font(.system(size: 14))
                             .foregroundStyle(theme.secondaryText)
                             .frame(width: 26, height: 26)
                             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
@@ -738,7 +738,7 @@ struct MCPView: View {
             }
         }()
         return Text(label)
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
             .foregroundStyle(fg)
             .tracking(0.4)
             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -747,9 +747,9 @@ struct MCPView: View {
 
     private func scopeBadge(_ scope: MCPScope) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: scope.icon).font(.system(size: 7))
+            Image(systemName: scope.icon).font(.system(size: 9))
             Text(scope.label.uppercased())
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(0.3)
         }
         .foregroundStyle(theme.tertiaryText)
@@ -819,10 +819,10 @@ struct MCPView: View {
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Text("Connect Node")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Text("Add a custom MCP endpoint")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
             }
             .frame(maxWidth: .infinity, minHeight: 140)
@@ -864,9 +864,9 @@ struct MCPView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(showAllLogs ? "Collapse" : "View full audit log")
-                            .font(.system(size: 12))
+                            .font(.system(size: 14))
                         Image(systemName: showAllLogs ? "chevron.up" : "arrow.right")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                     }
                     .foregroundStyle(accentColor)
                 }
@@ -889,7 +889,7 @@ struct MCPView: View {
                 Text("EVENT").frame(maxWidth: .infinity, alignment: .leading)
                 Text("STATUS").frame(width: 70, alignment: .trailing)
             }
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(theme.tertiaryText)
             .tracking(0.8)
             .padding(.horizontal, 14).padding(.vertical, 9)
@@ -925,11 +925,11 @@ struct MCPView: View {
                         logStatusBadge(entry.status)
                             .frame(width: 70, alignment: .trailing)
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8))
+                            .font(.system(size: 10))
                             .foregroundStyle(theme.tertiaryText)
                             .frame(width: 20, alignment: .trailing)
                     }
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 13, design: .monospaced))
                     .padding(.horizontal, 14).padding(.vertical, 9)
                     .background(isExpanded ? theme.windowBg.opacity(0.5) : Color.clear)
                 }
@@ -966,11 +966,11 @@ struct MCPView: View {
     private func logDetailCell(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(theme.tertiaryText)
                 .tracking(0.8)
             Text(value)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -987,7 +987,7 @@ struct MCPView: View {
             }
         }()
         return Text(label)
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
@@ -1031,7 +1031,7 @@ struct MCPView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(theme.secondaryText)
             Text("Deploy your first MCP server to start orchestrating.")
-                .font(.system(size: 12))
+                .font(.system(size: 14))
                 .foregroundStyle(theme.tertiaryText)
                 .multilineTextAlignment(.center)
 
@@ -1039,8 +1039,8 @@ struct MCPView: View {
                 showAddSheet = true
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "plus.circle.fill").font(.system(size: 11))
-                    Text("Deploy First Node").font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "plus.circle.fill").font(.system(size: 13))
+                    Text("Deploy First Node").font(.system(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16).padding(.vertical, 8)
@@ -1221,7 +1221,7 @@ struct AddMCPServerSheet: View {
                 VStack(spacing: 10) {
                     ProgressView()
                     Text("Konfiguration wird geladen…")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1252,7 +1252,7 @@ struct AddMCPServerSheet: View {
             Spacer()
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.plain)
@@ -1277,8 +1277,8 @@ struct AddMCPServerSheet: View {
             withAnimation(.easeInOut(duration: 0.15)) { mode = tab }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 11))
-                Text(label).font(.system(size: 12, weight: active ? .semibold : .regular))
+                Image(systemName: icon).font(.system(size: 13))
+                Text(label).font(.system(size: 14, weight: active ? .semibold : .regular))
             }
             .foregroundStyle(active ? accentColor : theme.secondaryText)
             .frame(maxWidth: .infinity)
@@ -1296,16 +1296,16 @@ struct AddMCPServerSheet: View {
             // Search bar
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
                 TextField("Server suchen…", text: $catalogSearch)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                 if !catalogSearch.isEmpty {
                     Button { catalogSearch = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -1341,7 +1341,7 @@ struct AddMCPServerSheet: View {
                                 .font(.system(size: 24))
                                 .foregroundStyle(theme.tertiaryText)
                             Text("Keine Server gefunden")
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                         .frame(maxWidth: .infinity)
@@ -1365,8 +1365,8 @@ struct AddMCPServerSheet: View {
             selectedCategory = category
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9))
-                Text(category).font(.system(size: 11, weight: active ? .semibold : .regular))
+                Image(systemName: icon).font(.system(size: 11))
+                Text(category).font(.system(size: 13, weight: active ? .semibold : .regular))
             }
             .foregroundStyle(active ? accentColor : theme.secondaryText)
             .padding(.horizontal, 9).padding(.vertical, 4)
@@ -1394,24 +1394,24 @@ struct AddMCPServerSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(entry.name)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(theme.primaryText)
                         Text(entry.category)
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(theme.tertiaryText)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(theme.primaryText.opacity(0.06), in: Capsule())
                         Spacer()
                         if entry.needsConfig {
                             HStack(spacing: 3) {
-                                Image(systemName: "key.fill").font(.system(size: 8))
-                                Text("API-Key").font(.system(size: 9))
+                                Image(systemName: "key.fill").font(.system(size: 10))
+                                Text("API-Key").font(.system(size: 11))
                             }
                             .foregroundStyle(.orange.opacity(0.8))
                         }
                     }
                     Text(entry.description)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                 }
@@ -1445,17 +1445,17 @@ struct AddMCPServerSheet: View {
                 if let src = catalogSourceName {
                     HStack(spacing: 7) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(accentColor)
                         Text("Aus Katalog: \(src) — Felder anpassen und hinzufügen")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(accentColor)
                         Spacer()
                         Button {
                             catalogSourceName = nil
                             name = ""; commandOrUrl = ""; extraArgs = ""; envVarsText = ""; headersText = ""
                         } label: {
-                            Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                            Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                         }
                         .buttonStyle(.plain)
                     }
@@ -1470,9 +1470,9 @@ struct AddMCPServerSheet: View {
                         ForEach(MCPScope.allCases, id: \.self) { scope in
                             Button { selectedScope = scope } label: {
                                 HStack(spacing: 4) {
-                                    Image(systemName: scope.icon).font(.system(size: 10))
+                                    Image(systemName: scope.icon).font(.system(size: 12))
                                     Text(scope.label)
-                                        .font(.system(size: 11, weight: selectedScope == scope ? .semibold : .regular))
+                                        .font(.system(size: 13, weight: selectedScope == scope ? .semibold : .regular))
                                 }
                                 .foregroundStyle(selectedScope == scope ? accentColor : theme.secondaryText)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
@@ -1501,7 +1501,7 @@ struct AddMCPServerSheet: View {
                                     projectDir = url.path
                                 }
                             } label: {
-                                Image(systemName: "folder").font(.system(size: 11))
+                                Image(systemName: "folder").font(.system(size: 13))
                                     .foregroundStyle(theme.secondaryText)
                                     .padding(7)
                                     .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
@@ -1525,7 +1525,7 @@ struct AddMCPServerSheet: View {
                                 transport = t
                             } label: {
                                 Text(t)
-                                    .font(.system(size: 11, weight: transport == t ? .semibold : .regular))
+                                    .font(.system(size: 13, weight: transport == t ? .semibold : .regular))
                                     .foregroundStyle(transport == t ? accentColor : theme.secondaryText)
                                     .padding(.horizontal, 10).padding(.vertical, 5)
                                     .background(
@@ -1579,12 +1579,12 @@ struct AddMCPServerSheet: View {
                             ZStack(alignment: .leading) {
                                 if selectedModel.isEmpty {
                                     Text("Modell wählen oder eingeben…")
-                                        .font(.system(size: 12, design: .monospaced))
+                                        .font(.system(size: 14, design: .monospaced))
                                         .foregroundStyle(theme.tertiaryText)
                                         .padding(.horizontal, 10).padding(.vertical, 7)
                                 }
                                 TextField("", text: $selectedModel)
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(.system(size: 14, design: .monospaced))
                                     .foregroundStyle(theme.primaryText)
                                     .textFieldStyle(.plain)
                                     .padding(.horizontal, 10).padding(.vertical, 7)
@@ -1598,8 +1598,8 @@ struct AddMCPServerSheet: View {
                                 showModelPicker = true
                             } label: {
                                 HStack(spacing: 4) {
-                                    Image(systemName: "cpu").font(.system(size: 10))
-                                    Text("Auswählen").font(.system(size: 11, weight: .medium))
+                                    Image(systemName: "cpu").font(.system(size: 12))
+                                    Text("Auswählen").font(.system(size: 13, weight: .medium))
                                 }
                                 .foregroundStyle(accentColor)
                                 .padding(.horizontal, 9).padding(.vertical, 6)
@@ -1635,13 +1635,13 @@ struct AddMCPServerSheet: View {
                         // HowTo hint
                         HStack(spacing: 4) {
                             Image(systemName: "info.circle")
-                                .font(.system(size: 9))
+                                .font(.system(size: 11))
                                 .foregroundStyle(theme.tertiaryText)
                             Text("Modell nicht gefunden? Den API-Namen direkt ins Feld tippen, z. B. ")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                             Text("my-provider/model-name")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
                         }
                     }
@@ -1649,7 +1649,7 @@ struct AddMCPServerSheet: View {
 
                 if let err = errorMsg {
                     Text(err)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(.red)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1663,15 +1663,15 @@ struct AddMCPServerSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 5) {
                         Image(systemName: "sparkles")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(accentColor)
                         Text("AI Assistance")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(accentColor)
                     }
 
                     Text("Describe what you need in plain language and let AI fill in the form fields.")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
 
                     styledTextEditor(text: $aiPrompt, minHeight: 52)
@@ -1679,7 +1679,7 @@ struct AddMCPServerSheet: View {
                             Group {
                                 if aiPrompt.isEmpty {
                                     Text("e.g. Help me configure this for PostgreSQL on port 5433")
-                                        .font(.system(size: 11))
+                                        .font(.system(size: 13))
                                         .foregroundStyle(theme.tertiaryText)
                                         .padding(10)
                                         .allowsHitTesting(false)
@@ -1691,7 +1691,7 @@ struct AddMCPServerSheet: View {
                     HStack(spacing: 8) {
                         if let err = aiError {
                             Text(err)
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(.red)
                                 .lineLimit(2)
                         }
@@ -1703,9 +1703,9 @@ struct AddMCPServerSheet: View {
                                 if isAIAssisting {
                                     ProgressView().scaleEffect(0.55).frame(width: 12, height: 12)
                                 } else {
-                                    Image(systemName: "sparkles").font(.system(size: 10))
+                                    Image(systemName: "sparkles").font(.system(size: 12))
                                 }
-                                Text("Ask AI").font(.system(size: 11, weight: .semibold))
+                                Text("Ask AI").font(.system(size: 13, weight: .semibold))
                             }
                             .foregroundStyle((aiPrompt.trimmingCharacters(in: .whitespaces).isEmpty || isAIAssisting) ? theme.primaryText.opacity(0.4) : .white)
                             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1798,12 +1798,12 @@ struct AddMCPServerSheet: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(theme.primaryText)
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(2)
                 Text(example)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(accentColor.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8).padding(.vertical, 4)
@@ -1819,7 +1819,7 @@ struct AddMCPServerSheet: View {
             Spacer()
             Button("Abbrechen") { dismiss() }
                 .buttonStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: 14))
                 .foregroundStyle(theme.secondaryText)
 
             if mode == .catalog && !isEditing {
@@ -1828,7 +1828,7 @@ struct AddMCPServerSheet: View {
                     withAnimation(.easeInOut(duration: 0.15)) { mode = .manual }
                 } label: {
                     Text("Manuell eingeben")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(accentColor)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
@@ -1842,7 +1842,7 @@ struct AddMCPServerSheet: View {
                     HStack(spacing: 5) {
                         if isAdding { ProgressView().scaleEffect(0.6).frame(width: 12, height: 12) }
                         Text(isEditing ? "Speichern" : "Hinzufügen")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(canAdd ? .white : theme.primaryText.opacity(0.4))
                     .padding(.horizontal, 14).padding(.vertical, 7)
@@ -1862,11 +1862,11 @@ struct AddMCPServerSheet: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 if let h = hint {
                     Text("· \(h)")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
             }
@@ -1876,7 +1876,7 @@ struct AddMCPServerSheet: View {
 
     private func styledTextField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(size: 14, design: .monospaced))
             .foregroundStyle(theme.primaryText)
             .textFieldStyle(.plain)
             .padding(.horizontal, 10).padding(.vertical, 7)
@@ -1886,7 +1886,7 @@ struct AddMCPServerSheet: View {
 
     private func styledTextEditor(text: Binding<String>, minHeight: CGFloat) -> some View {
         TextEditor(text: text)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: 13, design: .monospaced))
             .foregroundStyle(theme.primaryText)
             .scrollContentBackground(.hidden)
             .background(.clear)
@@ -2043,14 +2043,14 @@ private struct ModelPickerPopover: View {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(accentColor)
                 Text("Modell auswählen")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Text("\(filtered.count) Modelle")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(.horizontal, 14)
@@ -2061,16 +2061,16 @@ private struct ModelPickerPopover: View {
             // Search
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
                 TextField("Modell suchen…", text: $search)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                 if !search.isEmpty {
                     Button { search = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -2106,7 +2106,7 @@ private struct ModelPickerPopover: View {
                                 .font(.system(size: 22))
                                 .foregroundStyle(theme.tertiaryText)
                             Text("Kein Modell gefunden")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                         .frame(maxWidth: .infinity)
@@ -2116,10 +2116,10 @@ private struct ModelPickerPopover: View {
                             // Provider section header
                             HStack(spacing: 5) {
                                 Image(systemName: KnownModel.providerIcon(group.provider))
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(theme.tertiaryText)
                                 Text(group.provider)
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(theme.tertiaryText)
                                 Spacer()
                             }
@@ -2146,8 +2146,8 @@ private struct ModelPickerPopover: View {
         let icon = p == "Alle" ? "square.grid.2x2" : KnownModel.providerIcon(p)
         return Button { provider = p } label: {
             HStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 8))
-                Text(p).font(.system(size: 10, weight: active ? .semibold : .regular))
+                Image(systemName: icon).font(.system(size: 10))
+                Text(p).font(.system(size: 12, weight: active ? .semibold : .regular))
             }
             .foregroundStyle(active ? accentColor : theme.secondaryText)
             .padding(.horizontal, 8).padding(.vertical, 3)
@@ -2161,16 +2161,16 @@ private struct ModelPickerPopover: View {
         Button { onSelect(model) } label: {
             HStack(spacing: 10) {
                 Image(systemName: KnownModel.providerIcon(model.provider))
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(accentColor.opacity(0.7))
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.name)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                     Text(model.apiName)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                 }
@@ -2179,7 +2179,7 @@ private struct ModelPickerPopover: View {
 
                 if let k = model.contextK {
                     Text("\(k)K")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.tertiaryText)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(theme.primaryText.opacity(0.06), in: Capsule())
@@ -2218,7 +2218,7 @@ private struct SaveProfileSheet: View {
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .medium))
+                    Image(systemName: "xmark").font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.plain)
@@ -2229,7 +2229,7 @@ private struct SaveProfileSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Profilname")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     TextField("Mein MCP-Setup", text: $profileName)
                         .font(.system(size: 13))
@@ -2242,7 +2242,7 @@ private struct SaveProfileSheet: View {
                 }
 
                 Text("Alle aktuell konfigurierten MCP-Server werden als Profil gespeichert. Ein Profil kann später geladen werden, um denselben Server-Setup schnell wiederherzustellen.")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.tertiaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2254,14 +2254,14 @@ private struct SaveProfileSheet: View {
                 Spacer()
                 Button("Abbrechen") { dismiss() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                 Button {
                     Task { await save() }
                 } label: {
                     HStack(spacing: 5) {
                         if isSaving { ProgressView().scaleEffect(0.6).frame(width: 12, height: 12) }
-                        Text("Speichern").font(.system(size: 12, weight: .semibold))
+                        Text("Speichern").font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(profileName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving ? theme.primaryText.opacity(0.4) : .white)
                     .padding(.horizontal, 14).padding(.vertical, 7)

@@ -91,7 +91,7 @@ struct ChatView: View {
                 state.selectedChatTabIndex = state.chatTabs.count - 1
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 36, height: 36)
             }
@@ -111,11 +111,11 @@ struct ChatView: View {
                 ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
             } else if isSelected {
                 Image(systemName: tab.agentId.isEmpty ? "bubble.left" : "cpu")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(accentColor)
             }
             Text(tab.title)
-                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? theme.primaryText : theme.tertiaryText)
                 .lineLimit(1)
 
@@ -126,7 +126,7 @@ struct ChatView: View {
                     state.selectedChatTabIndex = max(0, min(state.selectedChatTabIndex, state.chatTabs.count - 1))
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -318,7 +318,7 @@ struct SingleChatSessionView: View {
                             withAnimation { state.hideSidebar.toggle() }
                         } label: {
                             Image(systemName: "sidebar.squares.left")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
                                 .frame(width: 26, height: 26)
                         }
@@ -329,7 +329,7 @@ struct SingleChatSessionView: View {
                             withAnimation(.spring(response: 0.3)) { showFilePanel.toggle() }
                         } label: {
                             Image(systemName: "sidebar.left")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(showFilePanel ? accentColor : theme.secondaryText)
                                 .frame(width: 26, height: 26)
                         }
@@ -341,7 +341,7 @@ struct SingleChatSessionView: View {
                                 withAnimation(.spring(response: 0.3)) { activeDiff = nil }
                             } label: {
                                 Image(systemName: "sidebar.right")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(accentColor)
                                     .frame(width: 26, height: 26)
                             }
@@ -383,28 +383,28 @@ struct SingleChatSessionView: View {
                                         .rotationEffect(.degrees(-90))
                                         .animation(.easeInOut(duration: 0.4), value: progress)
                                 }
-                                .frame(width: 14, height: 14)
+                                .frame(width: 16, height: 16)
                                 .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))%")
                             }
                             Image(systemName: "arrow.up.circle")
-                                .font(.system(size: 9))
+                                .font(.system(size: 13))
                                 .foregroundStyle(tokenColor.opacity(0.7))
                             Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 14, design: .monospaced))
                                 .foregroundStyle(tokenColor)
                             Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(dimOpacity))
+                                .font(.system(size: 13))
+                                .foregroundStyle(theme.secondaryText.opacity(0.5))
                             Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 14, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
                             Text("tokens")
-                                .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(dimOpacity))
+                                .font(.system(size: 13))
+                                .foregroundStyle(theme.secondaryText.opacity(0.5))
                             if threshold > 0 {
                                 Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
-                                    .font(.system(size: 9, design: .monospaced))
-                                    .foregroundStyle(theme.tertiaryText.opacity(dimOpacity * 0.8))
+                                    .font(.system(size: 13, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText.opacity(0.4))
                             }
                             Spacer()
                             if isWarning && !isCompacting && !isStreaming {
@@ -413,9 +413,9 @@ struct SingleChatSessionView: View {
                                 } label: {
                                     HStack(spacing: 3) {
                                         Image(systemName: "scissors")
-                                            .font(.system(size: 9, weight: .medium))
+                                            .font(.system(size: 11, weight: .medium))
                                         Text(isCritical ? "Compact jetzt!" : "Compact")
-                                            .font(.system(size: 10, weight: .medium))
+                                            .font(.system(size: 12, weight: .medium))
                                     }
                                     .foregroundStyle(isCritical ? .red : .orange)
                                     .padding(.horizontal, 7)
@@ -577,7 +577,7 @@ struct SingleChatSessionView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(accentColor)
                 Text("Text, Code, Bilder und mehr")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(accentColor.opacity(0.7))
             }
         }
@@ -664,7 +664,7 @@ struct SingleChatSessionView: View {
             sendMessage()
         } label: {
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.secondaryText)
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
@@ -730,7 +730,7 @@ struct SingleChatSessionView: View {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                     .padding(.top, 1)
                 Text(displayText)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.primaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -739,7 +739,7 @@ struct SingleChatSessionView: View {
                 Button(errorExpanded ? "Weniger anzeigen" : "Vollständige Fehlermeldung anzeigen") {
                     errorExpanded.toggle()
                 }
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(.red.opacity(0.8))
                 .buttonStyle(.plain)
             }
@@ -781,10 +781,10 @@ struct SingleChatSessionView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Text(cmd.name)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
                             .foregroundStyle(accentColor)
                         Text(cmd.description)
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(slashDescColor)
                         Spacer()
                     }
@@ -987,7 +987,7 @@ struct SingleChatSessionView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.down.circle.fill").foregroundStyle(.green)
                         Text("~\(disabledCount * 7)k Tokens gespart")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.green)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 7)
@@ -1065,7 +1065,7 @@ struct SingleChatSessionView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if state.snippets.isEmpty {
                     Text("Keine Snippets")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                         .padding(.horizontal, 10).padding(.vertical, 8)
                 } else {
@@ -1110,12 +1110,12 @@ struct SingleChatSessionView: View {
                         ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
                     } else {
                         Image(systemName: "server.rack")
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     if disabledCount > 0 {
                         Text("~\(tokenSavings)k ↓")
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.green)
                     }
                 }
@@ -1133,7 +1133,7 @@ struct SingleChatSessionView: View {
                         withAnimation(.easeInOut(duration: 0.15)) { activeMCPIds = [] }
                     } label: {
                         Text("Alle")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(theme.tertiaryText)
                             .padding(.horizontal, 6).padding(.vertical, 3)
                             .background(theme.cardBg, in: Capsule())
@@ -1150,7 +1150,7 @@ struct SingleChatSessionView: View {
                         }
                     } label: {
                         Text("Kein MCP")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(activeMCPIds == Set(["__none__"]) ? .red : theme.tertiaryText)
                             .padding(.horizontal, 6).padding(.vertical, 3)
                             .background(activeMCPIds == Set(["__none__"]) ? Color.red.opacity(0.10) : theme.cardBg, in: Capsule())
@@ -1193,7 +1193,7 @@ struct SingleChatSessionView: View {
                     .fill(effectiveActive ? .green : theme.tertiaryText.opacity(0.3))
                     .frame(width: 5, height: 5)
                 Text(server.name)
-                    .font(.system(size: 10, weight: effectiveActive ? .medium : .regular))
+                    .font(.system(size: 12, weight: effectiveActive ? .medium : .regular))
                     .lineLimit(1)
             }
             .foregroundStyle(effectiveActive ? theme.primaryText : theme.tertiaryText)
@@ -1299,16 +1299,16 @@ struct SingleChatSessionView: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(active ? accentColor : theme.tertiaryText)
                 Text(label)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(active ? accentColor : theme.tertiaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: 80)
                 Image(systemName: isPresented.wrappedValue ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 7, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.tertiaryText.opacity(0.5))
             }
             .padding(.horizontal, 6).padding(.vertical, 4)
@@ -1323,7 +1323,7 @@ struct SingleChatSessionView: View {
 
     private func pickerSectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.tertiaryText)
             .padding(.horizontal, 12)
             .padding(.top, 6)
@@ -1436,9 +1436,9 @@ struct SingleChatSessionView: View {
 
             HStack(spacing: 4) {
                 Image(systemName: currentRouteSource.icon)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 Text(currentRouteSource.label)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(currentRouteSource == .copilot ? .orange : accentColor)
             .padding(.horizontal, 7)
@@ -1513,7 +1513,7 @@ struct SingleChatSessionView: View {
             ) {
                 if state.snippets.isEmpty {
                     Text("Keine Snippets")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                         .padding(.horizontal, 10).padding(.vertical, 8)
                 } else {
@@ -1549,10 +1549,10 @@ struct SingleChatSessionView: View {
             // Session resume badge
             if !sessionTitle.isEmpty {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(accentColor.opacity(0.5))
                 Text(sessionTitle)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
                     .lineLimit(1)
                     .padding(.trailing, 4)
@@ -1585,10 +1585,10 @@ struct SingleChatSessionView: View {
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: "folder")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(workingDirectory != nil ? accentColor : theme.secondaryText.opacity(0.75))
                 Text(workingDirectory.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "~")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(workingDirectory != nil ? accentColor : theme.secondaryText.opacity(0.75))
                     .lineLimit(1)
                     .frame(maxWidth: 90)
@@ -1680,10 +1680,10 @@ struct SingleChatSessionView: View {
     private func fileChip(_ file: AttachedFile) -> some View {
         HStack(spacing: 4) {
             Image(systemName: file.isImage ? "photo" : "doc.text")
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(file.isImage ? Color.blue : accentColor)
             Text(file.name)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1692,7 +1692,7 @@ struct SingleChatSessionView: View {
                 attachedFiles.removeAll { $0.id == file.id }
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(theme.tertiaryText)
             }
             .buttonStyle(.plain)
@@ -2570,19 +2570,19 @@ struct SingleChatSessionView: View {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.mint)
                 Text("Codeänderungen")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
 
                 Spacer()
 
                 Text("+\(added)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.green)
                 Text("-\(removed)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.red)
 
                 // Copy diff
@@ -2591,7 +2591,7 @@ struct SingleChatSessionView: View {
                     NSPasteboard.general.setString(diff, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -2604,7 +2604,7 @@ struct SingleChatSessionView: View {
                     }
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -2618,10 +2618,10 @@ struct SingleChatSessionView: View {
             // File list summary
             HStack(spacing: 6) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
                 Text("\(files.count) Datei\(files.count == 1 ? "" : "en")")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
             }
@@ -2649,15 +2649,15 @@ struct SingleChatSessionView: View {
             // File name header
             HStack(spacing: 6) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
                 Text(file.name)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
                 Spacer()
                 Text("+\(file.additions) -\(file.deletions)")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
@@ -2692,7 +2692,7 @@ struct SingleChatSessionView: View {
                       : theme.primaryText
 
         return Text(line.isEmpty ? " " : line)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: 13, design: .monospaced))
             .foregroundStyle(fg)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
@@ -2797,10 +2797,10 @@ struct ChatFilePanel: View {
             // Header
             HStack(spacing: 6) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(accentColor)
                 Text(URL(fileURLWithPath: rootPath).lastPathComponent)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 Spacer()
@@ -2809,7 +2809,7 @@ struct ChatFilePanel: View {
                     reload()
                 } label: {
                     Image(systemName: showHidden ? "eye.fill" : "eye.slash")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(showHidden ? accentColor : theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -2819,7 +2819,7 @@ struct ChatFilePanel: View {
                     NSWorkspace.shared.open(URL(fileURLWithPath: rootPath))
                 } label: {
                     Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -2827,7 +2827,7 @@ struct ChatFilePanel: View {
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -2916,7 +2916,7 @@ struct SyntaxHighlighter {
     static func highlight(_ text: String, fileExtension ext: String, isDark: Bool) -> AttributedString {
         var result = AttributedString(text)
         result.foregroundColor = isDark ? Color(white: 0.86) : Color(white: 0.12)
-        result.font = .system(size: 11, design: .monospaced)
+        result.font = .system(size: 13, design: .monospaced)
 
         // Colors
         let cComment = Color(white: isDark ? 0.46 : 0.52)              // grey
@@ -3124,30 +3124,30 @@ struct FilePreviewPanel: View {
             // ── Header ───────────────────────────────────────────────────
             HStack(spacing: 6) {
                 Image(systemName: node.icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(node.iconColor)
                 Text(node.name)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 Spacer()
                 Button { onInsertPath(node.url.path) } label: {
                     Label("Einfügen", systemImage: "text.badge.plus")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(accentColor)
                 }
                 .buttonStyle(.plain)
                 .help("Pfad in Chat einfügen")
                 Button { NSWorkspace.shared.open(node.url) } label: {
                     Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .help("Im Finder öffnen")
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
@@ -3184,7 +3184,7 @@ struct FilePreviewPanel: View {
                                 .textSelection(.enabled)
                         } else {
                             Text(text)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: 13, design: .monospaced))
                                 .foregroundStyle(theme.primaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
@@ -3200,7 +3200,7 @@ struct FilePreviewPanel: View {
                         .font(.system(size: 32))
                         .foregroundStyle(node.iconColor.opacity(0.4))
                     Text("Keine Vorschau verfügbar")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3294,7 +3294,7 @@ struct ChatFilePanelRow: View {
             Color.clear.frame(width: CGFloat(depth) * 14)
             if node.isDirectory {
                 Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(width: 12)
             } else {
@@ -3305,11 +3305,11 @@ struct ChatFilePanelRow: View {
                     .fill(isSelected ? accentColor.opacity(0.2) : theme.primaryText.opacity(0.06))
                     .frame(width: 26, height: 26)
                 Image(systemName: node.icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(isSelected ? accentColor : node.iconColor)
             }
             Text(node.name)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -3317,7 +3317,7 @@ struct ChatFilePanelRow: View {
             if isHovered && !node.isDirectory {
                 Button { onInsert(node) } label: {
                     Image(systemName: "text.badge.plus")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(accentColor)
                 }
                 .buttonStyle(.plain)
@@ -3409,7 +3409,7 @@ struct MessageBubbleView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                 Text("You")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
             if !message.content.isEmpty {
@@ -3432,15 +3432,15 @@ struct MessageBubbleView: View {
                         .fill(accentColor.opacity(0.15))
                         .frame(width: 18, height: 18)
                     Image(systemName: "sparkles")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(accentColor)
                 }
                 HStack(spacing: 5) {
                     HStack(spacing: 4) {
                         Image(systemName: resolvedSource.icon)
-                            .font(.system(size: 8, weight: .semibold))
-                        Text(resolvedSource.label)
                             .font(.system(size: 10, weight: .semibold))
+                        Text(resolvedSource.label)
+                            .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(sourceColor)
                     .padding(.horizontal, 6)
@@ -3448,7 +3448,7 @@ struct MessageBubbleView: View {
                     .background(sourceColor.opacity(0.10), in: Capsule())
 
                     Text(modelLabel)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
@@ -3488,13 +3488,13 @@ struct MessageBubbleView: View {
             // Header row: icon + tool name + command summary
             HStack(spacing: 5) {
                 Image(systemName: tool.name == "Bash" ? "terminal.fill" : "wrench.and.screwdriver.fill")
-                    .font(.system(size: 9)).foregroundStyle(.orange)
+                    .font(.system(size: 11)).foregroundStyle(.orange)
                 Text(tool.name)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.orange.opacity(0.85))
                 if !tool.input.isEmpty {
                     Text(tool.input)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -3502,7 +3502,7 @@ struct MessageBubbleView: View {
                 Spacer()
                 if tool.result != nil {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 9)).foregroundStyle(.green.opacity(0.7))
+                        .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 4)
@@ -3512,7 +3512,7 @@ struct MessageBubbleView: View {
             if toolsExpanded, let result = tool.result, !result.isEmpty {
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(result)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -3549,17 +3549,17 @@ struct MessageBubbleView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.system(size: 9)).foregroundStyle(.orange.opacity(0.55))
+                        .font(.system(size: 11)).foregroundStyle(.orange.opacity(0.55))
                     Text(label)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.orange.opacity(0.5))
                     if hasResults {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 9)).foregroundStyle(.green.opacity(0.6))
+                            .font(.system(size: 11)).foregroundStyle(.green.opacity(0.6))
                     }
                     Spacer()
                     Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.tertiaryText.opacity(0.5))
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
@@ -3599,13 +3599,13 @@ struct MessageBubbleView: View {
         HStack(spacing: 8) {
             if message.inputTokens > 0 {
                 Label("\(message.inputTokens) in", systemImage: "arrow.down")
-                    .font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 Label("\(message.outputTokens) out", systemImage: "arrow.up")
-                    .font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
             }
             if let cost = message.costUsd, cost > 0 {
                 Text(String(format: "$%.4f", cost))
-                    .font(.system(size: 9, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.tertiaryText)
             }
         }
         .padding(.top, 2)
@@ -3623,20 +3623,20 @@ struct MessageBubbleView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.mint)
                 Text("\(files.count) Datei\(files.count == 1 ? "" : "en") geändert")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                 Text("+\(added)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.green)
                 Text("-\(removed)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.red)
                 Spacer()
                 Image(systemName: "sidebar.right")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -3710,7 +3710,7 @@ private struct ResearchAnimationView: View {
                         .rotationEffect(.degrees(rotation + Double(i) * 120))
                 }
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(searchColor)
                     .scaleEffect(pulse)
             }
@@ -3725,11 +3725,11 @@ private struct ResearchAnimationView: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text("Searching…")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(searchColor)
                 if !recentTool.isEmpty {
                     Text(recentTool)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(searchColor.opacity(0.65))
                 }
             }
@@ -3769,11 +3769,11 @@ private struct PickerRowView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: selected ? "checkmark" : "")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(accent)
                     .frame(width: 12)
                 Text(label)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(selected || hovered ? accent : fg)
                 Spacer()
             }
@@ -3806,10 +3806,10 @@ private struct OrchRowView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: selected ? "checkmark.square.fill" : (label == "Auswahl aufheben" ? "xmark.circle" : "square"))
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : secondary))
                 Text(label)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : fg))
                 Spacer()
             }
@@ -3840,7 +3840,7 @@ extension SingleChatSessionView {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Titel")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 TextField("z.B. Commit & Push", text: $newSnippetTitle)
                     .font(.system(size: 13))
@@ -3852,7 +3852,7 @@ extension SingleChatSessionView {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Befehl / Prompt")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 TextEditor(text: $newSnippetText)
                     .font(.system(size: 12.5, design: .monospaced))
@@ -3867,7 +3867,7 @@ extension SingleChatSessionView {
                 Spacer()
                 Button("Abbrechen") { showSnippetSheet = false }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 12).padding(.vertical, 6)
                 Button("Speichern") {
@@ -3878,7 +3878,7 @@ extension SingleChatSessionView {
                     showSnippetSheet = false
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(accentColor, in: RoundedRectangle(cornerRadius: 6))
@@ -3907,17 +3907,17 @@ private struct SnippetRowView: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "bolt.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(hovered ? accent : secondary.opacity(0.5))
             Text(snippet.title)
-                .font(.system(size: 12))
+                .font(.system(size: 14))
                 .foregroundStyle(hovered ? accent : fg)
                 .lineLimit(1)
             Spacer()
             if hovered {
                 Button(action: onDelete) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(secondary)
                 }
                 .buttonStyle(.plain)
