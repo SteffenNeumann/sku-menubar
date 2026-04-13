@@ -370,6 +370,7 @@ struct SingleChatSessionView: View {
                         let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
                         let progress: Double = threshold > 0 ? min(1.0, Double(totalIn) / Double(threshold)) : 0
                         let arcColor: Color = isCritical ? .red : (isWarning ? .orange : .green)
+                        let dimOpacity: Double = (theme.isLight || theme.isMedium) ? 0.45 : 0.75
                         HStack(spacing: 6) {
                             // Arc progress ring (only when threshold is set)
                             if threshold > 0 {
@@ -393,17 +394,17 @@ struct SingleChatSessionView: View {
                                 .foregroundStyle(tokenColor)
                             Image(systemName: "arrow.down.circle")
                                 .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                                .foregroundStyle(theme.tertiaryText.opacity(dimOpacity))
                             Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
                             Text("tokens")
                                 .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                                .foregroundStyle(theme.tertiaryText.opacity(dimOpacity))
                             if threshold > 0 {
                                 Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
                                     .font(.system(size: 9, design: .monospaced))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                                    .foregroundStyle(theme.tertiaryText.opacity(dimOpacity * 0.8))
                             }
                             Spacer()
                             if isWarning && !isCompacting && !isStreaming {
