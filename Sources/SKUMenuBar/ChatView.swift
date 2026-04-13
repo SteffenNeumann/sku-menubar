@@ -305,6 +305,30 @@ struct SingleChatSessionView: View {
                 VStack(spacing: 0) {
                     // Header strip with panel toggles (right-aligned)
                     HStack(spacing: 2) {
+                        // Token Counter für aktuelle Session
+                        let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
+                        let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
+                        if totalIn > 0 || totalOut > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.up.circle")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                                Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText)
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                                Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText)
+                                Text("tokens")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                            }
+                            .padding(.leading, 10)
+                            .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
+                        }
                         Spacer()
                         Button {
                             withAnimation { state.hideSidebar.toggle() }
@@ -726,7 +750,7 @@ struct SingleChatSessionView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 ZStack(alignment: .topLeading) {
                     if inputText.isEmpty {
-                        Text("Ask Claude…")
+                        Text("let's build some awesome…")
                             .font(.system(size: 12.5, design: .monospaced))
                             .foregroundStyle(theme.tertiaryText.opacity(0.6))
                             .padding(.leading, 5).padding(.top, 4)
@@ -1157,30 +1181,6 @@ struct SingleChatSessionView: View {
             }
 
             Spacer()
-
-            // Token Counter für aktuelle Konversation
-            if !messages.isEmpty {
-                let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
-                let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
-                if totalIn > 0 || totalOut > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.up.circle")
-                            .font(.system(size: 8))
-                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
-                        Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 8))
-                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
-                        Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .padding(.horizontal, 6)
-                    .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
-                }
-            }
 
             // Session resume badge
             if !sessionTitle.isEmpty {
