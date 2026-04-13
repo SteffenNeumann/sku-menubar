@@ -23,7 +23,8 @@ final class ClaudeCLIService: ObservableObject {
         workingDirectory: String? = nil,
         addDirs: [String] = [],
         skipPermissions: Bool = false,
-        maxTurns: Int? = nil
+        maxTurns: Int? = nil,
+        mcpConfigJSON: String? = nil   // wenn gesetzt: --strict-mcp-config + --mcp-config <json>
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -31,6 +32,9 @@ final class ClaudeCLIService: ObservableObject {
                 var args: [String] = ["--print", "--output-format", "stream-json", "--verbose"]
                 if skipPermissions {
                     args.append("--dangerously-skip-permissions")
+                }
+                if let mcpJson = mcpConfigJSON, !mcpJson.isEmpty {
+                    args += ["--strict-mcp-config", "--mcp-config", mcpJson]
                 }
 
                 if let sid = sessionId, !sid.isEmpty {
@@ -80,6 +84,11 @@ final class ClaudeCLIService: ObservableObject {
                 env["HOME"] = home
                 // Ensure claude can find its config
                 env["XDG_CONFIG_HOME"] = "\(home)/.config"
+                // Remove VS Code / IDE proxy variables so the CLI uses the
+                // claude.ai subscription instead of a proxied API key.
+                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
                 process.environment = env
 
                 let stdoutPipe = Pipe()
@@ -165,6 +174,9 @@ final class ClaudeCLIService: ObservableObject {
                 let extraPaths = "\(home)/.local/bin:/usr/local/bin:/opt/homebrew/bin"
                 env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
                 env["HOME"] = home
+                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
                 process.environment = env
 
                 let outPipe = Pipe()
@@ -196,36 +208,65 @@ final class ClaudeCLIService: ObservableObject {
         let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         for line in lines {
-            // Expected formats:
-            // "  server-name (http): Connected"
-            // "  server-name (stdio): Needs authentication"
-            // "  server-name: ..."
+            // Formats emitted by current Claude CLI:
+            //   "  name: https://url (HTTP) - ✓ Connected"
+            //   "  name: https://url (SSE) - ✗ Failed to connect"
+            //   "  name: npx -y pkg --stdio - ✓ Connected"
+            //   "  name (stdio): Connected"   (older format)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
 
-            // Try to parse "name (type): status" or "name: status"
-            var name = trimmed
-            var type = "unknown"
+            var name      = trimmed
+            var transport = "unknown"
             var statusText = ""
 
-            if let parenOpen = trimmed.firstIndex(of: "("),
-               let parenClose = trimmed[parenOpen...].firstIndex(of: ")") {
-                type = String(trimmed[trimmed.index(after: parenOpen)..<parenClose])
-                let afterParen = trimmed[trimmed.index(after: parenClose)...]
-                if let colon = afterParen.firstIndex(of: ":") {
-                    name = String(trimmed[..<parenOpen]).trimmingCharacters(in: .whitespaces)
-                    statusText = String(afterParen[afterParen.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            // Detect which format we have:
+            // Old format: "name (type): status"  → paren before first colon
+            // New format: "name: rest (TYPE) - status" → colon before first paren (or no paren)
+
+            let firstColon = trimmed.firstIndex(of: ":")
+            let firstParen = trimmed.firstIndex(of: "(")
+
+            if let pOpen = firstParen, let fc = firstColon, pOpen < fc {
+                // Old format: "name (type): status"
+                if let pClose = trimmed[pOpen...].firstIndex(of: ")") {
+                    transport = String(trimmed[trimmed.index(after: pOpen)..<pClose]).lowercased()
+                    let afterClose = trimmed[trimmed.index(after: pClose)...]
+                    if let col = afterClose.firstIndex(of: ":") {
+                        name = String(trimmed[..<pOpen]).trimmingCharacters(in: .whitespaces)
+                        statusText = String(afterClose[afterClose.index(after: col)...]).trimmingCharacters(in: .whitespaces)
+                    }
                 }
-            } else if let colon = trimmed.firstIndex(of: ":") {
-                name = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
-                statusText = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            } else if let fc = firstColon {
+                // New format: "name: rest (TYPE) - ✓ status"
+                name = String(trimmed[..<fc]).trimmingCharacters(in: .whitespaces)
+                let rest = String(trimmed[trimmed.index(after: fc)...]).trimmingCharacters(in: .whitespaces)
+
+                // Extract transport from (HTTP)/(SSE)/(stdio) in rest
+                if let pOpen = rest.firstIndex(of: "("),
+                   let pClose = rest[pOpen...].firstIndex(of: ")") {
+                    transport = String(rest[rest.index(after: pOpen)..<pClose]).lowercased()
+                }
+
+                // Extract status after " - "
+                if let dashRange = rest.range(of: " - ") {
+                    statusText = String(rest[dashRange.upperBound...])
+                        .trimmingCharacters(in: .whitespaces)
+                        // strip leading unicode checkmarks/crosses
+                        .replacingOccurrences(of: "^[✓✗!?·\\s]+", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces)
+                } else {
+                    statusText = rest
+                }
             }
 
-            let status: MCPStatus
+            guard !name.isEmpty else { continue }
+
             let lower = statusText.lowercased()
+            let status: MCPStatus
             if lower.contains("connect") {
                 status = .connected
-            } else if lower.contains("auth") || lower.contains("login") {
+            } else if lower.contains("auth") || lower.contains("login") || lower.contains("needs") {
                 status = .needsAuth
             } else if lower.contains("error") || lower.contains("fail") {
                 status = .error(statusText)
@@ -236,7 +277,7 @@ final class ClaudeCLIService: ObservableObject {
             servers.append(MCPServer(
                 id: name,
                 name: name,
-                type: type,
+                type: transport,
                 status: status,
                 detail: statusText
             ))
@@ -253,9 +294,14 @@ final class ClaudeCLIService: ObservableObject {
         commandOrUrl: String,
         args: [String] = [],
         headers: [String] = [], // e.g. ["Authorization: Bearer xxx"]
-        envVars: [String] = []  // e.g. ["API_KEY=xxx"]
+        envVars: [String] = [], // e.g. ["API_KEY=xxx"]
+        scope: MCPScope = .user,
+        projectDir: String? = nil
     ) async -> (Bool, String) {
-        var cliArgs = ["mcp", "add", "--transport", transport]
+        var cliArgs = ["mcp", "add", "--transport", transport, "--scope", scope.cliFlag]
+        if let dir = projectDir, !dir.isEmpty, scope == .project || scope == .local {
+            cliArgs += ["--project-dir", dir]
+        }
         for h in headers { cliArgs += ["--header", h] }
         for e in envVars { cliArgs += ["-e", e] }
         cliArgs += [name, commandOrUrl]
@@ -264,8 +310,13 @@ final class ClaudeCLIService: ObservableObject {
         return (!output.lowercased().contains("error"), output)
     }
 
-    func removeMCPServer(name: String) async -> (Bool, String) {
-        let output = (try? await runCommand(["mcp", "remove", name])) ?? "Fehler"
+    func removeMCPServer(name: String, scope: MCPScope = .user, projectDir: String? = nil) async -> (Bool, String) {
+        var cliArgs = ["mcp", "remove", "--scope", scope.cliFlag]
+        if let dir = projectDir, !dir.isEmpty, scope == .project || scope == .local {
+            cliArgs += ["--project-dir", dir]
+        }
+        cliArgs += [name]
+        let output = (try? await runCommand(cliArgs)) ?? "Fehler"
         return (!output.lowercased().contains("error"), output)
     }
 
@@ -288,7 +339,7 @@ final class ClaudeCLIService: ObservableObject {
             let url       = (json["url"] as? String) ?? command
             return MCPServerConfig(name: name, transport: transport,
                                    commandOrUrl: command.isEmpty ? url : command,
-                                   args: args, headers: headers, envVars: envVars)
+                                   args: args, headers: headers, envVars: envVars, scope: .user)
         }
 
         // Fallback: parse text output line by line
@@ -324,7 +375,7 @@ final class ClaudeCLIService: ObservableObject {
         guard !commandOrUrl.isEmpty || !output.isEmpty else { return nil }
         return MCPServerConfig(name: name, transport: transport,
                                commandOrUrl: commandOrUrl,
-                               args: args, headers: headers, envVars: envVars)
+                               args: args, headers: headers, envVars: envVars, scope: .user)
     }
 
     // MARK: - Active sessions

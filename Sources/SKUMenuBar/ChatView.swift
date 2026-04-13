@@ -198,6 +198,13 @@ struct SingleChatSessionView: View {
     @State private var isCompacting: Bool = false
     @State private var compactedSummary: String? = nil
 
+    // MCP per-session selection
+    @State private var availableMCPs: [MCPServer] = []
+    @State private var activeMCPIds: Set<String> = []   // leer = alle aktiv
+    @State private var mcpConfigs: [String: MCPServerConfig] = [:]
+    @State private var showMCPPicker = false
+    @State private var isLoadingMCPs = false
+
     private func closeAllPickers() {
         showModelPicker   = false
         showAgentPicker   = false
@@ -205,6 +212,7 @@ struct SingleChatSessionView: View {
         showSnippetPicker = false
         showPermPicker    = false
         showBranchPicker  = false
+        showMCPPicker     = false
     }
     @FocusState private var inputFocused: Bool
 
@@ -356,13 +364,17 @@ struct SingleChatSessionView: View {
                     let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
                     let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
                     if totalIn > 0 || totalOut > 0 {
+                        let threshold = state.settings.autoCompactThreshold
+                        let isWarning  = threshold > 0 && totalIn >= threshold / 2
+                        let isCritical = threshold > 0 && totalIn >= threshold
+                        let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.up.circle")
                                 .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                                .foregroundStyle(tokenColor.opacity(0.7))
                             Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
                                 .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(theme.secondaryText)
+                                .foregroundStyle(tokenColor)
                             Image(systemName: "arrow.down.circle")
                                 .font(.system(size: 9))
                                 .foregroundStyle(theme.tertiaryText.opacity(0.6))
@@ -372,12 +384,36 @@ struct SingleChatSessionView: View {
                             Text("tokens")
                                 .font(.system(size: 9))
                                 .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                            if threshold > 0 {
+                                Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                            }
                             Spacer()
+                            if isWarning && !isCompacting && !isStreaming {
+                                Button {
+                                    compactSession()
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "scissors")
+                                            .font(.system(size: 9, weight: .medium))
+                                        Text(isCritical ? "Compact jetzt!" : "Compact")
+                                            .font(.system(size: 10, weight: .medium))
+                                    }
+                                    .foregroundStyle(isCritical ? .red : .orange)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background((isCritical ? Color.red : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder((isCritical ? Color.red : Color.orange).opacity(0.3), lineWidth: 0.5))
+                                }
+                                .buttonStyle(.plain)
+                                .help(isCritical ? "Kontext-Limit erreicht — Konversation jetzt verdichten" : "Kontext ist halb voll — Konversation verdichten spart Tokens")
+                            }
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 5)
-                        .background(theme.windowBg)
-                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output")
+                        .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
+                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output\(threshold > 0 ? " · Schwelle: \(threshold)" : "")")
                     }
 
                     inputBar
@@ -407,6 +443,7 @@ struct SingleChatSessionView: View {
             handleDrop(providers: providers)
         }
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
+        .task { await loadAvailableMCPs() }
         .onAppear {
             inputFocused = true
             // Restore state from tab
@@ -666,10 +703,29 @@ struct SingleChatSessionView: View {
         }
     }
 
+    @State private var errorExpanded: Bool = false
+
     private func errorBubble(_ text: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
-            Text(text).font(.system(size: 12)).foregroundStyle(theme.primaryText)
+        let isLong = text.count > 120
+        let displayText = isLong && !errorExpanded ? String(text.prefix(120)) + "…" : text
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                    .padding(.top, 1)
+                Text(displayText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.primaryText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if isLong {
+                Button(errorExpanded ? "Weniger anzeigen" : "Vollständige Fehlermeldung anzeigen") {
+                    errorExpanded.toggle()
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.red.opacity(0.8))
+                .buttonStyle(.plain)
+            }
         }
         .padding(10)
         .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
@@ -735,6 +791,11 @@ struct SingleChatSessionView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
+            // MCP pill bar (when servers are configured and some are deactivated)
+            if !availableMCPs.isEmpty {
+                mcpPillBar
+            }
+
             // File attachment chips
             if !attachedFiles.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -842,7 +903,83 @@ struct SingleChatSessionView: View {
     @ViewBuilder
     private var pickerDropdownPanel: some View {
         let panelStyle = pickerPanelModifier
-        if showBranchPicker {
+        if showMCPPicker {
+            VStack(alignment: .leading, spacing: 0) {
+                // Presets
+                pickerSectionHeader("Presets")
+                pickerRow(label: "⚡  Alle MCPs aktiv", selected: activeMCPIds.isEmpty) {
+                    activeMCPIds = []; showMCPPicker = false
+                }
+                pickerRow(label: "○  Kein MCP (max. Token-Ersparnis)", selected: activeMCPIds == Set(["__none__"])) {
+                    activeMCPIds = Set(["__none__"]); showMCPPicker = false
+                }
+                // Saved profiles from MCPView
+                let savedProfiles: [MCPProfile] = {
+                    guard let data = UserDefaults.standard.data(forKey: "mcpProfiles_v1"),
+                          let p = try? JSONDecoder().decode([MCPProfile].self, from: data) else { return [] }
+                    return p
+                }()
+                if !savedProfiles.isEmpty {
+                    pickerSectionHeader("Profile")
+                    ForEach(savedProfiles) { profile in
+                        pickerRow(label: "◆  \(profile.name)  (\(profile.servers.count) Server)",
+                                  selected: false) {
+                            let ids = Set(profile.servers.map(\.name))
+                            let matched = Set(availableMCPs.filter { ids.contains($0.name) }.map(\.id))
+                            activeMCPIds = matched.isEmpty ? [] : matched
+                            showMCPPicker = false
+                        }
+                    }
+                }
+                if !availableMCPs.isEmpty {
+                    Rectangle().fill(theme.cardBorder).frame(height: 0.5).padding(.horizontal, 6)
+                    pickerSectionHeader("Einzeln an/aus")
+                    ForEach(availableMCPs) { server in
+                        let allActive = activeMCPIds.isEmpty
+                        let isActive = allActive || activeMCPIds.contains(server.id)
+                        OrchRowView(
+                            label: server.name,
+                            selected: isActive && activeMCPIds != Set(["__none__"]),
+                            accent: accentColor,
+                            fg: theme.primaryText,
+                            secondary: theme.tertiaryText
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                if activeMCPIds == Set(["__none__"]) {
+                                    activeMCPIds = [server.id]
+                                } else if activeMCPIds.isEmpty {
+                                    activeMCPIds = Set(availableMCPs.map(\.id)).subtracting([server.id])
+                                } else if activeMCPIds.contains(server.id) {
+                                    activeMCPIds.remove(server.id)
+                                    if activeMCPIds.isEmpty { activeMCPIds = Set(["__none__"]) }
+                                } else {
+                                    activeMCPIds.insert(server.id)
+                                    if activeMCPIds == Set(availableMCPs.map(\.id)) { activeMCPIds = [] }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Token savings footer
+                let disabledCount: Int = {
+                    if activeMCPIds == Set(["__none__"]) { return availableMCPs.count }
+                    if activeMCPIds.isEmpty { return 0 }
+                    return availableMCPs.count - activeMCPIds.count
+                }()
+                if disabledCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle.fill").foregroundStyle(.green)
+                        Text("~\(disabledCount * 7)k Tokens gespart")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.green)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.green.opacity(0.06))
+                }
+            }
+            .modifier(panelStyle)
+        } else if showBranchPicker {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(gitBranches, id: \.self) { b in
                     pickerRow(label: b, selected: b == gitBranch) {
@@ -939,6 +1076,194 @@ struct SingleChatSessionView: View {
 
     private var pickerPanelModifier: PickerPanelModifier {
         PickerPanelModifier(bg: theme.windowBg, border: theme.cardBorder)
+    }
+
+    // MARK: - MCP Pill Bar
+
+    private var mcpPillBar: some View {
+        let allActive = activeMCPIds.isEmpty
+        let disabledCount = allActive ? 0 : (availableMCPs.count - activeMCPIds.count)
+        let tokenSavings = disabledCount * 7  // rough ~7k tokens per server
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                // Icon + savings indicator
+                HStack(spacing: 4) {
+                    if isLoadingMCPs {
+                        ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
+                    } else {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    if disabledCount > 0 {
+                        Text("~\(tokenSavings)k ↓")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.green)
+                    }
+                }
+                .padding(.leading, 4)
+
+                // MCP server pills
+                ForEach(availableMCPs) { server in
+                    let isActive = allActive || activeMCPIds.contains(server.id)
+                    mcpPill(server: server, isActive: isActive)
+                }
+
+                // Alle / Kein quick toggles
+                if !allActive {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { activeMCPIds = [] }
+                    } label: {
+                        Text("Alle")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(theme.tertiaryText)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(theme.cardBg, in: Capsule())
+                            .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if allActive || activeMCPIds.count > 0 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            activeMCPIds = [] // will be treated as "deactivate all" below — but we need at least empty set to mean "none"
+                            // "Kein MCP" = strict-mcp-config with empty JSON
+                            activeMCPIds = Set(["__none__"])
+                        }
+                    } label: {
+                        Text("Kein MCP")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(activeMCPIds == Set(["__none__"]) ? .red : theme.tertiaryText)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(activeMCPIds == Set(["__none__"]) ? Color.red.opacity(0.10) : theme.cardBg, in: Capsule())
+                            .overlay(Capsule().strokeBorder(activeMCPIds == Set(["__none__"]) ? Color.red.opacity(0.4) : theme.cardBorder, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+        .background(theme.windowBg.opacity(0.6))
+        .overlay(Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5), alignment: .bottom)
+        .animation(.easeInOut(duration: 0.2), value: activeMCPIds)
+    }
+
+    private func mcpPill(server: MCPServer, isActive: Bool) -> some View {
+        let isNone = activeMCPIds == Set(["__none__"])
+        let effectiveActive = isNone ? false : isActive
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                if activeMCPIds == Set(["__none__"]) {
+                    // coming from "Kein MCP" → activate only this one
+                    activeMCPIds = [server.id]
+                } else if activeMCPIds.isEmpty {
+                    // all were active → deactivate this one (add all others)
+                    activeMCPIds = Set(availableMCPs.map(\.id)).subtracting([server.id])
+                } else if activeMCPIds.contains(server.id) {
+                    activeMCPIds.remove(server.id)
+                    if activeMCPIds.isEmpty { activeMCPIds = Set(["__none__"]) }
+                } else {
+                    activeMCPIds.insert(server.id)
+                    // if all are now active → reset to "all" mode
+                    if activeMCPIds == Set(availableMCPs.map(\.id)) { activeMCPIds = [] }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(effectiveActive ? .green : theme.tertiaryText.opacity(0.3))
+                    .frame(width: 5, height: 5)
+                Text(server.name)
+                    .font(.system(size: 10, weight: effectiveActive ? .medium : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(effectiveActive ? theme.primaryText : theme.tertiaryText)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(
+                effectiveActive ? theme.cardBg : theme.cardBg.opacity(0.4),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    effectiveActive ? theme.cardBorder : theme.cardBorder.opacity(0.3),
+                    lineWidth: 0.5
+                )
+            )
+            .opacity(effectiveActive ? 1.0 : 0.55)
+        }
+        .buttonStyle(.plain)
+        .help(effectiveActive ? "\(server.name) aktiv — klicken zum Deaktivieren" : "\(server.name) deaktiviert — klicken zum Aktivieren")
+    }
+
+    // MARK: - MCP Config JSON Builder
+
+    private func buildMCPConfigJSON() async -> String? {
+        // activeMCPIds leer = alle aktiv → kein --strict-mcp-config nötig
+        guard !activeMCPIds.isEmpty else { return nil }
+        // "__none__" = wirklich alle deaktivieren
+        if activeMCPIds == Set(["__none__"]) {
+            return "{\"mcpServers\":{}}"
+        }
+
+        var mcpServers: [String: Any] = [:]
+        for server in availableMCPs where activeMCPIds.contains(server.id) {
+            // Config lazy laden und cachen
+            if mcpConfigs[server.id] == nil {
+                if let cfg = await state.cliService.getMCPServerConfig(name: server.name) {
+                    mcpConfigs[server.id] = cfg
+                }
+            }
+            guard let config = mcpConfigs[server.id] else {
+                // Fallback: HTTP/SSE ohne config → URL aus detail
+                if server.type == "http" || server.type == "sse" {
+                    mcpServers[server.name] = ["type": server.type, "url": server.detail]
+                }
+                continue
+            }
+
+            if config.transport == "stdio" {
+                var entry: [String: Any] = ["type": "stdio", "command": config.commandOrUrl, "args": config.args]
+                if !config.envVars.isEmpty {
+                    var env: [String: String] = [:]
+                    for kv in config.envVars {
+                        let parts = kv.split(separator: "=", maxSplits: 1)
+                        if parts.count == 2 { env[String(parts[0])] = String(parts[1]) }
+                    }
+                    entry["env"] = env
+                }
+                mcpServers[server.name] = entry
+            } else {
+                var entry: [String: Any] = ["type": config.transport, "url": config.commandOrUrl]
+                if !config.headers.isEmpty {
+                    var hdrs: [String: String] = [:]
+                    for h in config.headers {
+                        let parts = h.split(separator: ":", maxSplits: 1)
+                        if parts.count == 2 { hdrs[String(parts[0]).trimmingCharacters(in: .whitespaces)] = String(parts[1]).trimmingCharacters(in: .whitespaces) }
+                    }
+                    entry["headers"] = hdrs
+                }
+                mcpServers[server.name] = entry
+            }
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: ["mcpServers": mcpServers]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return json
+    }
+
+    // MARK: - Load available MCPs
+
+    private func loadAvailableMCPs() async {
+        isLoadingMCPs = true
+        defer { isLoadingMCPs = false }
+        let servers = await state.cliService.listMCPServers()
+        // Nur verbundene oder bekannte Server anzeigen
+        availableMCPs = servers.filter {
+            if case .error = $0.status { return false }
+            return true
+        }
     }
 
     // Generic upward-opening themed picker button — just the button, no overlay (overlay is at inputBar level)
@@ -1043,6 +1368,23 @@ struct SingleChatSessionView: View {
                     autoApprove = true
                     showPermPicker = false
                 }
+            }
+
+            // MCP picker (nur wenn Server konfiguriert)
+            if !availableMCPs.isEmpty {
+                stripSep
+                let mcpActive = !activeMCPIds.isEmpty
+                let mcpLabel: String = {
+                    if activeMCPIds == Set(["__none__"]) { return "Kein MCP" }
+                    if activeMCPIds.isEmpty { return "MCPs (\(availableMCPs.count))" }
+                    return "MCPs (\(activeMCPIds.count)/\(availableMCPs.count))"
+                }()
+                pickerButton(
+                    icon: "server.rack",
+                    label: mcpLabel,
+                    active: mcpActive,
+                    isPresented: $showMCPPicker
+                ) { EmptyView() }
             }
 
             stripSep
@@ -1875,6 +2217,7 @@ struct SingleChatSessionView: View {
             // Inject compacted summary as system prompt if no agent prompt is set
             let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
             let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
+            let mcpJson = await buildMCPConfigJSON()
             stream = state.cliService.send(
                 message: message,
                 sessionId: currentSessionId,
@@ -1884,7 +2227,8 @@ struct SingleChatSessionView: View {
                 workingDirectory: workingDirectory,
                 addDirs: effectiveAddDirs,
                 skipPermissions: autoApprove,
-                maxTurns: effectiveMaxTurns
+                maxTurns: effectiveMaxTurns,
+                mcpConfigJSON: mcpJson
             )
         }
 
@@ -2004,7 +2348,18 @@ struct SingleChatSessionView: View {
                             }
                         }
 
-                        errorMessage = contentText.isEmpty ? (eventResult.isEmpty ? "Claude returned an error" : eventResult) : contentText
+                        // Aussagekräftige Fehlermeldung: bevorzuge den tatsächlichen Fehlertext
+                        let bestError: String
+                        if !contentText.isEmpty {
+                            bestError = contentText
+                        } else if !eventResult.isEmpty {
+                            bestError = eventResult
+                        } else if let subtype = event.subtype, !subtype.isEmpty {
+                            bestError = "Fehler: \(subtype)"
+                        } else {
+                            bestError = "Claude hat einen Fehler zurückgegeben (kein Fehlertext vom CLI erhalten)."
+                        }
+                        errorMessage = bestError
                         if messages.indices.contains(assistantIndex) {
                             messages[assistantIndex].isStreaming = false
                         }
@@ -2038,8 +2393,19 @@ struct SingleChatSessionView: View {
                 }
             }
         } catch {
-            print("⚠️ performSend error: \(error.localizedDescription)")
-            let errText = error.localizedDescription.lowercased()
+            // Aussagekräftige Fehlermeldung aus CLIError extrahieren
+            let displayError: String
+            if let cliErr = error as? CLIError, case .processError(let code, let stderr) = cliErr {
+                if !stderr.isEmpty {
+                    displayError = "CLI-Fehler (exit \(code)): \(stderr)"
+                } else {
+                    displayError = "Claude CLI hat mit Exit-Code \(code) beendet. Mögliche Ursachen: Rate-Limit, Netzwerkfehler oder fehlerhafte Konfiguration."
+                }
+            } else {
+                displayError = error.localizedDescription
+            }
+            print("⚠️ performSend error: \(displayError)")
+            let errText = displayError.lowercased()
 
             let isRateLimit = errText.contains("limit") || errText.contains("overloaded") ||
                 errText.contains("quota") || errText.contains("529") || errText.contains("429")
@@ -2068,7 +2434,7 @@ struct SingleChatSessionView: View {
                 }
             }
 
-            errorMessage = error.localizedDescription
+            errorMessage = displayError
             if messages.indices.contains(assistantIndex),
                messages[assistantIndex].content.isEmpty,
                messages[assistantIndex].toolCalls.isEmpty {
@@ -2090,7 +2456,25 @@ struct SingleChatSessionView: View {
         }
 
         state.lastChatProvider = source
+        // Accumulate Copilot / GitHub tokens in sidebar counter (subscription = $0 cost)
+        if source == .copilot, messages.indices.contains(assistantIndex) {
+            let it = messages[assistantIndex].inputTokens
+            let ot = messages[assistantIndex].outputTokens
+            if it > 0 || ot > 0 { state.addCopilotUsage(inputTokens: it, outputTokens: ot) }
+        }
         isStreaming = false
+
+        // Auto-Compact: wenn Input-Tokens die Schwelle überschreiten, automatisch verdichten
+        if !isFallbackAttempt && !isCompacting {
+            let threshold = state.settings.autoCompactThreshold
+            if threshold > 0 {
+                let totalIn = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
+                if totalIn >= threshold {
+                    compactSession()
+                    return
+                }
+            }
+        }
 
         // Record session learnings in agent memory log
         if let agentId = effectiveAgent,

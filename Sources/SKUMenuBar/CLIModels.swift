@@ -598,13 +598,45 @@ struct ScheduledTaskLogEntry: Identifiable, Codable {
 
 // MARK: - MCP Servers
 
-struct MCPServerConfig {
-    let name: String
-    let transport: String
-    let commandOrUrl: String
-    let args: [String]
-    let headers: [String]
-    let envVars: [String]
+enum MCPScope: String, Codable, CaseIterable, Hashable {
+    case user    = "user"    // global ~/.claude/claude.json
+    case project = "project" // per-project .claude/settings.json
+    case local   = "local"   // per-project .claude/settings.local.json
+
+    var label: String {
+        switch self {
+        case .user:    return "Global"
+        case .project: return "Projekt"
+        case .local:   return "Lokal"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .user:    return "globe"
+        case .project: return "folder.badge.gearshape"
+        case .local:   return "laptopcomputer"
+        }
+    }
+
+    var cliFlag: String { rawValue }
+}
+
+struct MCPServerConfig: Codable {
+    var name: String
+    var transport: String
+    var commandOrUrl: String
+    var args: [String]
+    var headers: [String]
+    var envVars: [String]
+    var scope: MCPScope
+}
+
+struct MCPProfile: Identifiable, Codable {
+    var id: UUID = UUID()
+    var name: String
+    var servers: [MCPServerConfig]
+    var createdAt: Date = Date()
 }
 
 struct MCPServer: Identifiable, Hashable {
@@ -613,6 +645,7 @@ struct MCPServer: Identifiable, Hashable {
     let type: String
     let status: MCPStatus
     let detail: String
+    var scope: MCPScope = .user
 }
 
 enum MCPStatus: Hashable {

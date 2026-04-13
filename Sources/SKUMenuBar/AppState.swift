@@ -27,6 +27,10 @@ final class AppState: ObservableObject {
     @Published var localWeekCost:    Double = 0
     @Published var localDailyByDate: [String: Double] = [:]  // "yyyy-MM-dd" -> estimated cost USD
 
+    // MARK: - Copilot / GitHub Models usage (in-session, not persisted)
+    @Published var copilotTodayTokens: Int = 0
+    @Published var copilotWeekTokens:  Int = 0
+
     // MARK: - Claude / Anthropic state
     @Published var claudeTodayCost:  Double = 0
     @Published var claudeWeekCost:   Double = 0
@@ -477,12 +481,9 @@ final class AppState: ObservableObject {
 
     func loadLocalCLIUsage() async {
         // Run all file I/O off the main thread
-        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, [String: Double]) in
+        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, [String: Double], Double, Double) in
             let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent(".claude/projects")
-
-            let inputPrice:  Double = 3.0  / 1_000_000
-            let outputPrice: Double = 15.0 / 1_000_000
 
             let cal  = Calendar.current
             let now  = Date()
@@ -492,13 +493,14 @@ final class AppState: ObservableObject {
             let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
 
             var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
+            var costToday: Double = 0, costWeek: Double = 0
             var dailyByDate: [String: Double] = [:]
 
             let fm = FileManager.default
             guard let enumerator = fm.enumerator(at: projectsDir,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]) else {
-                return (0, 0, 0, 0, [:])
+                return (0, 0, 0, 0, [:], 0, 0)
             }
 
             let iso = ISO8601DateFormatter()
@@ -519,25 +521,40 @@ final class AppState: ObservableObject {
                     let usage = msg?["usage"] as? [String: Any]
                     let inp   = usage?["input_tokens"]  as? Int ?? 0
                     let out   = usage?["output_tokens"] as? Int ?? 0
-                    if dt >= startOfToday { inToday += inp; outToday += out }
-                    if dt >= startOfWeek  { inWeek  += inp; outWeek  += out }
-                    let lineCost = Double(inp) * inputPrice + Double(out) * outputPrice
+                    let model = msg?["model"] as? String ?? ""
+                    let (ip, op) = AppState.modelPrice(model)
+                    let lineCost = Double(inp) * ip + Double(out) * op
+                    if dt >= startOfToday { inToday += inp; outToday += out; costToday += lineCost }
+                    if dt >= startOfWeek  { inWeek  += inp; outWeek  += out; costWeek  += lineCost }
                     if lineCost > 0 {
                         dailyByDate[dayFmt.string(from: dt), default: 0] += lineCost
                     }
                 }
             }
-            return (inToday, outToday, inWeek, outWeek, dailyByDate)
+            return (inToday, outToday, inWeek, outWeek, dailyByDate, costToday, costWeek)
         }.value
 
-        let inputPrice:  Double = 3.0  / 1_000_000
-        let outputPrice: Double = 15.0 / 1_000_000
-        let (inToday, outToday, inWeek, outWeek, dailyByDate) = result
+        let (inToday, outToday, inWeek, outWeek, dailyByDate, costToday, costWeek) = result
         localTodayTokens = inToday + outToday
         localWeekTokens  = inWeek  + outWeek
-        localTodayCost   = Double(inToday) * inputPrice + Double(outToday) * outputPrice
-        localWeekCost    = Double(inWeek)  * inputPrice + Double(outWeek)  * outputPrice
+        localTodayCost   = costToday
+        localWeekCost    = costWeek
         localDailyByDate = dailyByDate
+    }
+
+    /// Per-model price lookup (input, output) per token.
+    nonisolated static func modelPrice(_ model: String) -> (Double, Double) {
+        let m = model.lowercased()
+        if m.contains("opus")  { return (15.0 / 1_000_000, 75.0  / 1_000_000) }
+        if m.contains("haiku") { return ( 0.8 / 1_000_000,  4.0  / 1_000_000) }
+        return (3.0 / 1_000_000, 15.0 / 1_000_000)  // sonnet / default
+    }
+
+    /// Accumulate Copilot / GitHub Models token usage (subscription → $0 cost, tokens tracked only).
+    func addCopilotUsage(inputTokens: Int, outputTokens: Int) {
+        let total = inputTokens + outputTokens
+        copilotTodayTokens += total
+        copilotWeekTokens  += total
     }
 
     // MARK: - Claude usage fetch

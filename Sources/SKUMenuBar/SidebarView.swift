@@ -317,7 +317,7 @@ struct SidebarView: View {
                     Text(state.fmt(todayCost))
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
-                    Text("\(formatTokens(state.localTodayTokens)) tok")
+                    Text("\(formatTokens(state.localTodayTokens + state.copilotTodayTokens)) tok")
                         .font(.system(size: 8))
                         .foregroundStyle(theme.tertiaryText)
                 }

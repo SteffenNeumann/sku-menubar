@@ -274,6 +274,23 @@ struct SettingsFormView: View {
                                                     }
                                                 }
                                             }
+                                            HStack(spacing: 12) {
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    fieldLabel("Auto-Compact Schwelle — Input-Tokens (0 = aus)")
+                                                    HStack(spacing: 6) {
+                                                        TextField("50000", value: $draft.autoCompactThreshold, formatter: NumberFormatter())
+                                                            .styledInput(theme: theme)
+                                                            .frame(width: 80)
+                                                        Text(draft.autoCompactThreshold > 0 ? "≥ \(draft.autoCompactThreshold >= 1000 ? String(format: "%.0fk", Double(draft.autoCompactThreshold) / 1000) : "\(draft.autoCompactThreshold)") Tokens → automatisch /compact" : "deaktiviert")
+                                                            .font(.system(size: 10))
+                                                            .foregroundStyle(theme.tertiaryText)
+                                                    }
+                                                }
+                                                Spacer()
+                                            }
+                                            Text("Ab dieser Schwelle wird /compact automatisch nach einer Antwort ausgelöst. Warnung (orange) ab 50%, kritisch (rot) ab 100%.")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(theme.tertiaryText)
                                         }
                                     }
                                 }

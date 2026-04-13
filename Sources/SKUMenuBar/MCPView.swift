@@ -285,19 +285,34 @@ struct MCPView: View {
     @State private var showAllLogs = false
     @State private var expandedLogId: UUID?
 
+    // Scope filter
+    @State private var scopeFilter: MCPScope? = nil  // nil = alle
+
+    // Profile management
+    @State private var profiles: [MCPProfile] = []
+    @State private var isSavingProfile = false
+    @State private var showSaveProfileAlert = false
+    @State private var newProfileName = ""
+    @State private var profileFeedback: String? = nil
+
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
-    // Derived counts
-    private var connectedCount: Int { servers.filter { $0.status == .connected }.count }
-    private var authCount: Int { servers.filter { if case .needsAuth = $0.status { return true }; return false }.count }
-    private var errorCount: Int { servers.filter { if case .error = $0.status { return true }; return false }.count }
-    private var offlineCount: Int { servers.filter { if case .unknown = $0.status { return true }; return false }.count }
+    private var filteredServers: [MCPServer] {
+        guard let scope = scopeFilter else { return servers }
+        return servers.filter { $0.scope == scope }
+    }
+
+    // Derived counts (auf filteredServers)
+    private var connectedCount: Int { filteredServers.filter { $0.status == .connected }.count }
+    private var authCount: Int { filteredServers.filter { if case .needsAuth = $0.status { return true }; return false }.count }
+    private var errorCount: Int { filteredServers.filter { if case .error = $0.status { return true }; return false }.count }
+    private var offlineCount: Int { filteredServers.filter { if case .unknown = $0.status { return true }; return false }.count }
 
     private var uptimePercent: Double {
-        guard !servers.isEmpty else { return 0 }
-        return Double(connectedCount) / Double(servers.count) * 100
+        guard !filteredServers.isEmpty else { return 0 }
+        return Double(connectedCount) / Double(filteredServers.count) * 100
     }
 
     var body: some View {
@@ -311,6 +326,23 @@ struct MCPView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
+            } else if filteredServers.isEmpty && !servers.isEmpty {
+                // Servers exist but scope filter shows nothing
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 28))
+                        .foregroundStyle(theme.tertiaryText)
+                    Text("Keine Server im Scope \"\(scopeFilter?.label ?? "")\"")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.secondaryText)
+                    Button("Filter zurücksetzen") { scopeFilter = nil }
+                        .font(.system(size: 12))
+                        .foregroundStyle(accentColor)
+                        .buttonStyle(.plain)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if servers.isEmpty {
                 emptyState
             } else {
@@ -337,7 +369,7 @@ struct MCPView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task { await load() }
+        .task { loadProfiles(); await load() }
         .sheet(isPresented: $showAddSheet) {
             AddMCPServerSheet(editingServer: nil) { await load() }
                 .environmentObject(state)
@@ -353,50 +385,158 @@ struct MCPView: View {
     // MARK: - Header
 
     private var commandCenterHeader: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("my MCP's")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(theme.primaryText)
-                Text("Orchestrate your Model Context Protocol server nodes")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.secondaryText)
+        VStack(spacing: 0) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("my MCP's")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(theme.primaryText)
+                    Text("Orchestrate your Model Context Protocol server nodes")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                }
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    // Profile Dropdown
+                    profileMenu
+
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isLoading { ProgressView().scaleEffect(0.55).frame(width: 12, height: 12) }
+                            else { Image(systemName: "arrow.2.circlepath").font(.system(size: 10)) }
+                            Text("Aktualisieren").font(.system(size: 12, weight: .medium))
+                        }
+                        .foregroundStyle(theme.primaryText)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isLoading)
+
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus.circle.fill").font(.system(size: 11))
+                            Text("Hinzufügen").font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(accentColor, in: RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 10)
 
-            Spacer()
+            // Scope filter tabs
+            scopeFilterBar
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
 
-            HStack(spacing: 8) {
-                Button {
-                    Task { await load() }
-                } label: {
-                    HStack(spacing: 5) {
-                        if isLoading { ProgressView().scaleEffect(0.55).frame(width: 12, height: 12) }
-                        else { Image(systemName: "arrow.2.circlepath").font(.system(size: 10)) }
-                        Text("Aktualisieren").font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(theme.primaryText)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            // Profile feedback banner
+            if let msg = profileFeedback {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text(msg).font(.system(size: 11)).foregroundStyle(theme.primaryText)
+                    Spacer()
+                    Button { profileFeedback = nil } label: {
+                        Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                    }.buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .disabled(isLoading)
-
-                Button {
-                    showAddSheet = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus.circle.fill").font(.system(size: 11))
-                        Text("Hinzufügen").font(.system(size: 12, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(accentColor, in: RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 22).padding(.bottom, 10)
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal, 22).padding(.vertical, 16)
+    }
+
+    private var scopeFilterBar: some View {
+        HStack(spacing: 6) {
+            scopeTab(label: "Alle", icon: "square.grid.2x2", scope: nil)
+            ForEach(MCPScope.allCases, id: \.self) { scope in
+                let count = servers.filter { $0.scope == scope }.count
+                if count > 0 {
+                    scopeTab(label: scope.label, icon: scope.icon, scope: scope, count: count)
+                }
+            }
+        }
+    }
+
+    private func scopeTab(label: String, icon: String, scope: MCPScope?, count: Int? = nil) -> some View {
+        let active = scopeFilter == scope
+        return Button { withAnimation(.easeInOut(duration: 0.15)) { scopeFilter = scope } } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9))
+                Text(label).font(.system(size: 11, weight: active ? .semibold : .regular))
+                if let c = count {
+                    Text("\(c)")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(active ? accentColor.opacity(0.2) : theme.cardBorder.opacity(0.6), in: Capsule())
+                }
+            }
+            .foregroundStyle(active ? accentColor : theme.secondaryText)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(active ? accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(active ? accentColor.opacity(0.25) : Color.clear, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var profileMenu: some View {
+        Menu {
+            // Save current
+            Button {
+                newProfileName = "Profil \(profiles.count + 1)"
+                showSaveProfileAlert = true
+            } label: {
+                Label("Aktuell speichern…", systemImage: "square.and.arrow.down")
+            }
+            .disabled(servers.isEmpty)
+
+            if !profiles.isEmpty {
+                Divider()
+                // Load profiles
+                ForEach(profiles) { profile in
+                    Menu(profile.name) {
+                        Button("Laden (Server ersetzen)") {
+                            Task { await loadProfile(profile, replace: true) }
+                        }
+                        Button("Hinzufügen (Server ergänzen)") {
+                            Task { await loadProfile(profile, replace: false) }
+                        }
+                        Divider()
+                        Button("Löschen", role: .destructive) {
+                            deleteProfile(profile)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "bookmark.fill").font(.system(size: 10))
+                Text("Profile").font(.system(size: 12, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 9))
+            }
+            .foregroundStyle(theme.primaryText)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .sheet(isPresented: $showSaveProfileAlert) {
+            SaveProfileSheet(profileName: $newProfileName) { name in
+                await saveCurrentAsProfile(name: name)
+            }
+            .environmentObject(state)
+            .environment(\.appTheme, theme)
+        }
     }
 
     // MARK: - Status Dashboard
@@ -491,7 +631,7 @@ struct MCPView: View {
         ]
 
         return LazyVGrid(columns: columns, spacing: 14) {
-            ForEach(servers) { server in
+            ForEach(filteredServers) { server in
                 serverNodeCard(server)
             }
             connectNodePlaceholder
@@ -510,6 +650,7 @@ struct MCPView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
+                scopeBadge(server.scope)
                 runningBadge(server.status)
             }
 
@@ -602,6 +743,18 @@ struct MCPView: View {
             .tracking(0.4)
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(bg, in: Capsule())
+    }
+
+    private func scopeBadge(_ scope: MCPScope) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: scope.icon).font(.system(size: 7))
+            Text(scope.label.uppercased())
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(0.3)
+        }
+        .foregroundStyle(theme.tertiaryText)
+        .padding(.horizontal, 5).padding(.vertical, 2)
+        .background(theme.cardBorder.opacity(0.4), in: Capsule())
     }
 
     private func serverLatency(for server: MCPServer) -> String {
@@ -910,15 +1063,82 @@ struct MCPView: View {
                 : state.mcpService.servers
         }
         lastLoaded = .now
-        // Refresh logs
         logs = generateLogs()
     }
 
     private func removeServer(_ server: MCPServer) async {
         removingId = server.id
         defer { removingId = nil }
-        let (_, _) = await state.cliService.removeMCPServer(name: server.name)
+        let (_, _) = await state.cliService.removeMCPServer(name: server.name, scope: server.scope)
         await load()
+    }
+
+    // MARK: - Profile Management
+
+    private static let profilesKey = "mcpProfiles_v1"
+
+    private func loadProfiles() {
+        guard let data = UserDefaults.standard.data(forKey: Self.profilesKey),
+              let decoded = try? JSONDecoder().decode([MCPProfile].self, from: data)
+        else { return }
+        profiles = decoded
+    }
+
+    private func saveProfiles() {
+        if let data = try? JSONEncoder().encode(profiles) {
+            UserDefaults.standard.set(data, forKey: Self.profilesKey)
+        }
+    }
+
+    private func saveCurrentAsProfile(name: String) async {
+        isSavingProfile = true
+        defer { isSavingProfile = false }
+
+        // Fetch full config for each server
+        var serverConfigs: [MCPServerConfig] = []
+        for server in servers {
+            if let config = await state.cliService.getMCPServerConfig(name: server.name) {
+                var c = config
+                c.scope = server.scope
+                serverConfigs.append(c)
+            } else {
+                serverConfigs.append(MCPServerConfig(
+                    name: server.name, transport: server.type,
+                    commandOrUrl: server.detail, args: [], headers: [], envVars: [], scope: server.scope
+                ))
+            }
+        }
+        let profile = MCPProfile(name: name, servers: serverConfigs)
+        profiles.removeAll { $0.name == name }
+        profiles.insert(profile, at: 0)
+        saveProfiles()
+        withAnimation { profileFeedback = "Profil \"\(name)\" gespeichert (\(serverConfigs.count) Server)" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { withAnimation { self.profileFeedback = nil } }
+    }
+
+    private func loadProfile(_ profile: MCPProfile, replace: Bool) async {
+        if replace {
+            // Remove all current servers
+            for server in servers {
+                _ = await state.cliService.removeMCPServer(name: server.name, scope: server.scope)
+            }
+        }
+        // Add profile servers
+        for server in profile.servers {
+            _ = await state.cliService.addMCPServer(
+                name: server.name, transport: server.transport,
+                commandOrUrl: server.commandOrUrl, args: server.args,
+                headers: server.headers, envVars: server.envVars, scope: server.scope
+            )
+        }
+        await load()
+        withAnimation { profileFeedback = "Profil \"\(profile.name)\" geladen (\(profile.servers.count) Server)" }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { withAnimation { self.profileFeedback = nil } }
+    }
+
+    private func deleteProfile(_ profile: MCPProfile) {
+        profiles.removeAll { $0.id == profile.id }
+        saveProfiles()
     }
 }
 
@@ -962,6 +1182,10 @@ struct AddMCPServerSheet: View {
     @State private var aiPrompt = ""
     @State private var isAIAssisting = false
     @State private var aiError: String?
+
+    // Scope
+    @State private var selectedScope: MCPScope = .user
+    @State private var projectDir: String = ""
 
     private let transports = ["stdio", "http", "sse"]
 
@@ -1238,6 +1462,54 @@ struct AddMCPServerSheet: View {
                     .padding(10)
                     .background(accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentColor.opacity(0.2), lineWidth: 0.5))
+                }
+
+                // Scope
+                field(label: "Scope", hint: "Wo wird der Server gespeichert?") {
+                    HStack(spacing: 6) {
+                        ForEach(MCPScope.allCases, id: \.self) { scope in
+                            Button { selectedScope = scope } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: scope.icon).font(.system(size: 10))
+                                    Text(scope.label)
+                                        .font(.system(size: 11, weight: selectedScope == scope ? .semibold : .regular))
+                                }
+                                .foregroundStyle(selectedScope == scope ? accentColor : theme.secondaryText)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(selectedScope == scope ? accentColor.opacity(0.12) : theme.cardBg,
+                                            in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(selectedScope == scope ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                    }
+                }
+
+                // Project dir (only for project/local scope)
+                if selectedScope == .project || selectedScope == .local {
+                    field(label: "Projektverzeichnis", hint: "Pfad zu .claude/") {
+                        HStack(spacing: 6) {
+                            styledTextField("~/.../mein-projekt", text: $projectDir)
+                            Button {
+                                let panel = NSOpenPanel()
+                                panel.canChooseDirectories = true
+                                panel.canChooseFiles = false
+                                panel.allowsMultipleSelection = false
+                                if panel.runModal() == .OK, let url = panel.url {
+                                    projectDir = url.path
+                                }
+                            } label: {
+                                Image(systemName: "folder").font(.system(size: 11))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .padding(7)
+                                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
 
                 // Name
@@ -1705,16 +1977,19 @@ struct AddMCPServerSheet: View {
 
         // In edit mode: remove the old server first (even if name changed)
         if let existing = editingServer {
-            _ = await state.cliService.removeMCPServer(name: existing.name)
+            _ = await state.cliService.removeMCPServer(name: existing.name, scope: existing.scope)
         }
 
+        let trimmedProjectDir = projectDir.trimmingCharacters(in: .whitespaces)
         let (ok, output) = await state.cliService.addMCPServer(
             name: trimmedName,
             transport: transport,
             commandOrUrl: trimmedCmd,
             args: argList,
             headers: headers,
-            envVars: envVars
+            envVars: envVars,
+            scope: selectedScope,
+            projectDir: trimmedProjectDir.isEmpty ? nil : trimmedProjectDir
         )
 
         if ok {
@@ -1916,5 +2191,96 @@ private struct ModelPickerPopover: View {
             .background(Color.clear)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Save Profile Sheet
+
+private struct SaveProfileSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.appTheme) var theme
+    @EnvironmentObject var state: AppState
+    @Binding var profileName: String
+    var onSave: (String) async -> Void
+
+    @State private var isSaving = false
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            HStack {
+                Text("Profil speichern")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
+            Divider().foregroundStyle(theme.cardBorder)
+
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Profilname")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                    TextField("Mein MCP-Setup", text: $profileName)
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.primaryText)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                        .onSubmit { Task { await save() } }
+                }
+
+                Text("Alle aktuell konfigurierten MCP-Server werden als Profil gespeichert. Ein Profil kann später geladen werden, um denselben Server-Setup schnell wiederherzustellen.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            HStack {
+                Spacer()
+                Button("Abbrechen") { dismiss() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText)
+                Button {
+                    Task { await save() }
+                } label: {
+                    HStack(spacing: 5) {
+                        if isSaving { ProgressView().scaleEffect(0.6).frame(width: 12, height: 12) }
+                        Text("Speichern").font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(profileName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving ? theme.primaryText.opacity(0.4) : .white)
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .background(profileName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving ? theme.tertiaryText : accentColor,
+                                in: RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .disabled(profileName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+            }
+            .padding(14)
+        }
+        .frame(width: 400)
+        .background(theme.windowBg)
+    }
+
+    private func save() async {
+        isSaving = true
+        let name = profileName.trimmingCharacters(in: .whitespaces)
+        await onSave(name)
+        dismiss()
     }
 }
