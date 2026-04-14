@@ -229,6 +229,7 @@ struct SingleChatSessionView: View {
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
     @State private var activeDiff: String?
+    @State private var diffPanelDismissed: Bool = false
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -384,15 +385,17 @@ struct SingleChatSessionView: View {
 
                         if activeDiff != nil {
                             Button {
-                                withAnimation(.spring(response: 0.3)) { activeDiff = nil }
+                                withAnimation(.spring(response: 0.3)) {
+                                    diffPanelDismissed.toggle()
+                                }
                             } label: {
                                 Image(systemName: "sidebar.right")
                                     .font(.system(size: 13))
-                                    .foregroundStyle(accentColor)
+                                    .foregroundStyle(diffPanelDismissed ? theme.tertiaryText : accentColor)
                                     .frame(width: 26, height: 26)
                             }
                             .buttonStyle(.plain)
-                            .help("Diff-Panel schließen")
+                            .help(diffPanelDismissed ? "Diff-Panel einblenden" : "Diff-Panel ausblenden")
                         }
                     }
                     .padding(.horizontal, 6)
@@ -499,8 +502,8 @@ struct SingleChatSessionView: View {
                 .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
-                // Right: Diff side panel (resizable)
-                if let diff = activeDiff {
+                // Right: Diff side panel (resizable) — bleibt geschlossen wenn vom User dismissed
+                if let diff = activeDiff, !diffPanelDismissed {
                     PanelResizeHandle(width: $diffPanelWidth, minWidth: 320, maxWidth: 900, growsRight: false)
                         .frame(width: 10)
                     diffSidePanel(diff)
@@ -741,9 +744,8 @@ struct SingleChatSessionView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(messages) { msg in
                         MessageBubbleView(message: msg) { diff in
-                            withAnimation(.spring(response: 0.3)) {
-                                activeDiff = diff
-                            }
+                            // Immer neuesten Diff merken; Panel nur öffnen wenn nicht vom User geschlossen
+                            activeDiff = diff
                         }
                         .id(msg.id)
                     }
@@ -2667,10 +2669,10 @@ struct SingleChatSessionView: View {
                 .buttonStyle(.plain)
                 .help("Diff kopieren")
 
-                // Close panel
+                // Close panel — bleibt zu bis User manuell wieder öffnet
                 Button {
                     withAnimation(.spring(response: 0.3)) {
-                        activeDiff = nil
+                        diffPanelDismissed = true
                     }
                 } label: {
                     Image(systemName: "xmark")
