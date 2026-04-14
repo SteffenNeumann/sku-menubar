@@ -23,7 +23,7 @@ struct GitHubSettings: Codable {
     // Token Optimierung
     var historyWindowSize: Int = 8   // Anzahl Turns (= Nachrichten-Paare) die im GitHub-Models-Verlauf mitgesendet werden
     var maxTurns: Int = 10           // --max-turns für Claude CLI (0 = deaktiviert)
-    var autoCompactThreshold: Int = 50000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
+    var autoCompactThreshold: Int = 100000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
 
     init() {}
 
@@ -49,7 +49,7 @@ struct GitHubSettings: Codable {
         copilotFallbackModel = savedModel
         historyWindowSize       = (try? c.decodeIfPresent(Int.self, forKey: .historyWindowSize))       ?? 8
         maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 10
-        autoCompactThreshold    = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold))    ?? 50000
+        autoCompactThreshold    = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold))    ?? 100000
     }
 }
 
