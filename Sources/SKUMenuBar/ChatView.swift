@@ -415,9 +415,11 @@ struct SingleChatSessionView: View {
                     .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .bottom)
 
                     if messages.isEmpty {
-                        emptyState.onTapGesture { closeAllPickers() }
+                        emptyState
+                            .onTapGesture { if !anyPickerOpen { closeAllPickers() } }
                     } else {
-                        messagesArea.onTapGesture { closeAllPickers() }
+                        messagesArea
+                            .onTapGesture { if !anyPickerOpen { closeAllPickers() } }
                     }
 
                     // Token Counter — direkt über der Texteingabe
@@ -478,17 +480,38 @@ struct SingleChatSessionView: View {
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(accentColor.opacity(0.75))
                             }
-                            // ⚡ Auto-Trigger-Badge
-                            if selectedAgent.isEmpty, let trigName = autoTriggeredAgentName {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "bolt.fill")
-                                        .font(.system(size: 9))
-                                    Text(trigName)
-                                        .font(.system(size: 11, weight: .medium))
+                            // ⚡ Auto-Trigger-Badge: live beim Tippen + nach dem Senden
+                            if selectedAgent.isEmpty {
+                                let pendingName: String? = {
+                                    guard !inputText.isEmpty else { return nil }
+                                    let lower = inputText.lowercased()
+                                    return state.agentService.agents.first { agent in
+                                        agent.effectiveTriggers.contains { lower.contains($0.lowercased()) }
+                                    }?.name
+                                }()
+                                let displayName = autoTriggeredAgentName ?? pendingName
+                                let isPending = autoTriggeredAgentName == nil && pendingName != nil
+                                if let trigName = displayName {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "bolt.fill")
+                                            .font(.system(size: 9))
+                                        Text(trigName)
+                                            .font(.system(size: 11, weight: .medium))
+                                    }
+                                    .foregroundStyle(accentColor)
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(
+                                        Capsule()
+                                            .fill(accentColor.opacity(isPending ? 0.07 : 0.12))
+                                            .overlay(
+                                                isPending
+                                                    ? Capsule().strokeBorder(accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 0.8, dash: [3, 2]))
+                                                    : nil
+                                            )
+                                    )
+                                    .opacity(isPending ? 0.8 : 1.0)
+                                    .help(isPending ? "Trigger erkannt — Agent '\(trigName)' wird beim Senden aktiviert" : "Auto-Trigger: Agent '\(trigName)' wurde für diese Nachricht aktiviert")
                                 }
-                                .foregroundStyle(accentColor)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Capsule().fill(accentColor.opacity(0.12)))
                             }
                             Spacer()
                             if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
@@ -523,6 +546,21 @@ struct SingleChatSessionView: View {
                         })
                 }
                 .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+                // Picker overlays must be on THIS VStack (not inputBar) so the NSView parent
+                // covers the full column height — otherwise buttons above inputBar bounds
+                // are outside the NSView hit-test region and can't be clicked.
+                .overlayPreferenceValue(PickerOriginAnchorKey.self) { anchor in
+                    GeometryReader { proxy in
+                        let xOffset = anchor.map { max(12, proxy[$0].x) } ?? 12
+                        ZStack(alignment: .bottomLeading) {
+                            Color.clear.allowsHitTesting(false)
+                            pickerDropdownPanel
+                                .padding(.leading, xOffset)
+                                .padding(.bottom, 50) // 50 = 40pt above inputBar content + inputBar's 10pt bottom padding
+                        }
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomLeading)
+                    }
+                }
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
                 // Right: Diff side panel (resizable) — bleibt geschlossen wenn vom User dismissed
@@ -1007,20 +1045,6 @@ struct SingleChatSessionView: View {
         }
         .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
-        .overlayPreferenceValue(PickerOriginAnchorKey.self) { anchor in
-            // Picker dropdowns rendered HERE (inputBar level) — never clipped by the inner ScrollView
-            GeometryReader { proxy in
-                let xOffset = anchor.map { max(12, proxy[$0].x) } ?? 12
-                ZStack(alignment: .bottomLeading) {
-                    Color.clear
-                    pickerDropdownPanel
-                        .padding(.leading, xOffset)
-                        .padding(.bottom, 40)
-                }
-                // Fix ZStack to inputBar size so panel overflows UPWARD, not downward
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomLeading)
-            }
-        }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
     }
 
@@ -2236,7 +2260,9 @@ struct SingleChatSessionView: View {
         }
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         // Handle slash commands before normal send
-        if text.hasPrefix("/"), !text.contains(" ") || text == "/compact" || text.hasPrefix("/files") {
+        if text.hasPrefix("/"),
+           !text.contains(" ") || text == "/compact"
+               || text.hasPrefix("/files") || text.hasPrefix("/agent") {
             if handleSlashCommand(text) { return }
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }

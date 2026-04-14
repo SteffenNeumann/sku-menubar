@@ -417,6 +417,7 @@ struct OrchestratorView: View {
             )
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Planning Panel
