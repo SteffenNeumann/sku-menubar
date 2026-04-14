@@ -72,7 +72,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     // Primary text — medium themes get dark text like light themes for sufficient contrast
     var primaryText:   Color { (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95) }
     var secondaryText: Color { (isLight || isMedium) ? Color(white: 0.25) : Color(white: 0.60) }
-    var tertiaryText:  Color { (isLight || isMedium) ? Color(white: 0.42) : Color(white: 0.40) }
+    var tertiaryText:  Color { (isLight || isMedium) ? Color(white: 0.42) : Color(white: 0.50) }
 
     // Base window background — glow themes use deep-space blue, others use their own bgTop
     var windowBg: Color {

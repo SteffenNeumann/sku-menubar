@@ -371,23 +371,23 @@ struct SingleChatSessionView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.up.circle")
                                 .font(.system(size: 9))
-                                .foregroundStyle(tokenColor.opacity(0.7))
+                                .foregroundStyle(tokenColor)
                             Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(tokenColor)
                             Image(systemName: "arrow.down.circle")
                                 .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                                .foregroundStyle(theme.secondaryText)
                             Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
                             Text("tokens")
                                 .font(.system(size: 9))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                                .foregroundStyle(theme.tertiaryText)
                             if threshold > 0 {
                                 Text("/ \(threshold >= 1000 ? String(format: "%.0fk", Double(threshold) / 1000) : "\(threshold)")")
                                     .font(.system(size: 9, design: .monospaced))
-                                    .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                                    .foregroundStyle(theme.tertiaryText)
                             }
                             Spacer()
                             if isWarning && !isCompacting && !isStreaming {
@@ -1283,16 +1283,16 @@ struct SingleChatSessionView: View {
             HStack(spacing: 3) {
                 Image(systemName: icon)
                     .font(.system(size: 10))
-                    .foregroundStyle(active ? accentColor : theme.tertiaryText)
+                    .foregroundStyle(active ? accentColor : theme.secondaryText)
                 Text(label)
                     .font(.system(size: 10))
-                    .foregroundStyle(active ? accentColor : theme.tertiaryText)
+                    .foregroundStyle(active ? accentColor : theme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: 80)
                 Image(systemName: isPresented.wrappedValue ? "chevron.down" : "chevron.up")
                     .font(.system(size: 7, weight: .medium))
-                    .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                    .foregroundStyle(theme.tertiaryText.opacity(0.70))
             }
             .padding(.horizontal, 6).padding(.vertical, 4)
         }
