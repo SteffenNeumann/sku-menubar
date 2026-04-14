@@ -56,7 +56,7 @@ struct ClaudeUsageCard: View {
                     tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: .orange)
                     tokenPill(label: "Monat", tokens: state.claudeMonthTokens, color: .indigo)
                     Spacer()
-                    Text("Tokens").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                    Text("Tokens").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 }
             }
 
@@ -76,14 +76,14 @@ struct ClaudeUsageCard: View {
                     ))
                     .frame(width: 28, height: 28)
                 Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text("Claude Verbrauch")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                 Text("Anthropic Admin API")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
             }
             Spacer()
@@ -92,7 +92,7 @@ struct ClaudeUsageCard: View {
             } else {
                 Button { Task { await state.refreshClaude(force: true) } } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 24, height: 24)
                         .background(.primary.opacity(0.06), in: Circle())
@@ -109,9 +109,9 @@ struct ClaudeUsageCard: View {
             headerRow
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange).font(.system(size: 11))
+                    .foregroundStyle(.orange).font(.system(size: 13))
                 Text(msg)
-                    .font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                    .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)
@@ -125,15 +125,15 @@ struct ClaudeUsageCard: View {
     private func costCell(icon: String, color: Color, label: String, value: Double) -> some View {
         VStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(color)
             Text(fmt(value))
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(label)
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText)
         }
         .frame(maxWidth: .infinity)
@@ -144,10 +144,10 @@ struct ClaudeUsageCard: View {
     private func tokenPill(label: String, tokens: Int, color: Color) -> some View {
         HStack(spacing: 4) {
             Text(label)
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText)
             Text(fmtTokens(tokens))
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
         }
         .padding(.horizontal, 7)

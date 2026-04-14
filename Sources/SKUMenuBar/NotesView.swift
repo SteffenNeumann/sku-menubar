@@ -124,7 +124,7 @@ struct NotesView: View {
                     addNote(type: .note)
                 } label: {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(accentColor)
                         .frame(width: 28, height: 28)
                 }
@@ -136,7 +136,7 @@ struct NotesView: View {
                     addNote(type: .task)
                 } label: {
                     Image(systemName: "checkmark.square")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(accentColor)
                         .frame(width: 28, height: 28)
                 }
@@ -147,7 +147,7 @@ struct NotesView: View {
                 showingTagManager = true
             } label: {
                 Image(systemName: "tag")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(accentColor)
                     .frame(width: 28, height: 28)
             }
@@ -167,16 +167,16 @@ struct NotesView: View {
             // Search
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
                 TextField("Suchen…", text: $searchText)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -202,9 +202,9 @@ struct NotesView: View {
                         } label: {
                             HStack(spacing: 3) {
                                 Image(systemName: showingDone ? "eye.slash" : "eye")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                 Text(showingDone ? "Erledigte" : "Offen")
-                                    .font(.system(size: 10, weight: showingDone ? .semibold : .regular))
+                                    .font(.system(size: 12, weight: showingDone ? .semibold : .regular))
                             }
                             .foregroundStyle(showingDone ? accentColor : theme.tertiaryText)
                             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -221,14 +221,14 @@ struct NotesView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 5) {
                         Image(systemName: "tag")
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.tertiaryText)
                         if !filterTags.isEmpty {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.12)) { filterTags.removeAll() }
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: 11))
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .buttonStyle(.plain)
@@ -237,7 +237,7 @@ struct NotesView: View {
                                     withAnimation(.easeInOut(duration: 0.12)) { tagFilterAnd.toggle() }
                                 } label: {
                                     Text(tagFilterAnd ? "UND" : "ODER")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(accentColor)
                                         .padding(.horizontal, 6).padding(.vertical, 3)
                                         .background(accentColor.opacity(0.15), in: Capsule())
@@ -255,7 +255,7 @@ struct NotesView: View {
                                 }
                             } label: {
                                 Text(tag)
-                                    .font(.system(size: 10, weight: active ? .semibold : .regular))
+                                    .font(.system(size: 12, weight: active ? .semibold : .regular))
                                     .foregroundStyle(active ? accentColor : theme.secondaryText)
                                     .padding(.horizontal, 7).padding(.vertical, 3)
                                     .background(active ? accentColor.opacity(0.10) : Color.clear, in: Capsule())
@@ -277,8 +277,8 @@ struct NotesView: View {
             withAnimation(.easeInOut(duration: 0.12)) { filterType = type }
         } label: {
             HStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 9))
-                Text(label).font(.system(size: 10, weight: active ? .semibold : .regular))
+                Image(systemName: icon).font(.system(size: 11))
+                Text(label).font(.system(size: 12, weight: active ? .semibold : .regular))
             }
             .foregroundStyle(active ? accentColor : theme.secondaryText)
             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -298,7 +298,7 @@ struct NotesView: View {
                     Image(systemName: searchText.isEmpty ? "note.text" : "magnifyingglass")
                         .font(.system(size: 28)).foregroundStyle(theme.tertiaryText)
                     Text(searchText.isEmpty ? "Noch keine Einträge" : "Keine Treffer")
-                        .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+                        .font(.system(size: 14)).foregroundStyle(theme.tertiaryText)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -343,7 +343,7 @@ struct NotesView: View {
                                 .strokeBorder(noteTypeColor(note.type).opacity(0.4), lineWidth: 1)
                                 .frame(width: 22, height: 22)
                             Image(systemName: noteTypeIcon(note))
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(noteTypeColor(note.type))
                         }
                         .padding(.top, 1)
@@ -359,7 +359,7 @@ struct NotesView: View {
                             .strokeBorder(noteTypeColor(note.type).opacity(0.3), lineWidth: 0.5)
                             .frame(width: 22, height: 22)
                         Image(systemName: noteTypeIcon(note))
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(noteTypeColor(note.type))
                     }
                     .padding(.top, 1)
@@ -368,13 +368,13 @@ struct NotesView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Text(displayTitle(note))
-                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                             .foregroundStyle(note.done ? theme.tertiaryText : theme.primaryText)
                             .strikethrough(note.done && note.type == .task)
                             .lineLimit(1)
                         if note.pinned {
                             Image(systemName: "pin.fill")
-                                .font(.system(size: 8))
+                                .font(.system(size: 10))
                                 .foregroundStyle(accentColor.opacity(0.7))
                         }
                     }
@@ -396,7 +396,7 @@ struct NotesView: View {
                             }
                             .frame(height: 3)
                             Text("\(doneCount)/\(total)")
-                                .font(.system(size: 9))
+                                .font(.system(size: 11))
                                 .foregroundStyle(doneCount == total ? .green : theme.tertiaryText)
                                 .monospacedDigit()
                         }
@@ -407,7 +407,7 @@ struct NotesView: View {
                             .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
                         if !previewLine.isEmpty {
                             Text(previewLine)
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                                 .lineLimit(1)
                         }
@@ -419,7 +419,7 @@ struct NotesView: View {
                                 ForEach(note.tags, id: \.self) { tag in
                                     let highlighted = filterTags.contains(tag)
                                     Text(tag)
-                                        .font(.system(size: 8))
+                                        .font(.system(size: 10))
                                         .foregroundStyle(highlighted ? accentColor : theme.tertiaryText)
                                         .padding(.horizontal, 4).padding(.vertical, 1)
                                         .background((highlighted ? accentColor : theme.cardBorder).opacity(0.25), in: Capsule())
@@ -428,7 +428,7 @@ struct NotesView: View {
                         }
                     }
                     Text(note.createdAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText.opacity(0.7))
                 }
 
@@ -605,11 +605,11 @@ struct NoteEditorView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: noteTypeMenuIcon(note.type))
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                     Text(note.type.rawValue)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8))
+                        .font(.system(size: 10))
                 }
                 .foregroundStyle(noteTypeColor(note.type))
                 .padding(.horizontal, 8).padding(.vertical, 4)
@@ -678,7 +678,7 @@ struct NoteEditorView: View {
     private var editorFooter: some View {
         HStack(spacing: 8) {
             Image(systemName: "tag")
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
 
             // Tags as chips
@@ -687,13 +687,13 @@ struct NoteEditorView: View {
                     ForEach(note.tags, id: \.self) { tag in
                         HStack(spacing: 3) {
                             Text(tag)
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(accentColor)
                             Button {
                                 note.tags.removeAll { $0 == tag }
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 8))
+                                    .font(.system(size: 10))
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .buttonStyle(.plain)
@@ -714,7 +714,7 @@ struct NoteEditorView: View {
             Spacer()
 
             Text(note.createdAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText.opacity(0.6))
         }
         .padding(.horizontal, 14)
@@ -743,7 +743,7 @@ private struct TagInputView: View {
 
     var body: some View {
         TextField("+Tag", text: $input)
-            .font(.system(size: 10))
+            .font(.system(size: 12))
             .foregroundStyle(theme.secondaryText)
             .textFieldStyle(.plain)
             .frame(width: 80)
@@ -804,7 +804,7 @@ struct TagManagerSheet: View {
                         .font(.system(size: 28))
                         .foregroundStyle(theme.tertiaryText)
                     Text("Keine Tags vorhanden")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -828,7 +828,7 @@ struct TagManagerSheet: View {
         HStack(spacing: 8) {
             if editingTag == tag {
                 TextField("Tag-Name", text: $editText)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                     .onSubmit { commitRename(from: tag) }
@@ -848,15 +848,15 @@ struct TagManagerSheet: View {
                 .buttonStyle(.plain)
             } else {
                 Image(systemName: "tag.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(accentColor.opacity(0.7))
 
                 Text(tag)
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.primaryText)
 
                 Text("·  \(count)")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
 
                 Spacer()
@@ -866,7 +866,7 @@ struct TagManagerSheet: View {
                     editText = tag
                 } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 22, height: 22)
                 }
@@ -875,7 +875,7 @@ struct TagManagerSheet: View {
 
                 Button { deleteTag(tag) } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(.red.opacity(0.65))
                         .frame(width: 22, height: 22)
                 }
@@ -935,7 +935,7 @@ struct TaskLinesEditorView: View {
                                 .frame(width: 18, height: 18)
                             if lines[idx].done {
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 11, weight: .bold))
                                     .foregroundStyle(.white)
                             }
                         }

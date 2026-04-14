@@ -31,15 +31,15 @@ struct HabitGridView: View {
                 // ── Header ──────────────────────────────────────────
                 HStack {
                     Label("Letzte 28 Tage", systemImage: "chart.bar.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Spacer()
                     VStack(alignment: .trailing, spacing: 1) {
                         Text(fmt(total28))
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.primaryText)
                         Text("Gesamt")
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.tertiaryText)
                     }
                 }
@@ -66,7 +66,7 @@ struct HabitGridView: View {
                 // ── Legend ──────────────────────────────────────────
                 HStack(spacing: 5) {
                     Text("weniger")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                     ForEach([0.07, 0.25, 0.5, 0.75, 1.0], id: \.self) { v in
                         RoundedRectangle(cornerRadius: 3)
@@ -74,7 +74,7 @@ struct HabitGridView: View {
                             .frame(width: 8, height: 8)
                     }
                     Text("mehr")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                     Spacer()
                 }
@@ -116,10 +116,10 @@ struct HabitGridView: View {
 
                 VStack(spacing: 2) {
                     Text(day.shortLabel)
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.85))
                     Text(day.amount > 0 ? fmt(day.amount) : "-")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .foregroundStyle(.white)
                 }
                 .shadow(color: .black.opacity(0.5), radius: 2)

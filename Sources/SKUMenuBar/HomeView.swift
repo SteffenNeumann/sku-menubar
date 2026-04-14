@@ -89,7 +89,7 @@ struct HomeView: View {
                 .foregroundStyle(theme.secondaryText)
             Button("Tiles verwalten") { showingCustomize = true }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(accentColor)
         }
         .frame(maxWidth: .infinity)
@@ -119,7 +119,7 @@ struct HomeView: View {
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(theme.primaryText)
                 Text("Dein Claude Code Dashboard auf einen Blick.")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
@@ -131,7 +131,7 @@ struct HomeView: View {
                             Circle().fill(.green).frame(width: 6, height: 6)
                         }
                         Text("\(state.activeSessions.count) aktiv")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.green)
                     }
                     .padding(.horizontal, 10)
@@ -145,9 +145,9 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                         Text("Bearbeiten")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                     }
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 10)
@@ -209,7 +209,7 @@ struct HomeView: View {
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(.horizontal, 10)
@@ -236,7 +236,7 @@ struct HomeView: View {
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                     Text("Heute")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                 }
 
@@ -245,11 +245,11 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Diese Woche")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
                         Text(state.fmt(state.localWeekCost))
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundStyle(barColor)
                     }
                     if effectiveWeekLimit > 0 {
@@ -264,7 +264,7 @@ struct HomeView: View {
                         }
                         .frame(height: 4)
                         Text("Limit: \(state.fmt(effectiveWeekLimit))")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                 }
@@ -303,30 +303,30 @@ struct HomeView: View {
                                             .fill(Color.orange.opacity(0.12))
                                             .frame(width: 30, height: 30)
                                         Image(systemName: "folder.fill")
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(.system(size: 14, weight: .medium))
                                             .foregroundStyle(.orange)
                                     }
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(project.displayName)
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(.system(size: 14, weight: .medium))
                                             .foregroundStyle(theme.primaryText)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
                                         if let s = session {
                                             Text(s.preview.isEmpty ? "Kein Vorschau-Text" : s.preview)
-                                                .font(.system(size: 10))
+                                                .font(.system(size: 12))
                                                 .foregroundStyle(theme.tertiaryText)
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
                                         } else {
                                             Text("\(project.sessions.count) Sessions")
-                                                .font(.system(size: 10))
+                                                .font(.system(size: 12))
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
                                     }
                                     Spacer()
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 10, weight: .semibold))
+                                        .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(theme.tertiaryText)
                                 }
                                 .padding(.horizontal, 10)
@@ -365,19 +365,19 @@ struct HomeView: View {
                                     }
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(session.cwdDisplay)
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(.system(size: 14, weight: .medium))
                                             .foregroundStyle(theme.primaryText)
                                             .lineLimit(1)
                                         Text(session.kind.isEmpty ? "claude" : session.kind)
-                                            .font(.system(size: 10))
+                                            .font(.system(size: 12))
                                             .foregroundStyle(theme.tertiaryText)
                                     }
                                     Spacer()
                                     Text(session.startedAt, style: .relative)
-                                        .font(.system(size: 10, design: .monospaced))
+                                        .font(.system(size: 12, design: .monospaced))
                                         .foregroundStyle(theme.tertiaryText)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(theme.tertiaryText)
                                 }
                                 .padding(.horizontal, 10)
@@ -389,7 +389,7 @@ struct HomeView: View {
                         }
                         if state.activeSessions.count > 4 {
                             Text("+ \(state.activeSessions.count - 4) weitere")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                                 .frame(maxWidth: .infinity, alignment: .center)
                         }
@@ -425,13 +425,13 @@ struct HomeView: View {
                                     .fill(agent.dotColor)
                                     .frame(width: 7, height: 7)
                                 Text(agent.name)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(theme.primaryText)
                                     .lineLimit(1)
                                 Spacer()
                                 if agent.isActive {
                                     Text("aktiv")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(.green)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
@@ -447,7 +447,7 @@ struct HomeView: View {
                         }
                     } label: {
                         Text("Alle anzeigen")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.accentText)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 6)
@@ -468,7 +468,7 @@ struct HomeView: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
             Text(label)
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
         }
     }
@@ -487,7 +487,7 @@ struct HomeView: View {
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                     Text("Tokens heute")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                 }
 
@@ -496,11 +496,11 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Diese Woche")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
                         Text(formatTokens(weekIn) + " tok")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .foregroundStyle(theme.primaryText)
                     }
                     GeometryReader { geo in
@@ -514,7 +514,7 @@ struct HomeView: View {
                     }
                     .frame(height: 4)
                     Text("Heute ist \(Int(ratio * 100))% der Woche")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer(minLength: 0)
@@ -536,7 +536,7 @@ struct HomeView: View {
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(theme.tertiaryText)
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.tertiaryText)
                 .multilineTextAlignment(.center)
         }
@@ -562,11 +562,11 @@ private struct HomeTile<Content: View>: View {
                         .fill(iconColor.opacity(0.15))
                         .frame(width: 28, height: 28)
                     Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(iconColor)
                 }
                 Text(title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.tertiaryText)
                     .kerning(0.8)
                 Spacer()
@@ -603,7 +603,7 @@ private struct HomeTileCustomizeSheet: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Text("Tiles ein-/ausblenden und neu anordnen.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
@@ -676,7 +676,7 @@ private struct HomeTileCustomizeSheet: View {
                     state.homeTileVisible = Set(HomeTileID.allCases)
                 } label: {
                     Text("Zurücksetzen")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.plain)

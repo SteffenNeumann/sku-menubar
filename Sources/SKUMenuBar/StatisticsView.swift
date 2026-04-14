@@ -106,7 +106,7 @@ struct StatisticsDashboardSection: View {
                 VStack(spacing: 8) {
                     Image(systemName: "chart.bar.xaxis").font(.system(size: 28)).foregroundStyle(theme.tertiaryText)
                     Text("Keine Verlaufsdaten für \(String(selectedYear))")
-                        .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                        .font(.system(size: 13)).foregroundStyle(theme.secondaryText)
                 }
                 .frame(maxWidth: .infinity).padding(24).mirrorCard()
             } else {
@@ -146,7 +146,7 @@ struct StatisticsDashboardSection: View {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { selectedYear = y }
                     } label: {
                         Text(String(y))
-                            .font(.system(size: 11, weight: selectedYear == y ? .semibold : .regular))
+                            .font(.system(size: 13, weight: selectedYear == y ? .semibold : .regular))
                             .foregroundStyle(selectedYear == y ? .white : theme.secondaryText)
                             .padding(.horizontal, 12).padding(.vertical, 5)
                             .background(
@@ -169,7 +169,7 @@ struct StatisticsDashboardSection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("JAHRESÜBERSICHT")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText).kerning(0.8)
                     Text("Überblick \(String(selectedYear))")
                         .font(.system(size: 16, weight: .bold))
@@ -178,20 +178,20 @@ struct StatisticsDashboardSection: View {
                 Spacer()
                 if claudeConfigured {
                     Text("Copilot + Claude")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(.secondary.opacity(0.12), in: Capsule())
                 } else {
                     Text("Nur Copilot")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.blue.opacity(0.8))
                         .padding(.horizontal, 7).padding(.vertical, 3)
                         .background(.blue.opacity(0.1), in: Capsule())
                 }
                 if overBudgetCount > 0 {
                     Label("\(overBudgetCount)× über Budget", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10)).foregroundStyle(.orange)
+                        .font(.system(size: 12)).foregroundStyle(.orange)
                 }
             }
 
@@ -214,10 +214,10 @@ struct StatisticsDashboardSection: View {
 
     private func summaryMetric(label: String, value: String, valueColor: Color, icon: String?) -> some View {
         VStack(alignment: .center, spacing: 4) {
-            Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+            Text(label).font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
             HStack(spacing: 3) {
                 Text(value).font(.system(size: 17, weight: .bold, design: .rounded)).foregroundStyle(valueColor).lineLimit(1).minimumScaleFactor(0.6)
-                if let icon { Image(systemName: icon).font(.system(size: 9, weight: .bold)).foregroundStyle(valueColor) }
+                if let icon { Image(systemName: icon).font(.system(size: 11, weight: .bold)).foregroundStyle(valueColor) }
             }
         }
         .frame(maxWidth: .infinity)
@@ -230,21 +230,21 @@ struct StatisticsDashboardSection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
                     Label("Monatsvergleich", systemImage: "chart.bar.fill")
-                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.primaryText)
                     Text(claudeConfigured ? "Copilot + Claude kombiniert" : "Nur GitHub Copilot")
-                        .font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                        .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
                 if let hov = hoveredValue {
                     HStack(spacing: 4) {
-                        Text(hov.label).font(.system(size: 10)).foregroundStyle(theme.secondaryText)
-                        Text(fmt(hov.amount)).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(accentColor)
+                        Text(hov.label).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                        Text(fmt(hov.amount)).font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(accentColor)
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 } else if state.settings.budget > 0 {
                     HStack(spacing: 4) {
                         Rectangle().fill(Color.red.opacity(0.55)).frame(width: 12, height: 2)
-                        Text("Budget \(fmt(state.settings.budget))").font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                        Text("Budget \(fmt(state.settings.budget))").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                     }
                 }
             }
@@ -265,7 +265,7 @@ struct StatisticsDashboardSection: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .foregroundStyle(accentColor.opacity(0.4))
                         .annotation(position: .top, alignment: .trailing, spacing: 2) {
-                            Text("Ø \(fmtShort(avgMonthly))").font(.system(size: 9, weight: .medium)).foregroundStyle(accentColor.opacity(0.65))
+                            Text("Ø \(fmtShort(avgMonthly))").font(.system(size: 11, weight: .medium)).foregroundStyle(accentColor.opacity(0.65))
                         }
                 }
                 if state.settings.budget > 0 {
@@ -278,14 +278,14 @@ struct StatisticsDashboardSection: View {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { val in
                     AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Color.primary.opacity(0.08))
                     AxisValueLabel {
-                        if let d = val.as(Double.self) { Text(fmtShort(d)).font(.system(size: 10)).foregroundStyle(theme.secondaryText) }
+                        if let d = val.as(Double.self) { Text(fmtShort(d)).font(.system(size: 12)).foregroundStyle(theme.secondaryText) }
                     }
                 }
             }
             .chartXAxis {
                 AxisMarks { val in
                     AxisValueLabel {
-                        if let s = val.as(String.self) { Text(s).font(.system(size: 9, weight: .medium)).foregroundStyle(theme.secondaryText) }
+                        if let s = val.as(String.self) { Text(s).font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText) }
                     }
                 }
             }
@@ -322,16 +322,16 @@ struct StatisticsDashboardSection: View {
                 let isUp = td.diff > 0
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
-                        Text("MONATS-TREND").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+                        Text("MONATS-TREND").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
                         if claudeConfigured {
                             Text("Copilot + Claude")
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
                                 .background(.secondary.opacity(0.12), in: Capsule())
                         }
                     }
-                    Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 11, weight: .medium)).foregroundStyle(theme.secondaryText)
+                    Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.secondaryText)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? .red : .green).lineLimit(1).minimumScaleFactor(0.6)
                         Spacer()
@@ -347,8 +347,8 @@ struct StatisticsDashboardSection: View {
                         }.frame(height: 28, alignment: .bottom)
                     }
                     HStack(spacing: 4) {
-                        Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(isUp ? .red : .green)
-                        Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 10, weight: .medium)).foregroundStyle(isUp ? .red : .green)
+                        Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 11, weight: .bold)).foregroundStyle(isUp ? .red : .green)
+                        Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 12, weight: .medium)).foregroundStyle(isUp ? .red : .green)
                     }
                 }
                 .padding(14)
@@ -363,7 +363,7 @@ struct StatisticsDashboardSection: View {
             if let ad = adherenceData {
                 let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("BUDGET-EINHALTUNG").font(.system(size: 9, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
+                    Text("BUDGET-EINHALTUNG").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
                     HStack(spacing: 14) {
                         ZStack {
                             Circle().stroke(theme.cardBorder, lineWidth: 8)
@@ -377,9 +377,9 @@ struct StatisticsDashboardSection: View {
                         }
                         .frame(width: 56, height: 56)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(ad.under) von \(ad.total) Monaten im Budget").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.primaryText)
+                            Text("\(ad.under) von \(ad.total) Monaten im Budget").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.primaryText)
                             if state.settings.budget > 0 {
-                                Text("Limit: \(fmt(state.settings.budget))/Monat").font(.system(size: 10)).foregroundStyle(theme.secondaryText)
+                                Text("Limit: \(fmt(state.settings.budget))/Monat").font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                             }
                         }
                     }

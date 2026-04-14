@@ -162,10 +162,10 @@ struct CodeReviewView: View {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(accentColor)
                 Text("Dateien")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Button { pickDirectory() } label: {
@@ -190,7 +190,7 @@ struct CodeReviewView: View {
                         .font(.system(size: 32))
                         .foregroundStyle(theme.tertiaryText)
                     Text("Verzeichnis öffnen")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Button("Auswählen…") { pickDirectory() }
                         .buttonStyle(.borderedProminent)
@@ -203,15 +203,15 @@ struct CodeReviewView: View {
                 if let dir = selectedDirectory {
                     HStack(spacing: 5) {
                         Image(systemName: "externaldrive.fill")
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(accentColor)
                         Text(dir.lastPathComponent)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                         Spacer()
                         Text("\(selectedFiles.count) ausgewählt")
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .padding(.horizontal, 10)
@@ -234,17 +234,17 @@ struct CodeReviewView: View {
                 // Select all / clear
                 HStack(spacing: 8) {
                     Button("Alle") { selectAllFiles(in: fileTree) }
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(accentColor)
                         .buttonStyle(.plain)
                     Button("Keine") { selectedFiles.removeAll() }
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                         .buttonStyle(.plain)
                     Spacer()
                     let totalKB = estimatedSizeKB()
                     Text("~\(totalKB) KB")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 .padding(.horizontal, 10)
@@ -277,17 +277,17 @@ struct CodeReviewView: View {
                 // Checkbox (files only)
                 if !node.isDirectory {
                     Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(isSelected ? accentColor : theme.tertiaryText)
                 }
 
                 Image(systemName: node.icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(node.iconColor)
                     .frame(width: 14)
 
                 Text(node.name)
-                    .font(.system(size: 11, weight: node.isDirectory ? .medium : .regular))
+                    .font(.system(size: 13, weight: node.isDirectory ? .medium : .regular))
                     .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
                     .lineLimit(1)
 
@@ -312,7 +312,7 @@ struct CodeReviewView: View {
             // Toolbar header
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass.source.code")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(accentColor)
                 Text("Code Review")
                     .font(.system(size: 13, weight: .semibold))
@@ -327,9 +327,9 @@ struct CodeReviewView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(selectedModel.replacingOccurrences(of: "claude-", with: ""))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
+                            .font(.system(size: 10))
                     }
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 7).padding(.vertical, 3)
@@ -341,7 +341,7 @@ struct CodeReviewView: View {
 
                 Toggle(isOn: $useCustomPrompt) {
                     Text("Eigener Prompt")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                 }
                 .toggleStyle(.checkbox)
@@ -354,7 +354,7 @@ struct CodeReviewView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { showFilePanel.toggle() }
                     } label: {
                         Image(systemName: "sidebar.left")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(showFilePanel ? theme.secondaryText : accentColor)
                     }
                     .buttonStyle(.plain)
@@ -364,7 +364,7 @@ struct CodeReviewView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { state.hideSidebar.toggle() }
                     } label: {
                         Image(systemName: "sidebar.squares.left")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(state.hideSidebar ? accentColor : theme.secondaryText)
                     }
                     .buttonStyle(.plain)
@@ -380,7 +380,7 @@ struct CodeReviewView: View {
                         errorMessage = nil
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
@@ -396,10 +396,10 @@ struct CodeReviewView: View {
                                 .tint(.white)
                         } else {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                         }
                         Text(isReviewing ? "Analysiere…" : "Review starten")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(canReview ? .white : theme.tertiaryText)
                     .padding(.horizontal, 14).padding(.vertical, 6)
@@ -479,10 +479,10 @@ struct CodeReviewView: View {
         return Button { reviewMode = mode } label: {
             HStack(spacing: 5) {
                 Image(systemName: mode.icon)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(isActive ? mode.activeForeground : mode.color)
                 Text(mode.rawValue)
-                    .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
                     .foregroundStyle(isActive ? mode.activeForeground : theme.secondaryText)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
@@ -496,10 +496,10 @@ struct CodeReviewView: View {
     private var customPromptField: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Eigener Review-Prompt")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.tertiaryText)
             TextEditor(text: $customPrompt)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.primaryText)
                 .scrollContentBackground(.hidden)
                 .background(theme.cardBg)
@@ -529,7 +529,7 @@ struct CodeReviewView: View {
                 Text(selectedFiles.isEmpty
                      ? "Wähle Dateien links aus, dann klicke \"Review starten\""
                      : "\(selectedFiles.count) Datei(en) ausgewählt – Modus wählen und starten")
-                    .font(.system(size: 12))
+                    .font(.system(size: 14))
                     .foregroundStyle(theme.tertiaryText)
                     .multilineTextAlignment(.center)
             }
@@ -538,14 +538,14 @@ struct CodeReviewView: View {
                 HStack(spacing: 6) {
                     ForEach(Array(selectedFiles.prefix(4)), id: \.self) { url in
                         Text(url.lastPathComponent)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(accentColor)
                             .padding(.horizontal, 6).padding(.vertical, 3)
                             .background(accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                     }
                     if selectedFiles.count > 4 {
                         Text("+\(selectedFiles.count - 4) mehr")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }
                 }
@@ -562,7 +562,7 @@ struct CodeReviewView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                     Text(err)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(.red)
                     Spacer()
                 }
@@ -575,17 +575,17 @@ struct CodeReviewView: View {
                 HStack(spacing: 8) {
                     if applySuccess {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(.green)
                         Text("Änderungen gespeichert")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(.green)
                     } else if let err = applyError {
                         Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(.orange)
                         Text(err)
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                             .foregroundStyle(.orange)
                             .lineLimit(1)
                     }
@@ -603,10 +603,10 @@ struct CodeReviewView: View {
                                     .tint(.white)
                             } else {
                                 Image(systemName: "wand.and.stars")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                             }
                             Text(isApplying ? "Wird umgesetzt…" : "Vorschläge umsetzen")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 13, weight: .semibold))
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10).padding(.vertical, 4)
@@ -662,7 +662,7 @@ struct CodeReviewView: View {
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Text("\(pendingAppliedFiles.count) Datei(en)")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(theme.tertiaryText)
             }
             .padding(16)
@@ -670,7 +670,7 @@ struct CodeReviewView: View {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
             Text("Die folgenden Dateien werden überschrieben:")
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.secondaryText)
                 .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 6)
 
@@ -679,15 +679,15 @@ struct CodeReviewView: View {
                     ForEach(pendingAppliedFiles, id: \.url) { item in
                         HStack(spacing: 8) {
                             Image(systemName: "doc.badge.arrow.up")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(.purple)
                             Text(item.url.lastPathComponent)
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(.system(size: 14, design: .monospaced))
                                 .foregroundStyle(theme.primaryText)
                             Spacer()
                             let lines = item.newContent.components(separatedBy: "\n").count
                             Text("\(lines) Zeilen")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -727,7 +727,7 @@ struct CodeReviewView: View {
 
     private func statChip(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(size: 10, design: .monospaced))
+            .font(.system(size: 12, design: .monospaced))
             .foregroundStyle(color.opacity(0.85))
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
@@ -740,27 +740,27 @@ struct CodeReviewView: View {
             // Header
             HStack(spacing: 6) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(accentColor)
                 if let f = previewFile {
                     Text(f.lastPathComponent)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                     Text(f.deletingLastPathComponent().lastPathComponent)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                 } else {
                     Text("Quellcode")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
                 if previewFile != nil {
                     let lineCount = previewContent.components(separatedBy: "\n").count
                     Text("\(lineCount) Zeilen")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
                 }
             }
@@ -776,10 +776,10 @@ struct CodeReviewView: View {
                         .font(.system(size: 28))
                         .foregroundStyle(theme.tertiaryText.opacity(0.5))
                     Text("Datei anklicken")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(theme.tertiaryText)
                     Text("Klicke eine Datei in der Liste\num den Quellcode anzuzeigen")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText.opacity(0.7))
                         .multilineTextAlignment(.center)
                 }
@@ -809,34 +809,34 @@ struct CodeReviewView: View {
     private var statsFooter: some View {
         HStack(spacing: 12) {
             Image(systemName: "chart.bar.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText)
 
             HStack(spacing: 4) {
                 Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(.blue)
                 Text("\(formatTokens(inputTokens)) Input")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(theme.secondaryText)
             }
 
             HStack(spacing: 4) {
                 Image(systemName: "arrow.up.circle")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(.green)
                 Text("\(formatTokens(outputTokens)) Output")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(theme.secondaryText)
             }
 
             if costUsd > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "dollarsign.circle")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(accentColor)
                     Text(String(format: "$%.5f", costUsd))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -844,7 +844,7 @@ struct CodeReviewView: View {
             Spacer()
 
             Text(selectedModel.replacingOccurrences(of: "claude-", with: ""))
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText)
         }
         .padding(.horizontal, 14)

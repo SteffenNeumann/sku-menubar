@@ -470,7 +470,7 @@ private struct AgentBaseballCard: View {
 
                 // ID badge – top left
                 Text(agent.id.uppercased())
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
                     .kerning(0.5)
                     .lineLimit(1)
@@ -513,13 +513,13 @@ private struct AgentBaseballCard: View {
                     sectionLabel(icon: "bolt.fill", title: "TRIGGERS")
                     if agent.effectiveTriggers.isEmpty {
                         Text("—")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                             .foregroundStyle(theme.secondaryText.opacity(0.4))
                     } else {
                         FlowLayout(spacing: 4) {
                             ForEach(agent.effectiveTriggers.prefix(6), id: \.self) { word in
                                 Text(word)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(agent.dotColor)
                                     .padding(.horizontal, 7).padding(.vertical, 3)
                                     .background(agent.dotColor.opacity(0.14), in: Capsule())
@@ -536,10 +536,10 @@ private struct AgentBaseballCard: View {
                    let resDate = agent.researchUpdatedAt {
                     HStack(spacing: 4) {
                         Image(systemName: "brain.filled.head.profile")
-                            .font(.system(size: 8))
+                            .font(.system(size: 10))
                             .foregroundStyle(Color.purple.opacity(0.85))
                         Text("Wissen: \(resDate)")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.purple.opacity(0.85))
                     }
                     .padding(.horizontal, 7).padding(.vertical, 3)
@@ -574,10 +574,10 @@ private struct AgentBaseballCard: View {
                         Spacer(minLength: 0)
                         HStack(spacing: 3) {
                             Image(systemName: lastRun == nil ? "clock.badge.xmark" : "clock.badge.checkmark")
-                                .font(.system(size: 9))
+                                .font(.system(size: 11))
                                 .foregroundStyle(lastRun == nil ? theme.secondaryText.opacity(0.4) : agent.dotColor.opacity(0.9))
                             Text(lastRunLabel)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
                                 .foregroundStyle(lastRun == nil ? theme.secondaryText.opacity(0.4) : theme.secondaryText)
                         }
                     }
@@ -656,7 +656,7 @@ private struct AgentBaseballCard: View {
 
         HStack(spacing: 5) {
             Image(systemName: dot)
-                .font(.system(size: 8))
+                .font(.system(size: 10))
                 .foregroundStyle(color)
                 .opacity(isRunning ? 1 : 0.85)
                 .scaleEffect(isRunning ? 1.15 : 1.0)
@@ -709,10 +709,10 @@ private struct AgentBaseballCard: View {
     private func sectionLabel(icon: String, title: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(theme.secondaryText.opacity(0.6))
             Text(title)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(theme.secondaryText.opacity(0.6))
                 .kerning(0.5)
         }
@@ -727,7 +727,7 @@ private struct AgentBaseballCard: View {
             return model.isEmpty ? "Sonnet" : model.capitalized
         }()
         return Text(label)
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(accentColor)
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(accentColor.opacity(0.13), in: Capsule())
@@ -937,11 +937,11 @@ struct AgentsView: View {
                 .fill(color)
                 .frame(width: 7, height: 7)
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.secondaryText)
                 .kerning(0.3)
             Text("\(count)")
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(theme.tertiaryText)
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(theme.cardBg, in: Capsule())
@@ -966,7 +966,7 @@ struct AgentsView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(theme.primaryText)
                     Text("Manage and orchestrate your deployed autonomous agents.")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(2)
                 }
@@ -984,7 +984,7 @@ struct AgentsView: View {
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(theme.primaryText)
                         Text("ONLINE")
-                            .font(.system(size: 7, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(Color.green)
                             .kerning(0.5)
                     }
@@ -998,15 +998,15 @@ struct AgentsView: View {
             HStack(spacing: 8) {
                 HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                     TextField("Agent suchen…", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                         .buttonStyle(.plain)
@@ -1027,7 +1027,7 @@ struct AgentsView: View {
                     startCreatingAgent()
                 } label: {
                     Label("Neuer Agent", systemImage: "plus")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(accentColor)
@@ -1043,7 +1043,7 @@ struct AgentsView: View {
     private func headerButton(icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(.system(size: 13))
                 .foregroundStyle(theme.secondaryText)
                 .frame(width: 26, height: 26)
         }
@@ -1075,7 +1075,7 @@ struct AgentsView: View {
             Text("Keine Agents")
                 .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.secondaryText)
             Text("Agents werden in\n~/.claude/agents/ gespeichert")
-                .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                .font(.system(size: 13)).foregroundStyle(theme.tertiaryText)
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 10) {
@@ -1196,7 +1196,7 @@ private struct AgentEditorSheet: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                     Text("Bearbeite Frontmatter und System Prompt direkt aus der App.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.secondaryText)
                 }
 
@@ -1217,7 +1217,7 @@ private struct AgentEditorSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let errorMessage, !errorMessage.isEmpty {
                         Text(errorMessage)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.red)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1292,10 +1292,10 @@ private struct AgentEditorSheet: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
                             Image(systemName: "timer")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
                             Text("Scheduled Task")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(theme.primaryText)
                         }
 
@@ -1307,14 +1307,14 @@ private struct AgentEditorSheet: View {
 
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("AKTIV".uppercased())
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(theme.tertiaryText)
                                     .kerning(0.5)
                                 Toggle("Scheduling aktiv", isOn: $draft.isActive)
                                     .toggleStyle(.switch)
                                     .labelsHidden()
                                 Text("Wenn aktiv, wird der Agent automatisch\ngemäß seinem Schedule ausgeführt.")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1324,14 +1324,14 @@ private struct AgentEditorSheet: View {
 
                         HStack(spacing: 8) {
                             Text("TIMEOUT")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(theme.tertiaryText)
                                 .kerning(0.5)
                             TextField("30", text: $draft.timeoutMinutes)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 70)
                             Text("Minuten (Standard: 30)")
-                                .font(.system(size: 10))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                         }
                     }
@@ -1346,17 +1346,17 @@ private struct AgentEditorSheet: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.square")
-                                .font(.system(size: 11))
+                                .font(.system(size: 13))
                                 .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
                             Text("Portrait")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(theme.primaryText)
                             if !draft.portrait.isEmpty {
                                 Button {
                                     draft.portrait = ""
                                 } label: {
                                     Text("Entfernen")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.plain)
@@ -1380,10 +1380,10 @@ private struct AgentEditorSheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("System Prompt")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(theme.primaryText)
                                 Text("Der Inhalt unterhalb des Frontmatters wird direkt in die Agent-Datei geschrieben.")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(theme.secondaryText)
                             }
                             Spacer()
@@ -1392,7 +1392,7 @@ private struct AgentEditorSheet: View {
                             } label: {
                                 Label(showAiPanel ? "Schliessen" : "Mit AI generieren",
                                       systemImage: showAiPanel ? "xmark" : "sparkles")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
@@ -1402,7 +1402,7 @@ private struct AgentEditorSheet: View {
                         if showAiPanel {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("AGENT BESCHREIBEN")
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(theme.tertiaryText)
                                     .kerning(0.5)
 
@@ -1416,7 +1416,7 @@ private struct AgentEditorSheet: View {
 
                                 if let aiError {
                                     Text(aiError)
-                                        .font(.system(size: 10))
+                                        .font(.system(size: 12))
                                         .foregroundStyle(.red)
                                 }
 
@@ -1427,10 +1427,10 @@ private struct AgentEditorSheet: View {
                                     } label: {
                                         if isGenerating {
                                             ProgressView().controlSize(.small)
-                                            Text("Generiere…").font(.system(size: 11))
+                                            Text("Generiere…").font(.system(size: 13))
                                         } else {
                                             Label("Prompt generieren", systemImage: "sparkles")
-                                                .font(.system(size: 11, weight: .semibold))
+                                                .font(.system(size: 13, weight: .semibold))
                                         }
                                     }
                                     .buttonStyle(.borderedProminent)
@@ -1455,7 +1455,7 @@ private struct AgentEditorSheet: View {
                         }
 
                         TextEditor(text: $draft.promptBody)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: 14, design: .monospaced))
                             .foregroundStyle(theme.primaryText)
                             .scrollContentBackground(.hidden)
                             .padding(10)
@@ -1477,10 +1477,10 @@ private struct AgentEditorSheet: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Rohdatei-Vorschau")
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(theme.primaryText)
                                 Text("So wird die Agent-Datei inklusive Frontmatter gespeichert.")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
                                     .foregroundStyle(theme.secondaryText)
                             }
 
@@ -1492,7 +1492,7 @@ private struct AgentEditorSheet: View {
 
                         ScrollView {
                             Text(previewContent)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: 13, design: .monospaced))
                                 .foregroundStyle(theme.primaryText.opacity(0.9))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1521,12 +1521,12 @@ private struct AgentEditorSheet: View {
     private func editorField<Content: View>(_ title: String, hint: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.tertiaryText)
                 .kerning(0.5)
             content()
             Text(hint)
-                .font(.system(size: 10))
+                .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1548,7 +1548,7 @@ private struct AgentEditorSheet: View {
                 } else {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.gray.opacity(0.2))
-                        .overlay(Text(pid).font(.system(size: 8)).foregroundStyle(.secondary))
+                        .overlay(Text(pid).font(.system(size: 10)).foregroundStyle(.secondary))
                 }
             }
             .frame(width: 80, height: 80)
@@ -1680,7 +1680,7 @@ private struct AgentMemorySheet: View {
                             .foregroundStyle(theme.primaryText)
                     }
                     Text("~/.claude/agent-memory/\(agent.name)/")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
@@ -1709,7 +1709,7 @@ private struct AgentMemorySheet: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Text("Dieser Agent hat noch keine Dateien in\n~/.claude/agent-memory/ gespeichert.")
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                         .multilineTextAlignment(.center)
                 }
@@ -1721,15 +1721,15 @@ private struct AgentMemorySheet: View {
                         List(memoryFiles, selection: $selectedFile) { entry in
                             HStack(spacing: 6) {
                                 Image(systemName: fileIcon(for: entry.name))
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12))
                                     .foregroundStyle(agent.dotColor)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(entry.name)
-                                        .font(.system(size: 11, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundStyle(theme.primaryText)
                                         .lineLimit(1)
                                     Text(formatSize(entry.size) + " · " + formatDate(entry.modified))
-                                        .font(.system(size: 9, design: .monospaced))
+                                        .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(theme.tertiaryText)
                                 }
                             }
@@ -1745,14 +1745,14 @@ private struct AgentMemorySheet: View {
                         if let selected = selectedFile {
                             HStack(spacing: 6) {
                                 Text(selected.name)
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                     .foregroundStyle(theme.primaryText)
                                 Spacer()
                                 Button {
                                     openInEditor(selected.url)
                                 } label: {
                                     Image(systemName: "square.and.pencil")
-                                        .font(.system(size: 10))
+                                        .font(.system(size: 12))
                                 }
                                 .buttonStyle(.plain)
                                 .help("In Editor öffnen")
@@ -1773,7 +1773,7 @@ private struct AgentMemorySheet: View {
                         } else {
                             Spacer()
                             Text("Datei auswählen")
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                                 .foregroundStyle(theme.tertiaryText)
                             Spacer()
                         }
