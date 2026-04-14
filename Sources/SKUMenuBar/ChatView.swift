@@ -249,6 +249,7 @@ struct SingleChatSessionView: View {
     @State private var activeDiff: String?
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
+    @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -526,33 +527,6 @@ struct SingleChatSessionView: View {
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(accentColor.opacity(0.75))
                             }
-                            // ⚡ Auto-Trigger-Badge: live beim Tippen + nach dem Senden
-                            if selectedAgent.isEmpty {
-                                let pendingName: String? = autoTriggerAgent(for: inputText)?.name
-                                let displayName = autoTriggeredAgentName ?? pendingName
-                                let isPending = autoTriggeredAgentName == nil && pendingName != nil
-                                if let trigName = displayName {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "bolt.fill")
-                                            .font(.system(size: 9))
-                                        Text(trigName)
-                                            .font(.system(size: 11, weight: .medium))
-                                    }
-                                    .foregroundStyle(accentColor)
-                                    .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(
-                                        Capsule()
-                                            .fill(accentColor.opacity(isPending ? 0.07 : 0.12))
-                                            .overlay(
-                                                isPending
-                                                    ? Capsule().strokeBorder(accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 0.8, dash: [3, 2]))
-                                                    : nil
-                                            )
-                                    )
-                                    .opacity(isPending ? 0.8 : 1.0)
-                                    .help(isPending ? "Trigger erkannt — Agent '\(trigName)' wird beim Senden aktiviert" : "Auto-Trigger: Agent '\(trigName)' wurde für diese Nachricht aktiviert")
-                                }
-                            }
                             Spacer()
                             if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
                                 Button {
@@ -578,6 +552,38 @@ struct SingleChatSessionView: View {
                         .padding(.vertical, 5)
                         .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
                         .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
+                    }
+
+                    // ⚡ Auto-Trigger-Badge — shown whenever trigger keywords are typed,
+                    // even in empty sessions (independent of the token counter above).
+                    // pendingTriggerAgentName is driven by onChange(of: inputText) below.
+                    let displayTriggerName = autoTriggeredAgentName ?? pendingTriggerAgentName
+                    let isTriggerPending = autoTriggeredAgentName == nil && pendingTriggerAgentName != nil
+                    if selectedAgent.isEmpty, let trigName = displayTriggerName {
+                        HStack(spacing: 0) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 9))
+                                Text(trigName)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(accentColor.opacity(isTriggerPending ? 0.07 : 0.12))
+                                    .overlay(
+                                        isTriggerPending
+                                            ? Capsule().strokeBorder(accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 0.8, dash: [3, 2]))
+                                            : nil
+                                    )
+                            )
+                            .opacity(isTriggerPending ? 0.8 : 1.0)
+                            .help(isTriggerPending ? "Trigger erkannt — Agent '\(trigName)' wird beim Senden aktiviert" : "Auto-Trigger: Agent '\(trigName)' wurde für diese Nachricht aktiviert")
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 3)
+                        .background(theme.windowBg)
                     }
 
                     inputBar
@@ -687,6 +693,17 @@ struct SingleChatSessionView: View {
                 tab.inputText = inputText
                 if isStreaming { tab.messages = messages }
             }
+        }
+        // Live trigger detection: update pendingTriggerAgentName as the user types.
+        // Runs via onChange so it's outside @ViewBuilder and always sees current @State.
+        .onChange(of: inputText) {
+            pendingTriggerAgentName = (selectedAgent.isEmpty && !inputText.isEmpty)
+                ? autoTriggerAgent(for: inputText)?.name
+                : nil
+        }
+        .onChange(of: selectedAgent) {
+            // Clear pending trigger when user manually picks an agent (or clears one)
+            pendingTriggerAgentName = nil
         }
         .onDisappear { tab.inputText = inputText }
     }
