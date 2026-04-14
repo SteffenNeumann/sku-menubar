@@ -1223,11 +1223,14 @@ struct SingleChatSessionView: View {
             .modifier(panelStyle)
         } else if showAgentPicker {
             VStack(alignment: .leading, spacing: 0) {
-                pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty) {
+                let autoTrigId = (autoTriggeredAgentName ?? pendingTriggerAgentName).flatMap { n in
+                    state.agentService.agents.first { $0.name == n }?.id
+                }
+                pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
                     selectedAgent = ""; showAgentPicker = false
                 }
                 ForEach(state.agentService.agents) { a in
-                    pickerRow(label: a.name, selected: selectedAgent == a.id) {
+                    pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
                         selectedAgent = a.id; showAgentPicker = false
                     }
                 }
