@@ -221,6 +221,14 @@ struct OrchestratorView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
                             .kerning(0.8)
+                        // Count-Badge: zeigt wie viele aktiv sind
+                        if selectedAgentIds.count > 0 {
+                            Text("\(selectedAgentIds.count) aktiv")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(accentColor)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(accentColor.opacity(0.12)))
+                        }
                         Spacer()
                         if !state.agentService.agents.isEmpty {
                             Button {
@@ -355,17 +363,17 @@ struct OrchestratorView: View {
                 HStack(spacing: 10) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(isSelected ? accentColor.opacity(0.2) : theme.cardBorder.opacity(0.5))
-                            .frame(width: 28, height: 28)
-                        Image(systemName: isSelected ? "checkmark" : icon)
-                            .font(.system(size: 13, weight: .medium))
+                            .fill(isSelected ? accentColor.opacity(0.25) : theme.cardBorder.opacity(0.4))
+                            .frame(width: 30, height: 30)
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : icon)
+                            .font(.system(size: isSelected ? 15 : 13, weight: .medium))
                             .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(name)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(theme.primaryText)
+                                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                                .foregroundStyle(isSelected ? accentColor : theme.primaryText)
                                 .lineLimit(1)
                             if isMatched {
                                 HStack(spacing: 2) {
@@ -384,6 +392,7 @@ struct OrchestratorView: View {
                             .foregroundStyle(theme.tertiaryText)
                             .lineLimit(1)
                     }
+                    Spacer()
                 }
 
                 // Trigger chips
@@ -399,9 +408,10 @@ struct OrchestratorView: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isMatched ? accentColor.opacity(0.05) : theme.cardSurface)
+                    .fill(isSelected ? accentColor.opacity(0.08) : (isMatched ? accentColor.opacity(0.04) : theme.cardSurface))
                     .overlay(RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(borderColor, lineWidth: borderWidth))
             )

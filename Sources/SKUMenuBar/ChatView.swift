@@ -1114,6 +1114,22 @@ struct SingleChatSessionView: View {
             .modifier(panelStyle)
         } else if showOrchPicker {
             VStack(alignment: .leading, spacing: 0) {
+                // Header mit Anzahl aktiver Agents
+                HStack(spacing: 6) {
+                    Text("AGENTS")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                        .kerning(0.5)
+                    if !selectedOrchestrators.isEmpty {
+                        Text("\(selectedOrchestrators.count) aktiv")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(accentColor.opacity(0.15)))
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                Divider().padding(.horizontal, 6)
                 ForEach(state.agentService.agents) { a in
                     orchRow(label: a.name, selected: selectedOrchestrators.contains(a.id)) {
                         if selectedOrchestrators.contains(a.id) {
@@ -1124,6 +1140,7 @@ struct SingleChatSessionView: View {
                     }
                 }
                 if !selectedOrchestrators.isEmpty {
+                    Divider().padding(.horizontal, 6)
                     orchRow(label: "Auswahl aufheben", selected: false) {
                         selectedOrchestrators.removeAll(); showOrchPicker = false
                     }
