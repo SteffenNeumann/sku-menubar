@@ -288,10 +288,19 @@ struct StreamContent: Decodable {
 struct StreamUsage: Decodable {
     let inputTokens: Int?
     let outputTokens: Int?
+    let cacheReadInputTokens: Int?
+    let cacheCreationInputTokens: Int?
+
+    /// Gesamte Input-Token-Nutzung inkl. Cache (= echter Kontext-Verbrauch)
+    var totalInputTokens: Int {
+        (inputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
+    }
 
     enum CodingKeys: String, CodingKey {
-        case inputTokens  = "input_tokens"
-        case outputTokens = "output_tokens"
+        case inputTokens             = "input_tokens"
+        case outputTokens            = "output_tokens"
+        case cacheReadInputTokens    = "cache_read_input_tokens"
+        case cacheCreationInputTokens = "cache_creation_input_tokens"
     }
 }
 
