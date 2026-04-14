@@ -68,10 +68,18 @@ struct OrchestratorView: View {
         let lower = masterTask.lowercased()
         var matched: Set<String> = []
         for agent in state.agentService.agents {
-            let hits = agent.effectiveTriggers.filter { lower.contains($0.lowercased()) }
+            let hits = agent.effectiveTriggers.filter { matchesTrigger($0, in: lower) }
             if !hits.isEmpty { matched.insert(agent.id) }
         }
         return matched
+    }
+
+    /// Matches if `text` contains the full trigger phrase OR any individual word (≥3 chars) from it.
+    private func matchesTrigger(_ trigger: String, in text: String) -> Bool {
+        let t = trigger.lowercased()
+        if text.contains(t) { return true }
+        let words = t.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        return words.contains { text.contains($0) }
     }
 
     var body: some View {
@@ -400,7 +408,7 @@ struct OrchestratorView: View {
                     let taskLower = masterTask.lowercased()
                     FlexTriggerRow(
                         triggers: triggers,
-                        highlight: triggers.filter { taskLower.contains($0.lowercased()) },
+                        highlight: triggers.filter { matchesTrigger($0, in: taskLower) },
                         accentColor: accentColor,
                         theme: theme
                     )

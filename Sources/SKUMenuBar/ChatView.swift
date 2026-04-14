@@ -12,6 +12,18 @@ private struct PickerOriginAnchorKey: PreferenceKey {
     }
 }
 
+/// MARK: - Picker interaction tracker (suppresses dismiss when a row was clicked)
+// SwiftUI buttons fire on mouseUp; PickerDismissMonitor fires on mouseDown.
+// Without suppression the dismiss removes the button before mouseUp → action never fires.
+private final class PickerInteractionTracker {
+    static let shared = PickerInteractionTracker()
+    private init() {}
+    private var suppressUntil: Date = .distantPast
+    /// Call from every picker-row button action to suppress dismiss for 500 ms.
+    func didInteract() { suppressUntil = Date().addingTimeInterval(0.5) }
+    var isSuppressed: Bool { Date() < suppressUntil }
+}
+
 // MARK: - Outside-click dismiss monitor
 
 private struct PickerDismissMonitor: NSViewRepresentable {
@@ -26,7 +38,13 @@ private struct PickerDismissMonitor: NSViewRepresentable {
         func start() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                DispatchQueue.main.async { self?.onDismiss() }
+                // Delay past mouseUp so that button actions (which fire on mouseUp) execute
+                // before we tear down the picker panel.  If a picker row was clicked the
+                // PickerInteractionTracker will have been set and we skip the dismiss.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                    guard !PickerInteractionTracker.shared.isSuppressed else { return }
+                    self?.onDismiss()
+                }
                 return event
             }
         }
@@ -251,6 +269,26 @@ struct SingleChatSessionView: View {
     private var anyPickerOpen: Bool {
         showModelPicker || showAgentPicker || showOrchPicker ||
         showSnippetPicker || showPermPicker || showBranchPicker || showMCPPicker
+    }
+
+    /// Checks whether `input` matches a trigger phrase.
+    /// Matches if input contains the full phrase OR if input contains any individual
+    /// word from a multi-word phrase (min 3 chars), enabling "review" to match "code review".
+    private func inputMatchesTrigger(_ input: String, trigger: String) -> Bool {
+        let inputL   = input.lowercased()
+        let triggerL = trigger.lowercased()
+        if inputL.contains(triggerL) { return true }
+        // Word-level fallback for multi-word triggers
+        let words = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        return words.contains { inputL.contains($0) }
+    }
+
+    /// Returns the first agent whose effectiveTriggers match `text`.
+    private func autoTriggerAgent(for text: String) -> AgentDefinition? {
+        guard selectedAgent.isEmpty, !text.isEmpty else { return nil }
+        return state.agentService.agents.first { agent in
+            agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
+        }
     }
 
     private func closeAllPickers() {
@@ -482,13 +520,7 @@ struct SingleChatSessionView: View {
                             }
                             // ⚡ Auto-Trigger-Badge: live beim Tippen + nach dem Senden
                             if selectedAgent.isEmpty {
-                                let pendingName: String? = {
-                                    guard !inputText.isEmpty else { return nil }
-                                    let lower = inputText.lowercased()
-                                    return state.agentService.agents.first { agent in
-                                        agent.effectiveTriggers.contains { lower.contains($0.lowercased()) }
-                                    }?.name
-                                }()
+                                let pendingName: String? = autoTriggerAgent(for: inputText)?.name
                                 let displayName = autoTriggeredAgentName ?? pendingName
                                 let isPending = autoTriggeredAgentName == nil && pendingName != nil
                                 if let trigName = displayName {
@@ -2311,12 +2343,7 @@ struct SingleChatSessionView: View {
         isStreaming = true
 
         // Auto-detect agent via trigger keywords if none is manually selected
-        let triggerAgent: String? = selectedAgent.isEmpty ? {
-            let lower = text.lowercased()
-            return state.agentService.agents.first { agent in
-                agent.effectiveTriggers.contains { lower.contains($0.lowercased()) }
-            }?.id
-        }() : nil
+        let triggerAgent: String? = autoTriggerAgent(for: text)?.id
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
@@ -3945,7 +3972,11 @@ private struct PickerRowView: View {
     @State private var hovered = false
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            // Suppress PickerDismissMonitor so the picker isn't torn down before this action
+            PickerInteractionTracker.shared.didInteract()
+            action()
+        } label: {
             HStack(spacing: 8) {
                 Image(systemName: selected ? "checkmark" : "")
                     .font(.system(size: 12))
@@ -3982,7 +4013,10 @@ private struct OrchRowView: View {
     @State private var hovered = false
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            PickerInteractionTracker.shared.didInteract()
+            action()
+        } label: {
             HStack(spacing: 8) {
                 Image(systemName: selected ? "checkmark.square.fill" : (label == "Auswahl aufheben" ? "xmark.circle" : "square"))
                     .font(.system(size: 14))
