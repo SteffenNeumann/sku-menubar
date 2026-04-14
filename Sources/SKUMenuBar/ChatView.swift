@@ -361,8 +361,10 @@ struct SingleChatSessionView: View {
                     }
 
                     // Token Counter — direkt über der Texteingabe
-                    let totalIn  = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
-                    let totalOut = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.outputTokens }
+                    // inputTokens ist kumulativ (Claude CLI zählt gesamten Kontext) → letzter Wert ist maßgeblich
+                    let assistantMessages = messages.filter { $0.role == .assistant }
+                    let totalIn  = assistantMessages.last?.inputTokens ?? 0
+                    let totalOut = assistantMessages.reduce(0) { $0 + $1.outputTokens }
                     if totalIn > 0 || totalOut > 0 {
                         let compactThreshold = state.settings.autoCompactThreshold
                         // Kontextfenster des aktuellen Modells (Fallback 200k)
@@ -2298,7 +2300,7 @@ struct SingleChatSessionView: View {
                         messages[assistantIndex].model = m
                     }
                     if let usage = event.message?.usage {
-                        messages[assistantIndex].inputTokens = usage.inputTokens ?? 0
+                        messages[assistantIndex].inputTokens = usage.totalInputTokens
                         messages[assistantIndex].outputTokens = usage.outputTokens ?? 0
                     }
 
@@ -2488,7 +2490,7 @@ struct SingleChatSessionView: View {
         if !isFallbackAttempt && !isCompacting {
             let threshold = state.settings.autoCompactThreshold
             if threshold > 0 {
-                let totalIn = messages.filter { $0.role == .assistant }.reduce(0) { $0 + $1.inputTokens }
+                let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
                 if totalIn >= threshold {
                     compactSession()
                     return
