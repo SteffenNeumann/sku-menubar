@@ -457,8 +457,15 @@ struct SingleChatSessionView: View {
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(theme.secondaryText.opacity(0.3))
                             }
+                            // Aktiver Agent
+                            if !selectedAgent.isEmpty,
+                               let agentName = state.agentService.agents.first(where: { $0.id == selectedAgent })?.name {
+                                Text("· \(agentName)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(accentColor.opacity(0.75))
+                            }
                             Spacer()
-                            if compactThreshold > 0 && totalIn >= compactThreshold / 2 && !isCompacting && !isStreaming {
+                            if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
                                 Button {
                                     compactSession()
                                 } label: {
