@@ -196,6 +196,46 @@ final class ClaudeCLIService: ObservableObject {
         }
     }
 
+    /// Like runCommand but returns (exitCode, stdout+stderr combined).
+    private func runCommandFull(_ args: [String]) async -> (Int32, String) {
+        let path = claudePath
+        return await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                let process = Process()
+                let home = NSHomeDirectory()
+                process.executableURL = URL(fileURLWithPath: path)
+                process.arguments = args
+
+                var env = ProcessInfo.processInfo.environment
+                let extraPaths = "\(home)/.local/bin:/usr/local/bin:/opt/homebrew/bin"
+                env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+                env["HOME"] = home
+                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                process.environment = env
+
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError  = errPipe
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outStr = String(data: outData, encoding: .utf8) ?? ""
+                    let errStr = String(data: errData, encoding: .utf8) ?? ""
+                    let combined = [outStr, errStr].filter { !$0.isEmpty }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(returning: (process.terminationStatus, combined))
+                } catch {
+                    continuation.resume(returning: (1, error.localizedDescription))
+                }
+            }
+        }
+    }
+
     // MARK: - List MCP servers
 
     func listMCPServers() async -> [MCPServer] {
@@ -303,11 +343,15 @@ final class ClaudeCLIService: ObservableObject {
             cliArgs += ["--project-dir", dir]
         }
         for h in headers { cliArgs += ["--header", h] }
-        for e in envVars { cliArgs += ["-e", e] }
+        // name + command first, then -e flags, then "--" + subprocess args
         cliArgs += [name, commandOrUrl]
-        cliArgs += args
-        let output = (try? await runCommand(cliArgs)) ?? "Fehler"
-        return (!output.lowercased().contains("error"), output)
+        for e in envVars { cliArgs += ["-e", e] }
+        // Use "--" separator so the CLI doesn't interpret args like "-y" as its own flags
+        if !args.isEmpty {
+            cliArgs += ["--"] + args
+        }
+        let (code, output) = await runCommandFull(cliArgs)
+        return (code == 0, output.isEmpty ? (code == 0 ? "OK" : "Unbekannter Fehler (exit \(code))") : output)
     }
 
     func removeMCPServer(name: String, scope: MCPScope = .user, projectDir: String? = nil) async -> (Bool, String) {
@@ -316,8 +360,8 @@ final class ClaudeCLIService: ObservableObject {
             cliArgs += ["--project-dir", dir]
         }
         cliArgs += [name]
-        let output = (try? await runCommand(cliArgs)) ?? "Fehler"
-        return (!output.lowercased().contains("error"), output)
+        let (code, output) = await runCommandFull(cliArgs)
+        return (code == 0, output)
     }
 
     /// Fetch full config of one MCP server via `claude mcp get <name>`.
