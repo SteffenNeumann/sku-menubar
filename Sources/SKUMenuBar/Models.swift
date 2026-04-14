@@ -49,7 +49,8 @@ struct GitHubSettings: Codable {
         copilotFallbackModel = savedModel
         historyWindowSize       = (try? c.decodeIfPresent(Int.self, forKey: .historyWindowSize))       ?? 8
         maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 10
-        autoCompactThreshold    = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold))    ?? 100000
+        let savedThreshold = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold)) ?? 100000
+        autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
     }
 }
 
