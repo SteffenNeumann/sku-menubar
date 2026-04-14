@@ -1662,18 +1662,20 @@ struct SingleChatSessionView: View {
             // Agent picker (single mode only)
             if !orchestratorMode && !state.agentService.agents.isEmpty {
                 stripSep
+                // Compute both name + id outside the escaping closure so they capture correctly
                 let autoTrigName = autoTriggeredAgentName ?? pendingTriggerAgentName
+                let autoTrigId: String? = autoTrigName.flatMap { n in
+                    state.agentService.agents.first { $0.name == n }?.id
+                }
                 pickerButton(
                     icon: !selectedAgent.isEmpty ? "person.crop.circle"
-                          : (autoTrigName != nil ? "bolt.fill" : "person.crop.circle"),
+                          : (autoTrigId != nil ? "bolt.fill" : "person.crop.circle"),
                     label: !selectedAgent.isEmpty
                            ? (state.agentService.agents.first { $0.id == selectedAgent }?.name ?? "Agent")
                            : (autoTrigName ?? "Agent"),
-                    active: !selectedAgent.isEmpty || autoTrigName != nil,
+                    active: !selectedAgent.isEmpty || autoTrigId != nil,
                     isPresented: $showAgentPicker
                 ) {
-                    // Auto-triggered agent id (pending or confirmed)
-                    let autoTrigId = state.agentService.agents.first { $0.name == autoTrigName }?.id
                     pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
                         selectedAgent = ""
                         showAgentPicker = false
