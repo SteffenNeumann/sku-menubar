@@ -1672,12 +1672,14 @@ struct SingleChatSessionView: View {
                     active: !selectedAgent.isEmpty || autoTrigName != nil,
                     isPresented: $showAgentPicker
                 ) {
-                    pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty) {
+                    // Auto-triggered agent id (pending or confirmed)
+                    let autoTrigId = state.agentService.agents.first { $0.name == autoTrigName }?.id
+                    pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
                         selectedAgent = ""
                         showAgentPicker = false
                     }
                     ForEach(state.agentService.agents) { a in
-                        pickerRow(label: a.name, selected: selectedAgent == a.id) {
+                        pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
                             selectedAgent = a.id
                             showAgentPicker = false
                         }
