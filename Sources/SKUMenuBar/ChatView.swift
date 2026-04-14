@@ -230,6 +230,7 @@ struct SingleChatSessionView: View {
     @State private var newSnippetText     = ""
     @State private var activeDiff: String?
     @State private var diffPanelDismissed: Bool = false
+    @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -278,12 +279,22 @@ struct SingleChatSessionView: View {
         .init(name: "/new",     description: "Neue Session starten"),
         .init(name: "/compact", description: "Konversation komprimieren"),
         .init(name: "/files",   description: "Dateien in Kontext laden — z.B. /files *.swift"),
+        .init(name: "/agent",   description: "Agent wählen — z.B. /agent code-reviewer"),
         .init(name: "/model",   description: "Modell wechseln"),
         .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
     ]
 
     private var filteredSlashCommands: [SlashCommand] {
         let q = inputText.lowercased()
+        // "/agent <name>" — zeige passende Agents als Sub-Commands
+        if q.hasPrefix("/agent ") {
+            let search = String(q.dropFirst("/agent ".count))
+            let agents = state.agentService.agents.filter {
+                search.isEmpty || $0.name.lowercased().contains(search)
+            }
+            let noAgent = SlashCommand(name: "/agent –", description: "Kein Agent (zurücksetzen)")
+            return [noAgent] + agents.map { .init(name: "/agent \($0.name)", description: $0.description.isEmpty ? "Agent" : $0.description) }
+        }
         if q == "/" { return slashCommands }
         return slashCommands.filter { $0.name.lowercased().hasPrefix(q) }
     }
@@ -460,12 +471,24 @@ struct SingleChatSessionView: View {
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(theme.secondaryText.opacity(0.3))
                             }
-                            // Aktiver Agent
+                            // Manuell gewählter Agent
                             if !selectedAgent.isEmpty,
                                let agentName = state.agentService.agents.first(where: { $0.id == selectedAgent })?.name {
                                 Text("· \(agentName)")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(accentColor.opacity(0.75))
+                            }
+                            // ⚡ Auto-Trigger-Badge
+                            if selectedAgent.isEmpty, let trigName = autoTriggeredAgentName {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 9))
+                                    Text(trigName)
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(accentColor)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Capsule().fill(accentColor.opacity(0.12)))
                             }
                             Spacer()
                             if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
@@ -836,6 +859,23 @@ struct SingleChatSessionView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(filteredSlashCommands.enumerated()), id: \.offset) { idx, cmd in
                 Button {
+                    // /agent <name> → Agent direkt setzen, nicht senden
+                    if cmd.name.hasPrefix("/agent ") {
+                        let agentName = String(cmd.name.dropFirst("/agent ".count))
+                        if agentName == "–" {
+                            selectedAgent = ""
+                            autoTriggeredAgentName = nil
+                        } else if let agent = state.agentService.agents.first(where: { $0.name == agentName }) {
+                            selectedAgent = agent.id
+                            autoTriggeredAgentName = nil
+                        }
+                        inputText = ""
+                        showSlashMenu = false
+                        return
+                    }
+                    if cmd.name == "/agent" {
+                        inputText = ""; showSlashMenu = false; showAgentPicker = true; return
+                    }
                     inputText = cmd.name
                     showSlashMenu = false
                     sendMessage()
@@ -1815,6 +1855,7 @@ struct SingleChatSessionView: View {
             errorMessage = nil
             attachedFiles = []
             sessionTitle = ""
+            autoTriggeredAgentName = nil
         }
     }
 
@@ -2009,6 +2050,22 @@ struct SingleChatSessionView: View {
             return true
         case "/model":
             showModelPicker = true
+            return true
+        case "/agent":
+            showAgentPicker = true
+            return true
+        case _ where lower.hasPrefix("/agent "):
+            let name = String(lower.dropFirst("/agent ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if name == "–" || name == "-" || name == "none" {
+                selectedAgent = ""; autoTriggeredAgentName = nil
+                messages.append(ChatMessage(role: .assistant, content: "Agent zurückgesetzt."))
+            } else if let agent = state.agentService.agents.first(where: { $0.name.lowercased() == name || $0.id.lowercased() == name }) {
+                selectedAgent = agent.id; autoTriggeredAgentName = nil
+                messages.append(ChatMessage(role: .assistant, content: "Agent gewechselt zu **\(agent.name)**."))
+            } else {
+                let names = state.agentService.agents.map { "• \($0.name)" }.joined(separator: "\n")
+                messages.append(ChatMessage(role: .assistant, content: "Agent **\(name)** nicht gefunden.\n\nVerfügbare Agents:\n\(names)"))
+            }
             return true
         case "/compact":
             compactSession()
@@ -2234,6 +2291,13 @@ struct SingleChatSessionView: View {
                 agent.effectiveTriggers.contains { lower.contains($0.lowercased()) }
             }?.id
         }() : nil
+        // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
+        if let tid = triggerAgent,
+           let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
+            autoTriggeredAgentName = agentName
+        } else if triggerAgent == nil {
+            autoTriggeredAgentName = nil
+        }
 
         Task { @MainActor in
             let imageDirs = Array(Set(sentFiles.filter { $0.isImage }.map { $0.url.deletingLastPathComponent().path }))
