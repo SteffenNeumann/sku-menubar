@@ -1,6 +1,47 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import PDFKit
+import AppKit
+
+// MARK: - Picker anchor preference key
+
+private struct PickerOriginAnchorKey: PreferenceKey {
+    static var defaultValue: Anchor<CGPoint>? = nil
+    static func reduce(value: inout Anchor<CGPoint>?, nextValue: () -> Anchor<CGPoint>?) {
+        value = nextValue() ?? value
+    }
+}
+
+// MARK: - Outside-click dismiss monitor
+
+private struct PickerDismissMonitor: NSViewRepresentable {
+    let isActive: Bool
+    let onDismiss: () -> Void
+
+    final class Coordinator {
+        var monitor: Any?
+        var onDismiss: () -> Void
+        init(onDismiss: @escaping () -> Void) { self.onDismiss = onDismiss }
+
+        func start() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                DispatchQueue.main.async { self?.onDismiss() }
+                return event
+            }
+        }
+        func stop() {
+            if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onDismiss: onDismiss) }
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onDismiss = onDismiss
+        isActive ? context.coordinator.start() : context.coordinator.stop()
+    }
+}
 
 // MARK: - Chat View (Tab Container)
 
@@ -200,10 +241,15 @@ struct SingleChatSessionView: View {
 
     // MCP per-session selection
     @State private var availableMCPs: [MCPServer] = []
-    @State private var activeMCPIds: Set<String> = []   // leer = alle aktiv
+    @State private var activeMCPIds: Set<String> = ["__none__"]   // leer = alle aktiv, __none__ = alle deaktiviert
     @State private var mcpConfigs: [String: MCPServerConfig] = [:]
     @State private var showMCPPicker = false
     @State private var isLoadingMCPs = false
+
+    private var anyPickerOpen: Bool {
+        showModelPicker || showAgentPicker || showOrchPicker ||
+        showSnippetPicker || showPermPicker || showBranchPicker || showMCPPicker
+    }
 
     private func closeAllPickers() {
         showModelPicker   = false
@@ -465,6 +511,7 @@ struct SingleChatSessionView: View {
             handleDrop(providers: providers)
         }
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
+        .background(PickerDismissMonitor(isActive: anyPickerOpen, onDismiss: { closeAllPickers() }))
         .task { await loadAvailableMCPs() }
         .onAppear {
             inputFocused = true
@@ -911,11 +958,19 @@ struct SingleChatSessionView: View {
         }
         .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
-        .overlay(alignment: .bottomLeading) {
+        .overlayPreferenceValue(PickerOriginAnchorKey.self) { anchor in
             // Picker dropdowns rendered HERE (inputBar level) — never clipped by the inner ScrollView
-            pickerDropdownPanel
-                .padding(.leading, 12)
-                .padding(.bottom, 40) // push above control strip + bottom padding
+            GeometryReader { proxy in
+                let xOffset = anchor.map { max(12, proxy[$0].x) } ?? 12
+                ZStack(alignment: .bottomLeading) {
+                    Color.clear
+                    pickerDropdownPanel
+                        .padding(.leading, xOffset)
+                        .padding(.bottom, 40)
+                }
+                // Fix ZStack to inputBar size so panel overflows UPWARD, not downward
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomLeading)
+            }
         }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
     }
@@ -1319,6 +1374,9 @@ struct SingleChatSessionView: View {
             .padding(.horizontal, 6).padding(.vertical, 4)
         }
         .buttonStyle(.plain)
+        .anchorPreference(key: PickerOriginAnchorKey.self, value: .topLeading) { anchor in
+            isPresented.wrappedValue ? anchor : nil
+        }
     }
 
     // Single row for single-select pickers (hover-capable)
