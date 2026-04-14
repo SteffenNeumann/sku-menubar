@@ -74,12 +74,15 @@ struct OrchestratorView: View {
         return matched
     }
 
-    /// Matches if `text` contains the full trigger phrase OR any individual word (≥3 chars) from it.
+    /// Matches if `text` contains the full trigger phrase, any word from it, or via prefix
+    /// ("review" matches trigger "Reviewer" because "reviewer".hasPrefix("review")).
     private func matchesTrigger(_ trigger: String, in text: String) -> Bool {
         let t = trigger.lowercased()
         if text.contains(t) { return true }
-        let words = t.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        return words.contains { text.contains($0) }
+        let trigWords = t.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        if trigWords.contains(where: { text.contains($0) }) { return true }
+        let textWords = text.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        return textWords.contains { tw in trigWords.contains { trig in trig.hasPrefix(tw) || tw.hasPrefix(trig) } }
     }
 
     var body: some View {

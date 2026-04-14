@@ -272,15 +272,23 @@ struct SingleChatSessionView: View {
     }
 
     /// Checks whether `input` matches a trigger phrase.
-    /// Matches if input contains the full phrase OR if input contains any individual
-    /// word from a multi-word phrase (min 3 chars), enabling "review" to match "code review".
+    /// Three tiers:
+    ///  1. Full-phrase: "code review" matches trigger "code review"
+    ///  2. Word-level: "review" matches trigger "code review" (word in phrase)
+    ///  3. Prefix: "review" matches trigger "Reviewer" (input is prefix of trigger word, or vice versa)
     private func inputMatchesTrigger(_ input: String, trigger: String) -> Bool {
         let inputL   = input.lowercased()
         let triggerL = trigger.lowercased()
+        // 1. Full phrase match
         if inputL.contains(triggerL) { return true }
-        // Word-level fallback for multi-word triggers
-        let words = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        return words.contains { inputL.contains($0) }
+        let inputWords   = inputL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        let triggerWords = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
+        // 2. Any trigger word as a substring of the input
+        if triggerWords.contains(where: { inputL.contains($0) }) { return true }
+        // 3. Bidirectional prefix: "review" matches "reviewer", "reviewing"
+        return inputWords.contains { iw in
+            triggerWords.contains { tw in tw.hasPrefix(iw) || iw.hasPrefix(tw) }
+        }
     }
 
     /// Returns the first agent whose effectiveTriggers match `text`.
