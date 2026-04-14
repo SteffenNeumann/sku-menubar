@@ -1,0 +1,3 @@
+# BuildInfo wird vom post-commit Hook automatisch generiert.
+# Bei Merges/Cherry-Picks immer die lokale Version behalten — nie Konflikt erzeugen.
+Sources/SKUMenuBar/BuildInfo.swift merge=ours
