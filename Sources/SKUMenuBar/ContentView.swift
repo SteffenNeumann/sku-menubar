@@ -85,9 +85,9 @@ struct DashboardView: View {
         state.settings.budget > 0 ? min(1, copilotMonthCost / state.settings.budget) : 0
     }
     private var claudePct: Double {
-        if state.settings.claudeWeeklyCostLimit > 0 {
-            let monthly = state.settings.claudeWeeklyCostLimit * 4.33
-            return min(1, state.claudeMonthCost / monthly)
+        if state.settings.claudeWeeklyTokenLimit > 0 {
+            let monthly = state.settings.claudeWeeklyTokenLimit * 4
+            return min(1, Double(state.claudeMonthTokens) / Double(monthly))
         }
         return state.settings.budget > 0 ? min(1, state.claudeMonthCost / state.settings.budget) : 0
     }
@@ -271,8 +271,8 @@ struct DashboardView: View {
                             badge: "+\(Int(claudePct * 100))%",
                             badgeColor: consumedColor(claudePct),
                             pct: claudePct, barColor: .purple,
-                            sub: state.settings.claudeWeeklyCostLimit > 0
-                                ? "Limit: \(state.fmt(state.settings.claudeWeeklyCostLimit))/Wo."
+                            sub: state.settings.claudeWeeklyTokenLimit > 0
+                                ? "Limit: \(state.settings.claudeWeeklyTokenLimit / 1000)K tok/Wo."
                                 : "Kein Limit"
                         )
                         kpiCard(

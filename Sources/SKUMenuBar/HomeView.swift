@@ -220,13 +220,18 @@ struct HomeView: View {
         .buttonStyle(.plain)
     }
 
+    private func fmtTok(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM tok", Double(n) / 1_000_000) }
+        if n >= 1_000     { return String(format: "%.0fK tok", Double(n) / 1_000) }
+        return "\(n) tok"
+    }
+
     // MARK: - Cost Today Card
 
     private var costTodayCard: some View {
-        let budget = state.settings.budget
-        let weekLimit = state.settings.claudeWeeklyCostLimit
-        let effectiveWeekLimit = weekLimit > 0 ? weekLimit : budget
-        let weekPct: Double = effectiveWeekLimit > 0 ? min(1.0, state.localWeekCost / effectiveWeekLimit) : 0
+        let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
+        let weekTokens     = state.localWeekTokens
+        let weekPct: Double = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
         let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : theme.accentFull
 
         return HomeTile(title: "Kosten Heute", icon: "eurosign.circle.fill", iconColor: .orange, theme: theme) {
@@ -248,11 +253,13 @@ struct HomeView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
-                        Text(state.fmt(state.localWeekCost))
+                        Text(weekTokenLimit > 0
+                             ? fmtTok(weekTokens)
+                             : state.fmt(state.localWeekCost))
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundStyle(barColor)
                     }
-                    if effectiveWeekLimit > 0 {
+                    if weekTokenLimit > 0 {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 Capsule().fill(theme.isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
@@ -263,7 +270,7 @@ struct HomeView: View {
                             }
                         }
                         .frame(height: 4)
-                        Text("Limit: \(state.fmt(effectiveWeekLimit))")
+                        Text("Limit: \(fmtTok(weekTokenLimit))")
                             .font(.system(size: 12))
                             .foregroundStyle(theme.tertiaryText)
                     }

@@ -262,10 +262,10 @@ struct SidebarView: View {
     // MARK: - Claude Usage Widget
 
     private var claudeUsageWidget: some View {
-        let weekLimit  = state.settings.claudeWeeklyCostLimit
-        let weekCost   = state.localWeekCost
-        let todayCost  = state.localTodayCost
-        let weekPct    = weekLimit > 0 ? min(1, weekCost / weekLimit) : 0
+        let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
+        let weekTokens     = state.localWeekTokens
+        let todayCost      = state.localTodayCost
+        let weekPct        = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
         let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : accentColor
         let fallbackActive = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
         let lastProvider = state.lastChatProvider
@@ -316,14 +316,9 @@ struct SidebarView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(state.fmt(todayCost))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(theme.primaryText)
-                    Text("\(formatTokens(state.localTodayTokens + state.copilotTodayTokens)) tok")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.tertiaryText)
-                }
+                Text("\(state.fmt(todayCost))  ·  \(formatTokens(state.localTodayTokens + state.copilotTodayTokens)) tok")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
             }
 
             // Weekly
@@ -336,17 +331,17 @@ struct SidebarView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     Spacer()
-                    if weekLimit > 0 {
-                        Text("\(state.fmt(weekCost)) / \(state.fmt(weekLimit))")
+                    if weekTokenLimit > 0 {
+                        Text("\(formatTokens(weekTokens)) / \(formatTokens(weekTokenLimit)) tok")
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(barColor)
                     } else {
-                        Text(state.fmt(weekCost))
+                        Text("\(formatTokens(weekTokens)) tok")
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
-                if weekLimit > 0 {
+                if weekTokenLimit > 0 {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(theme.cardBorder)
@@ -375,26 +370,28 @@ struct SidebarView: View {
     @ViewBuilder
     private var limitFlowBar: some View {
         let sessionLimit = state.settings.claudeSessionTokenLimit
-        let weekLimit    = state.settings.claudeWeeklyCostLimit
+        let weekLimit    = state.settings.claudeWeeklyTokenLimit
         let monthLimit   = state.settings.claudeMonthlySpendLimit
 
         let sessionUsed  = state.localSessionTokens
-        let weekUsed     = state.localWeekCost
+        let weekUsed     = state.localWeekTokens
         // Monthly: prefer Anthropic Admin API cost if available, else local estimate
         let monthUsed    = state.claudeMonthCost > 0 ? state.claudeMonthCost : state.localMonthCost
 
         let sessionPct   = sessionLimit  > 0 ? min(1.0, Double(sessionUsed) / Double(sessionLimit)) : 0
-        let weekPct      = weekLimit     > 0 ? min(1.0, weekUsed  / weekLimit)  : 0
+        let weekPct      = weekLimit     > 0 ? min(1.0, Double(weekUsed) / Double(weekLimit))  : 0
         // Monthly: claudeMonthCost is USD, limit is EUR — convert if needed
         let monthLimitUSD = monthLimit > 0 ? monthLimit / state.settings.eurRate : 0
         let monthPct     = monthLimitUSD > 0 ? min(1.0, monthUsed / monthLimitUSD) : 0
 
         let hasAnyLimit  = sessionLimit > 0 || weekLimit > 0 || monthLimit > 0
         let rateLimitOn  = state.claudeRateLimitActive
+        let hasAnyUsage  = sessionUsed > 0 || weekUsed > 0 || monthUsed > 0
 
-        if hasAnyLimit || rateLimitOn {
+        // Show bar when limits are configured, rate-limited, or when there's usage (even without limits)
+        if hasAnyLimit || rateLimitOn || hasAnyUsage {
             VStack(spacing: 0) {
-                // Rate-Limit Banner oben wenn aktiv
+                // Session row: rate-limit banner > limit progress > usage-only
                 if rateLimitOn, let expiry = state.claudeRateLimitExpiry {
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
                         planLimitRow(
@@ -415,28 +412,44 @@ struct SidebarView: View {
                         color: sessionPct >= 0.9 ? .red : sessionPct >= 0.7 ? .orange : accentColor,
                         resetLabel: sessionResetLabel()
                     )
+                } else if sessionUsed > 0 {
+                    // No limit set — show token count with open-ended bar (fills to 50% at ~44K tok, caps at 100%)
+                    let openPct = min(1.0, Double(sessionUsed) / 88_000.0)
+                    planLimitRow(
+                        icon: "clock.arrow.circlepath",
+                        label: "Current session",
+                        detail: "\(formatTokens(sessionUsed)) tok",
+                        pct: openPct,
+                        color: accentColor,
+                        resetLabel: sessionResetLabel()
+                    )
                 }
 
+                // Weekly row (token-based)
                 if weekLimit > 0 {
-                    if sessionLimit > 0 || rateLimitOn {
-                        Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-                            .padding(.horizontal, 12)
-                    }
                     planLimitRow(
                         icon: "calendar.badge.clock",
                         label: "Weekly limits",
-                        detail: "\(state.fmt(weekUsed)) / \(state.fmt(weekLimit))",
+                        detail: "\(formatTokens(weekUsed)) / \(formatTokens(weekLimit)) tok",
                         pct: weekPct,
                         color: weekPct >= 0.9 ? .red : weekPct >= 0.7 ? .orange : accentColor,
                         resetLabel: weekResetLabel()
                     )
+                } else if weekUsed > 0 {
+                    // No limit — show week tokens with open-ended bar (ref: 500K tok/week)
+                    let openPct  = min(1.0, Double(weekUsed) / 500_000.0)
+                    planLimitRow(
+                        icon: "calendar.badge.clock",
+                        label: "Weekly limits",
+                        detail: "\(formatTokens(weekUsed)) tok",
+                        pct: openPct,
+                        color: accentColor,
+                        resetLabel: weekResetLabel()
+                    )
                 }
 
+                // Monthly / Extra usage row
                 if monthLimit > 0 {
-                    if sessionLimit > 0 || weekLimit > 0 || rateLimitOn {
-                        Rectangle().fill(theme.cardBorder).frame(height: 0.5)
-                            .padding(.horizontal, 12)
-                    }
                     planLimitRow(
                         icon: "eurosign.circle",
                         label: "Extra usage",
@@ -445,7 +458,17 @@ struct SidebarView: View {
                         color: monthPct >= 0.9 ? .red : monthPct >= 0.7 ? .orange : accentColor,
                         resetLabel: "Reset Mai 1"
                     )
+                } else if monthUsed > 0 {
+                    planLimitRow(
+                        icon: "eurosign.circle",
+                        label: "Extra usage",
+                        detail: String(format: "€%.2f", monthUsed * state.settings.eurRate),
+                        pct: 0,
+                        color: accentColor,
+                        resetLabel: nil
+                    )
                 }
+
             }
             .padding(.vertical, 4)
             Divider().foregroundStyle(theme.cardBorder)
@@ -453,39 +476,46 @@ struct SidebarView: View {
     }
 
     private func planLimitRow(icon: String, label: String, detail: String, pct: Double, color: Color, resetLabel: String?) -> some View {
-        VStack(spacing: 3) {
-            HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(color)
+                    .frame(width: 12)
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
-                Spacer()
+                    .lineLimit(1)
+                Spacer(minLength: 2)
                 Text(detail)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 if let reset = resetLabel {
                     Text("· \(reset)")
                         .font(.system(size: 10))
                         .foregroundStyle(theme.tertiaryText)
+                        .lineLimit(1)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.top, 4)
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(color.opacity(0.12))
+            Capsule()
+                .fill(color.opacity(0.12))
+                .frame(maxWidth: .infinity)
+                .frame(height: 3)
+                .overlay(alignment: .leading) {
                     Capsule()
                         .fill(color.opacity(pct >= 0.9 ? 0.9 : 0.65))
-                        .frame(width: geo.size.width * pct)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 3)
+                        .scaleEffect(x: max(0, min(1, pct)), anchor: .leading)
                         .animation(.spring(response: 0.5), value: pct)
                 }
-            }
-            .frame(height: 3)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 4)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
         }
     }
 
@@ -520,19 +550,43 @@ struct SidebarView: View {
     // MARK: - Footer
 
     private var sidebarFooter: some View {
-        HStack(spacing: 4) {
-            Text(BuildInfo.buildDate)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(theme.secondaryText.opacity(0.7))
-            Text("·")
-                .font(.system(size: 11))
-                .foregroundStyle(theme.secondaryText.opacity(0.4))
-            Text(BuildInfo.commitHash)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(theme.secondaryText.opacity(0.5))
+        VStack(spacing: 0) {
+            Button {
+                NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/limits")!)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 10))
+                    Text("Plan usage limits")
+                        .font(.system(size: 11, weight: .medium))
+                    Spacer()
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(theme.secondaryText.opacity(0.6))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Plan usage limits auf claude.ai öffnen")
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            HStack(spacing: 4) {
+                Text(BuildInfo.buildDate)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText.opacity(0.5))
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText.opacity(0.3))
+                Text(BuildInfo.commitHash)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText.opacity(0.4))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 }

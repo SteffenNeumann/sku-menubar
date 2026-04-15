@@ -124,6 +124,12 @@ final class AppState: ObservableObject {
     var weekBudget: Double { settings.budget > 0 ? settings.budget / 4.33 : 0 }
     var weekPct:    Double { weekBudget > 0 ? min(1.0, weekCost / weekBudget) : 0 }
 
+    /// Claude token-based weekly limit helpers
+    var claudeWeeklyTokenLimit: Int    { settings.claudeWeeklyTokenLimit }
+    var claudeWeekTokenPct:     Double {
+        claudeWeeklyTokenLimit > 0 ? min(1.0, Double(claudeWeekTokens) / Double(claudeWeeklyTokenLimit)) : 0
+    }
+
     // MARK: - CLI Services
     let cliService     = ClaudeCLIService()
     let ghModelsService = GitHubModelsService()

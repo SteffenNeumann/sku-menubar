@@ -195,8 +195,8 @@ struct SettingsFormView: View {
                                                     .styledInput(theme: theme)
                                             }
                                             VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Weekly Budget ($)")
-                                                TextField("0", value: $draft.claudeWeeklyCostLimit, format: .number)
+                                                fieldLabel("Weekly Token Limit")
+                                                TextField("z. B. 1900000", value: $draft.claudeWeeklyTokenLimit, format: .number)
                                                     .textFieldStyle(.plain)
                                                     .styledInput(theme: theme)
                                             }
@@ -442,6 +442,9 @@ struct SettingsFormView: View {
             draft = state.settings
             checkDocumentsAccess()
         }
+        .onChange(of: draft.claudeSessionTokenLimit)  { state.settings.claudeSessionTokenLimit  = $0 }
+        .onChange(of: draft.claudeMonthlySpendLimit)  { state.settings.claudeMonthlySpendLimit  = $0 }
+        .onChange(of: draft.claudeWeeklyTokenLimit)    { state.settings.claudeWeeklyTokenLimit    = $0 }
     }
 
     // MARK: - File Access Check
