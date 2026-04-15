@@ -7,6 +7,7 @@ struct ChatTab: Identifiable {
     var messages: [ChatMessage] = []
     var model: String = "claude-sonnet-4-6"
     var agentId: String = ""
+    var personaId: String = ""   // selected persona for post-task validation
     var isStreaming: Bool = false
     var error: String?
     var inputText: String = ""

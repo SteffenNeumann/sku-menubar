@@ -159,6 +159,55 @@ final class ClaudeCLIService: ObservableObject {
         }
     }
 
+    // MARK: - Run claude command with stdin (non-streaming, returns full stdout)
+
+    /// Runs claude with the given args, pipes `stdinText` via stdin, returns stdout.
+    func runWithStdin(_ args: [String], stdin stdinText: String, workingDirectory: String? = nil) async throws -> String {
+        let path = claudePath
+        return try await withCheckedThrowingContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                let process = Process()
+                let home = NSHomeDirectory()
+                process.executableURL = URL(fileURLWithPath: path)
+                process.arguments = args
+
+                if let cwd = workingDirectory, !cwd.isEmpty {
+                    process.currentDirectoryURL = URL(fileURLWithPath: cwd)
+                }
+
+                var env = ProcessInfo.processInfo.environment
+                let extraPaths = "\(home)/.local/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin"
+                env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+                env["HOME"] = home
+                env["XDG_CONFIG_HOME"] = "\(home)/.config"
+                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                process.environment = env
+
+                let outPipe   = Pipe()
+                let stdinPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError  = Pipe()
+                process.standardInput  = stdinPipe
+
+                do {
+                    try process.run()
+                    if let data = stdinText.data(using: .utf8) {
+                        stdinPipe.fileHandleForWriting.write(data)
+                    }
+                    try? stdinPipe.fileHandleForWriting.close()
+                    process.waitUntilExit()
+                    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let output = String(data: data, encoding: .utf8) ?? ""
+                    continuation.resume(returning: output)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Run claude command (non-streaming, returns full stdout)
 
     func runCommand(_ args: [String]) async throws -> String {

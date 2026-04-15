@@ -215,7 +215,7 @@ final class CodeTextView: NSTextView {
               let tc = textContainer,
               lm.numberOfGlyphs > 0 else { return }
 
-        let lineFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .light)
+        let lineFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .light)
         let numColor: NSColor = isDark
             ? NSColor(white: 0.40, alpha: 1)
             : NSColor(white: 0.50, alpha: 1)

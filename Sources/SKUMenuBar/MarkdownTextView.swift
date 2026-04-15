@@ -230,7 +230,7 @@ struct MarkdownTextView: View {
                                 Text(cell)
                             }
                         }
-                        .font(.system(size: 14, weight: isHeader ? .semibold : .regular))
+                        .font(.system(size: 12, weight: isHeader ? .semibold : .regular))
                         .foregroundStyle(isHeader ? theme.primaryText : theme.secondaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
@@ -296,7 +296,7 @@ struct MarkdownTextView: View {
             HStack(spacing: 6) {
                 if !language.isEmpty {
                     Text(language.lowercased())
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(isDark
                             ? Color(red: 0.56, green: 0.74, blue: 0.98)
                             : Color(red: 0.2,  green: 0.4,  blue: 0.8))
@@ -307,7 +307,7 @@ struct MarkdownTextView: View {
                     NSPasteboard.general.setString(code, forType: .string)
                 } label: {
                     Label("Kopieren", systemImage: "doc.on.doc")
-                        .font(.system(size: 12))
+                        .font(.system(size: 10))
                         .foregroundStyle(isDark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
                 }
                 .buttonStyle(.plain)
@@ -341,19 +341,19 @@ struct MarkdownTextView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text("diff")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.orange.opacity(0.85))
                 Text("+\(additions)")
-                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(.green)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.green)
                 Text("-\(deletions)")
-                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(.red)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.red)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(code, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
+                        .font(.system(size: 10))
                         .foregroundStyle(isDark ? Color.white.opacity(0.4) : Color.black.opacity(0.35))
                 }
                 .buttonStyle(.plain)
@@ -395,7 +395,7 @@ struct MarkdownTextView: View {
                       : isDark ? Color.white.opacity(0.85) : Color.black.opacity(0.8)
 
         return Text(line.isEmpty ? " " : line)
-            .font(.system(size: 13, design: .monospaced))
+            .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(fg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).padding(.vertical, 1.5)

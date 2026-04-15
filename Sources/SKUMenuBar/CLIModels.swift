@@ -449,6 +449,17 @@ struct AgentDefinition: Identifiable, Hashable {
     let timeoutMinutes: Int     // max run time in minutes (default 30)
     // Research
     let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
+    // Category
+    let category: String?       // nil = worker, "persona" = customer persona
+    // Customer Persona fields (only used when category == "persona")
+    let customerName: String?
+    let industry: String?
+    let techLevel: String?      // "low" | "medium" | "high"
+    let priorities: [String]
+    let dealbreakers: [String]
+    let tone: String?           // "formal" | "informal"
+
+    var isPersona: Bool { category == "persona" }
 
     /// Returns explicit triggers if set, otherwise auto-extracts keywords from content.
     var effectiveTriggers: [String] {
@@ -545,6 +556,17 @@ struct AgentDraft {
     var isActive: Bool = false
     var timeoutMinutes: String = ""  // empty = default (30 min)
     var projectDirectory: String = ""
+    // Category
+    var category: String = ""   // "" = worker, "persona" = customer persona
+    // Persona fields
+    var customerName: String = ""
+    var industry: String = ""
+    var techLevel: String = "medium"
+    var priorities: String = ""    // comma-separated
+    var dealbreakers: String = ""  // comma-separated
+    var tone: String = "formal"
+
+    var isPersona: Bool { category == "persona" }
 
     init() {}
 
@@ -562,6 +584,66 @@ struct AgentDraft {
         isActive    = agent.isActive
         timeoutMinutes = agent.timeoutMinutes == 30 ? "" : String(agent.timeoutMinutes)
         projectDirectory = agent.projectDirectory ?? ""
+        category     = agent.category ?? ""
+        customerName = agent.customerName ?? ""
+        industry     = agent.industry ?? ""
+        techLevel    = agent.techLevel ?? "medium"
+        priorities   = agent.priorities.joined(separator: ", ")
+        dealbreakers = agent.dealbreakers.joined(separator: ", ")
+        tone         = agent.tone ?? "formal"
+    }
+}
+
+// MARK: - Persona Validation
+
+enum ValidationVerdict: String, Codable {
+    case approved       = "approved"
+    case revisionNeeded = "revision"
+    case rejected       = "rejected"
+
+    var label: String {
+        switch self {
+        case .approved:       return "Freigabe"
+        case .revisionNeeded: return "Überarbeitung nötig"
+        case .rejected:       return "Abgelehnt"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .approved:       return "checkmark.circle.fill"
+        case .revisionNeeded: return "exclamationmark.triangle.fill"
+        case .rejected:       return "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .approved:       return .green
+        case .revisionNeeded: return .orange
+        case .rejected:       return .red
+        }
+    }
+}
+
+struct PersonaValidationResult: Identifiable {
+    let id = UUID()
+    let personaId: String
+    let personaName: String
+    let score: Int              // 1–10
+    let verdict: ValidationVerdict
+    let summary: String
+    let strengths: [String]
+    let weaknesses: [String]
+    let recommendation: String
+    let createdAt: Date
+
+    var scoreColor: Color {
+        switch score {
+        case 8...10: return .green
+        case 5...7:  return .orange
+        default:     return .red
+        }
     }
 }
 

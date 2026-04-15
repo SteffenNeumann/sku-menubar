@@ -8,6 +8,61 @@ final class ChatHistoryService: ObservableObject {
 
     private let home = NSHomeDirectory()
 
+    // MARK: - File watching
+
+    private var historySource: DispatchSourceFileSystemObject?
+    private var projectsDirSource: DispatchSourceFileSystemObject?
+    // Accessed only on DispatchQueue.main — nonisolated(unsafe) avoids actor-hop overhead.
+    nonisolated(unsafe) private var debounceWork: DispatchWorkItem?
+
+    /// Start watching ~/.claude/history.jsonl and ~/.claude/projects/ for changes.
+    /// Safe to call multiple times — cancels any existing watchers first.
+    nonisolated func startWatching() {
+        let historyPath = NSHomeDirectory() + "/.claude/history.jsonl"
+        let projectsPath = NSHomeDirectory() + "/.claude/projects"
+
+        // history.jsonl watcher
+        let histFD = open(historyPath, O_EVTONLY)
+        if histFD >= 0 {
+            let src = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: histFD, eventMask: .write, queue: DispatchQueue.main)
+            src.setEventHandler { [weak self] in self?.scheduleReload() }
+            src.setCancelHandler { close(histFD) }
+            src.resume()
+            Task { @MainActor [weak self] in
+                self?.historySource?.cancel()
+                self?.historySource = src
+            }
+        }
+
+        // projects/ directory watcher (catches new session files)
+        let dirFD = open(projectsPath, O_EVTONLY)
+        if dirFD >= 0 {
+            let src = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: dirFD, eventMask: [.write, .link], queue: DispatchQueue.main)
+            src.setEventHandler { [weak self] in self?.scheduleReload() }
+            src.setCancelHandler { close(dirFD) }
+            src.resume()
+            Task { @MainActor [weak self] in
+                self?.projectsDirSource?.cancel()
+                self?.projectsDirSource = src
+            }
+        }
+    }
+
+    // Called on DispatchQueue.main (sources run on main queue).
+    nonisolated private func scheduleReload() {
+        debounceWork?.cancel()
+        let work = DispatchWorkItem {
+            Task { @MainActor [weak self] in
+                guard let self, !self.isLoading else { return }
+                await self.loadProjects()
+            }
+        }
+        debounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
     var projectsDir: URL {
         URL(fileURLWithPath: "\(home)/.claude/projects")
     }

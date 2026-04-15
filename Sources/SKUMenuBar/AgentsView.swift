@@ -627,10 +627,13 @@ private struct AgentBaseballCard: View {
         .onHover { hovered = $0 }
     }
 
-    private static func loadBundlePortrait(_ name: String) -> NSImage? {
+    fileprivate static func loadBundlePortrait(_ name: String) -> NSImage? {
         guard let url = agentPortraitBundle.url(forResource: name, withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }
+
+    /// Accessible alias for cross-struct use in this file.
+    static func loadPortrait(_ name: String) -> NSImage? { loadBundlePortrait(name) }
 
     @ViewBuilder
     private var statusSection: some View {
@@ -761,16 +764,30 @@ private struct AgentBaseballCard: View {
 
 // MARK: - Main View
 
+private enum AgentsViewTab: String, CaseIterable {
+    case workers = "Agents"
+    case personas = "Personas"
+}
+
 struct AgentsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
     @State private var searchText = ""
+    @State private var selectedTab: AgentsViewTab = .workers
+    // Worker editor
     @State private var showEditor = false
     @State private var editorDraft = AgentDraft()
     @State private var editingAgentId: String?
     @State private var editorError: String?
+    // Persona editor
+    @State private var showPersonaEditor = false
+    @State private var personaEditorDraft = AgentDraft()
+    @State private var editingPersonaId: String?
+    @State private var personaEditorError: String?
+    // Shared
     @State private var pendingDeleteAgent: AgentDefinition?
     @State private var memoryAgent: AgentDefinition?
+    @State private var emailLearningPersona: AgentDefinition?
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -780,16 +797,30 @@ struct AgentsView: View {
         UTType(filenameExtension: "md") ?? .plainText
     }
 
-    var filteredAgents: [AgentDefinition] {
-        guard !searchText.isEmpty else { return state.agentService.agents }
-        return state.agentService.agents.filter {
+    var filteredWorkers: [AgentDefinition] {
+        let workers = state.agentService.agents.filter { !$0.isPersona }
+        guard !searchText.isEmpty else { return workers }
+        return workers.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.description.localizedCaseInsensitiveContains(searchText)
         }
     }
 
-    var activeAgents: [AgentDefinition]   { filteredAgents.filter { $0.isActive } }
-    var inactiveAgents: [AgentDefinition] { filteredAgents.filter { !$0.isActive } }
+    var filteredPersonas: [AgentDefinition] {
+        let personas = state.agentService.agents.filter { $0.isPersona }
+        guard !searchText.isEmpty else { return personas }
+        return personas.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.description.localizedCaseInsensitiveContains(searchText) ||
+            ($0.customerName ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.industry ?? "").localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    // Legacy for header badge
+    var filteredAgents: [AgentDefinition] { filteredWorkers }
+    var activeAgents: [AgentDefinition]   { filteredWorkers.filter { $0.isActive } }
+    var inactiveAgents: [AgentDefinition] { filteredWorkers.filter { !$0.isActive } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -798,55 +829,20 @@ struct AgentsView: View {
 
             Divider().foregroundStyle(theme.cardBorder)
 
-            // Content
-            if filteredAgents.isEmpty {
-                agentPlaceholder
-            } else {
-                GeometryReader { gridProxy in
-                    ScrollView {
-                        let (cols, rowGap, gridWidth) = tableLayout(for: gridProxy.size.width - 128)
-                        VStack(spacing: 0) {
-                            // Active agents section
-                            if !activeAgents.isEmpty {
-                                agentSectionHeader(
-                                    title: "Aktive Agents",
-                                    count: activeAgents.count,
-                                    color: .green,
-                                    gridWidth: gridWidth
-                                )
-                                LazyVGrid(columns: cols, spacing: rowGap) {
-                                    ForEach(activeAgents) { agent in
-                                        agentCard(agent)
-                                    }
-                                }
-                                .frame(width: gridWidth)
-                                .frame(maxWidth: .infinity)
-                                .padding(.bottom, 22)
-                            }
-
-                            // Inactive agents section
-                            if !inactiveAgents.isEmpty {
-                                agentSectionHeader(
-                                    title: "Inaktive Agents",
-                                    count: inactiveAgents.count,
-                                    color: theme.tertiaryText,
-                                    gridWidth: gridWidth
-                                )
-                                LazyVGrid(columns: cols, spacing: rowGap) {
-                                    ForEach(inactiveAgents) { agent in
-                                        agentCard(agent)
-                                    }
-                                }
-                                .frame(width: gridWidth)
-                                .frame(maxWidth: .infinity)
-                                .padding(.bottom, 18)
-                            }
-                        }
-                        .padding(.top, 18)
-                        .padding(.horizontal, 64)
-                    }
+            // Content – switches based on selectedTab
+            switch selectedTab {
+            case .workers:
+                if filteredWorkers.isEmpty {
+                    agentPlaceholder
+                } else {
+                    agentGrid
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .personas:
+                if filteredPersonas.isEmpty {
+                    personaPlaceholder
+                } else {
+                    personaGrid
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -857,6 +853,7 @@ struct AgentsView: View {
         }
         .onChange(of: state.agentService.agents) { _, _ in }
         .onReceive(state.agentService.objectWillChange) { _ in }
+        // Worker editor sheet
         .sheet(isPresented: $showEditor) {
             AgentEditorSheet(
                 draft: $editorDraft,
@@ -872,6 +869,21 @@ struct AgentsView: View {
                 onSave: saveAgentDraft
             )
             .frame(minWidth: 680, minHeight: 760)
+        }
+        // Persona editor sheet
+        .sheet(isPresented: $showPersonaEditor) {
+            PersonaEditorSheet(
+                draft: $personaEditorDraft,
+                title: editingPersonaId == nil ? "Neue Persona anlegen" : "Persona bearbeiten",
+                theme: theme,
+                errorMessage: personaEditorError,
+                onCancel: {
+                    personaEditorError = nil
+                    showPersonaEditor = false
+                },
+                onSave: savePersonaDraft
+            )
+            .frame(minWidth: 680, minHeight: 700)
         }
         .confirmationDialog(
             "Agent loeschen?",
@@ -891,6 +903,63 @@ struct AgentsView: View {
             AgentMemorySheet(agent: agent, theme: theme)
                 .frame(minWidth: 600, minHeight: 500)
         }
+        .sheet(item: $emailLearningPersona) { persona in
+            EmailLearningSheet(persona: persona, theme: theme, agentService: state.agentService)
+                .frame(minWidth: 640, minHeight: 600)
+        }
+    }
+
+    // MARK: - Worker grid
+
+    private var agentGrid: some View {
+        GeometryReader { gridProxy in
+            ScrollView {
+                let (cols, rowGap, gridWidth) = tableLayout(for: gridProxy.size.width - 128)
+                VStack(spacing: 0) {
+                    if !activeAgents.isEmpty {
+                        agentSectionHeader(title: "Aktive Agents", count: activeAgents.count, color: .green, gridWidth: gridWidth)
+                        LazyVGrid(columns: cols, spacing: rowGap) {
+                            ForEach(activeAgents) { agent in agentCard(agent) }
+                        }
+                        .frame(width: gridWidth).frame(maxWidth: .infinity)
+                        .padding(.bottom, 22)
+                    }
+                    if !inactiveAgents.isEmpty {
+                        agentSectionHeader(title: "Inaktive Agents", count: inactiveAgents.count, color: theme.tertiaryText, gridWidth: gridWidth)
+                        LazyVGrid(columns: cols, spacing: rowGap) {
+                            ForEach(inactiveAgents) { agent in agentCard(agent) }
+                        }
+                        .frame(width: gridWidth).frame(maxWidth: .infinity)
+                        .padding(.bottom, 18)
+                    }
+                }
+                .padding(.top, 18)
+                .padding(.horizontal, 64)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Persona grid
+
+    private var personaGrid: some View {
+        GeometryReader { gridProxy in
+            ScrollView {
+                let (cols, rowGap, gridWidth) = tableLayout(for: gridProxy.size.width - 128)
+                VStack(spacing: 0) {
+                    agentSectionHeader(title: "Kunden-Personas", count: filteredPersonas.count,
+                                       color: Color(red: 0.04, green: 0.57, blue: 0.70), gridWidth: gridWidth)
+                    LazyVGrid(columns: cols, spacing: rowGap) {
+                        ForEach(filteredPersonas) { persona in personaCard(persona) }
+                    }
+                    .frame(width: gridWidth).frame(maxWidth: .infinity)
+                    .padding(.bottom, 18)
+                }
+                .padding(.top, 18)
+                .padding(.horizontal, 64)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Grid helpers
@@ -907,6 +976,21 @@ struct AgentsView: View {
         let colGap = max(minGap, gap)
         let gridWidth = CGFloat(count) * cardW + CGFloat(max(0, count - 1)) * colGap
         return (Array(repeating: GridItem(.fixed(cardW), spacing: colGap), count: count), colGap, gridWidth)
+    }
+
+    private func personaCard(_ persona: AgentDefinition) -> some View {
+        PersonaCard(
+            persona: persona,
+            theme: theme,
+            accentColor: accentColor,
+            isLearning: state.agentService.emailLearningRunning.contains(persona.id),
+            learningStatus: state.agentService.emailLearningStatus[persona.id],
+            onEdit: { startEditingPersona(persona) },
+            onDelete: { pendingDeleteAgent = persona },
+            onDuplicate: { duplicateAgent(persona) },
+            onMemory: { memoryAgent = persona },
+            onLearn: { emailLearningPersona = persona }
+        )
     }
 
     private func agentCard(_ agent: AgentDefinition) -> some View {
@@ -962,10 +1046,12 @@ struct AgentsView: View {
             HStack(alignment: .top, spacing: 0) {
                 // Hero title + subtitle
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Agent Fleet")
+                    Text(selectedTab == .workers ? "Agent Fleet" : "Kunden-Personas")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(theme.primaryText)
-                    Text("Manage and orchestrate your deployed autonomous agents.")
+                    Text(selectedTab == .workers
+                         ? "Manage and orchestrate your deployed autonomous agents."
+                         : "KI-Abbilder deiner Kunden — validieren Ergebnisse aus Kundenperspektive.")
                         .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
                         .lineLimit(2)
@@ -973,25 +1059,76 @@ struct AgentsView: View {
 
                 Spacer()
 
-                // Online badge
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 7, height: 7)
-                        .shadow(color: .green.opacity(0.6), radius: 4)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("\(activeAgents.count)")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(theme.primaryText)
-                        Text("ONLINE")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.green)
-                            .kerning(0.5)
+                // Tab switcher (pill style)
+                HStack(spacing: 0) {
+                    ForEach(AgentsViewTab.allCases, id: \.self) { tab in
+                        let isSelected = selectedTab == tab
+                        let isPersonaTab = tab == .personas
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) { selectedTab = tab }
+                        } label: {
+                            HStack(spacing: 5) {
+                                if isPersonaTab {
+                                    Image(systemName: "person.2.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                } else {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
+                                Text(tab.rawValue)
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundStyle(isSelected ? .white : theme.secondaryText)
+                            .padding(.horizontal, 11).padding(.vertical, 5)
+                            .background(isSelected
+                                ? (isPersonaTab
+                                    ? Color(red: 0.04, green: 0.57, blue: 0.70)
+                                    : accentColor)
+                                : Color.clear,
+                                in: Capsule())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.green.opacity(0.35), lineWidth: 0.5))
+                .padding(3)
+                .background(theme.cardBg, in: Capsule())
+                .overlay(Capsule().strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                .padding(.trailing, 12)
+
+                // Count badge
+                if selectedTab == .workers {
+                    HStack(spacing: 5) {
+                        Circle().fill(Color.green).frame(width: 7, height: 7)
+                            .shadow(color: .green.opacity(0.6), radius: 4)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("\(activeAgents.count)")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(theme.primaryText)
+                            Text("ONLINE")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color.green).kerning(0.5)
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.green.opacity(0.35), lineWidth: 0.5))
+                } else {
+                    HStack(spacing: 5) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 11)).foregroundStyle(Color(red: 0.04, green: 0.57, blue: 0.70))
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("\(filteredPersonas.count)")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(theme.primaryText)
+                            Text("PERSONAS")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.04, green: 0.57, blue: 0.70)).kerning(0.5)
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(red: 0.04, green: 0.57, blue: 0.70).opacity(0.35), lineWidth: 0.5))
+                }
             }
 
             // Search + actions row
@@ -1000,7 +1137,7 @@ struct AgentsView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
-                    TextField("Agent suchen…", text: $searchText)
+                    TextField(selectedTab == .workers ? "Agent suchen…" : "Persona suchen…", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                     if !searchText.isEmpty {
@@ -1019,19 +1156,30 @@ struct AgentsView: View {
 
                 Spacer()
 
-                headerButton(icon: "square.and.arrow.down", tooltip: "Importieren") { importAgents() }
-                headerButton(icon: "arrow.clockwise", tooltip: "Neu laden") {
-                    Task { await state.agentService.loadAgents() }
+                if selectedTab == .workers {
+                    headerButton(icon: "square.and.arrow.down", tooltip: "Importieren") { importAgents() }
+                    headerButton(icon: "arrow.clockwise", tooltip: "Neu laden") {
+                        Task { await state.agentService.loadAgents() }
+                    }
+                    Button { startCreatingAgent() } label: {
+                        Label("Neuer Agent", systemImage: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accentColor)
+                    .controlSize(.small)
+                } else {
+                    headerButton(icon: "arrow.clockwise", tooltip: "Neu laden") {
+                        Task { await state.agentService.loadAgents() }
+                    }
+                    Button { startCreatingPersona() } label: {
+                        Label("Neue Persona", systemImage: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0.04, green: 0.57, blue: 0.70))
+                    .controlSize(.small)
                 }
-                Button {
-                    startCreatingAgent()
-                } label: {
-                    Label("Neuer Agent", systemImage: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(accentColor)
-                .controlSize(.small)
             }
             .padding(.top, 10)
         }
@@ -1051,7 +1199,35 @@ struct AgentsView: View {
         .help(tooltip)
     }
 
-    // MARK: - Placeholder
+    // MARK: - Placeholders
+
+    private var personaPlaceholder: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: [Color(red: 0.04, green: 0.57, blue: 0.70).opacity(0.18),
+                                 Color(red: 0.04, green: 0.57, blue: 0.70).opacity(0.07)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 72, height: 72)
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(Color(red: 0.04, green: 0.57, blue: 0.70).opacity(0.6))
+            }
+
+            Text("Keine Personas")
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.secondaryText)
+            Text("Lege Kunden-Personas an, um Ergebnisse\nautomatisch aus Kundenperspektive zu validieren.")
+                .font(.system(size: 13)).foregroundStyle(theme.tertiaryText)
+                .multilineTextAlignment(.center)
+
+            Button("Erste Persona anlegen") { startCreatingPersona() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(red: 0.04, green: 0.57, blue: 0.70))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var agentPlaceholder: some View {
         VStack(spacing: 14) {
@@ -1103,6 +1279,44 @@ struct AgentsView: View {
         editorDraft = AgentDraft(agent: agent)
         editorError = nil
         showEditor = true
+    }
+
+    private func startCreatingPersona() {
+        editingPersonaId = nil
+        personaEditorDraft = AgentDraft()
+        personaEditorDraft.category = "persona"
+        personaEditorDraft.color = "cyan"
+        personaEditorDraft.model = "sonnet"
+        personaEditorError = nil
+        showPersonaEditor = true
+    }
+
+    private func startEditingPersona(_ persona: AgentDefinition) {
+        editingPersonaId = persona.id
+        personaEditorDraft = AgentDraft(agent: persona)
+        personaEditorError = nil
+        showPersonaEditor = true
+    }
+
+    private func savePersonaDraft() {
+        var draft = personaEditorDraft
+        draft.category = "persona"
+        // Auto-generate a rich system prompt if empty
+        if draft.promptBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.promptBody = PersonaEditorSheet.buildDefaultPrompt(from: draft)
+        }
+        let previousId = editingPersonaId
+
+        Task { @MainActor in
+            do {
+                let saved = try await state.agentService.saveAgent(draft, previousId: previousId)
+                editingPersonaId = saved.id
+                personaEditorError = nil
+                showPersonaEditor = false
+            } catch {
+                personaEditorError = error.localizedDescription
+            }
+        }
     }
 
     private func saveAgentDraft() {
@@ -1166,6 +1380,871 @@ struct AgentsView: View {
             try? await state.agentService.deleteAgent(agentId: agent.id)
             pendingDeleteAgent = nil
         }
+    }
+}
+
+// MARK: - Persona Card
+
+private struct PersonaCard: View {
+    let persona: AgentDefinition
+    let theme: AppTheme
+    let accentColor: Color
+    let isLearning: Bool
+    let learningStatus: String?
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onDuplicate: () -> Void
+    let onMemory: () -> Void
+    let onLearn: () -> Void
+
+    @State private var hovered = false
+    @State private var hoveredAction: String? = nil
+
+    private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+    private let headerH: CGFloat = 150
+    private let actionBarH: CGFloat = 36
+
+    private var headerGradient: LinearGradient {
+        let c1: Color, c2: Color
+        switch persona.color?.lowercased() ?? "cyan" {
+        case "purple": c1 = Color(red: 0.49, green: 0.23, blue: 0.93); c2 = Color(red: 0.86, green: 0.16, blue: 0.47)
+        case "blue":   c1 = Color(red: 0.15, green: 0.39, blue: 0.92); c2 = Color(red: 0.02, green: 0.71, blue: 0.83)
+        case "green":  c1 = Color(red: 0.02, green: 0.59, blue: 0.41); c2 = Color(red: 0.29, green: 0.86, blue: 0.56)
+        case "orange": c1 = Color(red: 0.92, green: 0.35, blue: 0.05); c2 = Color(red: 0.98, green: 0.75, blue: 0.15)
+        case "pink":   c1 = Color(red: 0.95, green: 0.20, blue: 0.55); c2 = Color(red: 0.75, green: 0.10, blue: 0.80)
+        default:       c1 = Color(red: 0.04, green: 0.57, blue: 0.70); c2 = Color(red: 0.39, green: 0.40, blue: 0.95)
+        }
+        return LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            ZStack(alignment: .top) {
+                headerGradient
+                AvatarNoiseView(seed: abs(persona.id.hashValue)).opacity(0.09)
+                if let portrait = persona.portrait,
+                   let img = AgentBaseballCard.loadPortrait(portrait) {
+                    Image(nsImage: img)
+                        .resizable().interpolation(.high).scaledToFill()
+                        .frame(maxWidth: .infinity).frame(height: headerH).clipped()
+                } else {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 42, weight: .light))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // PERSONA badge top-left
+                Text("PERSONA")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9)).kerning(0.5).lineLimit(1)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.black.opacity(0.28), in: Capsule())
+                    .padding(.top, 9).padding(.leading, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Tech level badge top-right
+                if let lvl = persona.techLevel {
+                    let (icon, label): (String, String) = {
+                        switch lvl.lowercased() {
+                        case "high": return ("speedometer", "Tech Expert")
+                        case "low":  return ("gauge.with.dots.needle.0percent", "Nicht-Technisch")
+                        default:     return ("gauge.with.dots.needle.50percent", "Mittleres Niveau")
+                        }
+                    }()
+                    HStack(spacing: 3) {
+                        Image(systemName: icon).font(.system(size: 9))
+                        Text(label).font(.system(size: 9, weight: .semibold))
+                    }
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(.black.opacity(0.3), in: Capsule())
+                    .padding(.top, 9).padding(.trailing, 9)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            .frame(height: headerH).clipped()
+
+            // Accent divider
+            Rectangle().fill(personaColor.opacity(0.50)).frame(height: 1)
+
+            // Body
+            VStack(alignment: .leading, spacing: 8) {
+                // Customer name + persona name
+                VStack(alignment: .leading, spacing: 2) {
+                    if let cn = persona.customerName, !cn.isEmpty {
+                        Text(cn)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                    }
+                    Text(persona.name)
+                        .font(.system(size: persona.customerName != nil ? 11.5 : 15, weight: persona.customerName != nil ? .regular : .bold))
+                        .foregroundStyle(persona.customerName != nil ? theme.secondaryText : theme.primaryText)
+                        .lineLimit(1)
+                }
+
+                // Industry + tone row
+                HStack(spacing: 6) {
+                    if let ind = persona.industry, !ind.isEmpty {
+                        Label(ind, systemImage: "building.2.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(personaColor)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(personaColor.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().strokeBorder(personaColor.opacity(0.30), lineWidth: 0.5))
+                    }
+                    if let tone = persona.tone {
+                        let t = tone.lowercased() == "formal" ? "Formal" : "Informell"
+                        Label(t, systemImage: tone.lowercased() == "formal" ? "briefcase.fill" : "bubble.left.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(theme.cardBorder.opacity(0.4), in: Capsule())
+                    }
+                }
+
+                // Project badge
+                if let proj = persona.projectDirectory, !proj.isEmpty {
+                    Label(URL(fileURLWithPath: proj).lastPathComponent, systemImage: "folder.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(personaColor.opacity(0.85))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(personaColor.opacity(0.08), in: Capsule())
+                        .overlay(Capsule().strokeBorder(personaColor.opacity(0.25), lineWidth: 0.5))
+                        .lineLimit(1)
+                }
+
+                // Description
+                if !persona.description.isEmpty {
+                    Text(persona.description)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Priorities
+                if !persona.priorities.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "list.bullet.clipboard.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.secondaryText.opacity(0.6))
+                            Text("PRIORITÄTEN")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText.opacity(0.6)).kerning(0.5)
+                        }
+                        FlowLayout(spacing: 4) {
+                            ForEach(persona.priorities.prefix(4), id: \.self) { p in
+                                Text(p)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(personaColor)
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(personaColor.opacity(0.10), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(personaColor.opacity(0.28), lineWidth: 0.5))
+                            }
+                        }
+                    }
+                }
+
+                // Dealbreakers
+                if !persona.dealbreakers.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.red.opacity(0.5))
+                            Text("DEALBREAKER")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText.opacity(0.6)).kerning(0.5)
+                        }
+                        FlowLayout(spacing: 4) {
+                            ForEach(persona.dealbreakers.prefix(3), id: \.self) { d in
+                                Text(d)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Color.red.opacity(0.75))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Color.red.opacity(0.08), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(Color.red.opacity(0.25), lineWidth: 0.5))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 13).padding(.top, 11).padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            // Learning status badge
+            if isLearning || (learningStatus?.hasPrefix("✅") == true) {
+                let isOk = learningStatus?.hasPrefix("✅") == true
+                HStack(spacing: 5) {
+                    if isLearning {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10)).foregroundStyle(.green)
+                    }
+                    Text(learningStatus ?? "Analysiere…")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(isOk ? Color.green : personaColor)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background((isOk ? Color.green : personaColor).opacity(0.08))
+                .overlay(Rectangle().frame(height: 0.5).foregroundStyle((isOk ? Color.green : personaColor).opacity(0.25)), alignment: .top)
+            }
+
+            // Action bar
+            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+            HStack(spacing: 0) {
+                barBtn(id: "edit",    icon: "wand.and.stars",  action: onEdit)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                barBtn(id: "learn",   icon: "envelope.badge.fill", action: onLearn)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                barBtn(id: "memory",  icon: "memorychip",       action: onMemory)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                barBtn(id: "copy",    icon: "doc.on.clipboard", action: onDuplicate)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                barBtn(id: "delete",  icon: "flame",             action: onDelete)
+            }
+            .frame(height: actionBarH)
+            .background(theme.cardBg.opacity(0.7))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(RoundedRectangle(cornerRadius: 12).fill(theme.cardBg))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(hovered ? personaColor.opacity(0.55) : theme.cardBorder,
+                          lineWidth: hovered ? 1.5 : 0.5))
+        .shadow(color: .black.opacity(hovered ? 0.15 : 0.05), radius: hovered ? 14 : 4, x: 0, y: hovered ? 5 : 3)
+        .zIndex(hovered ? 1 : 0)
+        .animation(.easeInOut(duration: 0.18), value: hovered)
+        .onHover { hovered = $0 }
+    }
+
+    private func barBtn(id: String, icon: String, action: @escaping () -> Void) -> some View {
+        let isHovered = hoveredAction == id
+        return Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: isHovered ? .semibold : .regular))
+                .foregroundStyle(isHovered ? personaColor : theme.secondaryText.opacity(0.55))
+                .shadow(color: isHovered ? personaColor.opacity(0.85) : .clear, radius: 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { hoveredAction = $0 ? id : nil }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+// MARK: - Email Learning Sheet
+
+private struct EmailLearningSheet: View {
+    let persona: AgentDefinition
+    let theme: AppTheme
+    let agentService: AgentService
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var inputMode: InputMode = .paste
+    @State private var emailText: String = ""
+    @State private var isAnalyzing = false
+    @State private var result: String? = nil
+    @State private var errorMessage: String? = nil
+    @State private var statusText: String = ""
+
+    private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+    private let learnColor   = Color(red: 0.42, green: 0.20, blue: 0.80)
+
+    enum InputMode: String, CaseIterable {
+        case paste = "Einfügen"
+        case file  = "Datei laden"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title bar
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(learnColor.opacity(0.15)).frame(width: 36, height: 36)
+                    Image(systemName: "envelope.badge.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(learnColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Aus E-Mails lernen")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                    Text("Persona: \(persona.customerName ?? persona.name)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Spacer()
+                Button("Schließen") { dismiss() }
+                    .buttonStyle(.bordered)
+            }
+            .padding(20)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+
+                    // Explanation card
+                    HStack(spacing: 10) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(learnColor)
+                        Text("Claude analysiert die E-Mail-Inhalte und extrahiert Ton, Prioritäten, Beschwerdemuster und typische Formulierungen. Die Erkenntnisse werden in die Memory der Persona geschrieben und bei jedem zukünftigen Review automatisch verwendet.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    .padding(12)
+                    .background(learnColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(learnColor.opacity(0.20), lineWidth: 0.5))
+
+                    // Input mode picker
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "tray.and.arrow.down.fill")
+                                .font(.system(size: 13)).foregroundStyle(learnColor)
+                            Text("E-Mail-Inhalt")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                            Spacer()
+                            Picker("", selection: $inputMode) {
+                                ForEach(InputMode.allCases, id: \.self) { m in
+                                    Text(m.rawValue).tag(m)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 200)
+                        }
+
+                        if inputMode == .file {
+                            filePickerArea
+                        } else {
+                            pasteArea
+                        }
+                    }
+                    .padding(16)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+
+                    // Privacy note
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                        Text("Tipp: Du kannst vertrauliche Informationen vor dem Einfügen schwärzen. Nur der Text landet bei Claude — keine Metadaten, keine Anhänge.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+
+                    // Analyse button
+                    if !isAnalyzing && result == nil {
+                        Button {
+                            runAnalysis()
+                        } label: {
+                            Label("Analyse starten", systemImage: "sparkles")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(learnColor)
+                        .disabled(emailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    // Progress
+                    if isAnalyzing {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text(statusText.isEmpty ? "Analysiere E-Mails mit Claude…" : statusText)
+                                .font(.system(size: 13))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 10)
+                    }
+
+                    // Error
+                    if let err = errorMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                            Text(err).font(.system(size: 13)).foregroundStyle(.red)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
+                    }
+
+                    // Result
+                    if let extracted = result {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14)).foregroundStyle(.green)
+                                Text("Analyse abgeschlossen — in Memory gespeichert")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(theme.primaryText)
+                            }
+                            Text("Folgende Erkenntnisse wurden in die Persona-Memory geschrieben:")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+
+                            ScrollView {
+                                Text(extracted)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(theme.primaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                            }
+                            .frame(maxHeight: 280)
+                            .background(theme.windowBg.opacity(theme.isLight ? 0.4 : 0.2), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    result = nil
+                                    emailText = ""
+                                    errorMessage = nil
+                                } label: {
+                                    Label("Weitere E-Mails analysieren", systemImage: "arrow.counterclockwise")
+                                        .font(.system(size: 13))
+                                }
+                                .buttonStyle(.bordered)
+
+                                Spacer()
+
+                                Button("Fertig") { dismiss() }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(learnColor)
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.green.opacity(0.2), lineWidth: 0.5))
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .background(theme.windowBg)
+    }
+
+    // MARK: - Sub-views
+
+    private var pasteArea: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("E-Mail-Text einfügen oder tippen:")
+                .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+            TextEditor(text: $emailText)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.primaryText)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(minHeight: 200)
+                .background(theme.windowBg.opacity(theme.isLight ? 0.4 : 0.2), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            if !emailText.isEmpty {
+                Text("\(emailText.count) Zeichen")
+                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+            }
+        }
+    }
+
+    private var filePickerArea: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                pickEmailFile()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 14))
+                    Text(emailText.isEmpty ? "Datei auswählen (.txt, .eml, .mbox)" : "Andere Datei wählen")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.bordered)
+
+            if !emailText.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12)).foregroundStyle(.green)
+                    Text("Datei geladen — \(emailText.count) Zeichen")
+                        .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    // MARK: - Actions
+
+    private func pickEmailFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Laden"
+        panel.allowedContentTypes = [.plainText, .text]
+        panel.title = "E-Mail-Datei auswählen"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        emailText = (try? String(contentsOf: url, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+            ?? ""
+    }
+
+    private func runAnalysis() {
+        let text = emailText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        isAnalyzing = true
+        errorMessage = nil
+        statusText = "Sende E-Mail-Inhalte an Claude…"
+
+        Task { @MainActor in
+            let r = await agentService.learnFromEmails(persona: persona, emailText: text)
+            isAnalyzing = false
+            switch r {
+            case .success(let extracted):
+                result = extracted
+                errorMessage = nil
+            case .failure(let err):
+                errorMessage = err.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - Persona Editor Sheet
+
+struct PersonaEditorSheet: View {
+    @Binding var draft: AgentDraft
+    let title: String
+    let theme: AppTheme
+    let errorMessage: String?
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+    private let portraitIds = (1...17).map { String(format: "ap%02d", $0) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Title bar
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(personaColor)
+                        Text(title)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    Text("Definiere das Kundenprofil — der System-Prompt wird automatisch generiert.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Spacer()
+                Button("Abbrechen", action: onCancel).buttonStyle(.bordered)
+                Button("Speichern", action: onSave)
+                    .buttonStyle(.borderedProminent)
+                    .tint(personaColor)
+            }
+            .padding(20)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let errorMessage, !errorMessage.isEmpty {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium)).foregroundStyle(.red)
+                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
+                    }
+
+                    // Identity section
+                    cardSection(icon: "person.text.rectangle.fill", title: "Identität") {
+                        HStack(spacing: 16) {
+                            pField("Kennung", hint: "z. B. mueller-gmbh") {
+                                TextField("mueller-gmbh", text: $draft.id)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            pField("Anzeigename", hint: "z. B. Mueller GmbH – QA") {
+                                TextField("Mueller GmbH – QA", text: $draft.name)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
+                        pField("Firmen-/Kundenname", hint: "Name der vertretenen Person oder Firma") {
+                            TextField("Müller GmbH", text: $draft.customerName)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        pField("Kurzbeschreibung", hint: "Wer ist dieser Kunde, welche Rolle hat er?") {
+                            TextField("Senior Einkaufsleiter, 15 Jahre Branchenerfahrung…", text: $draft.description, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...4)
+                        }
+                    }
+
+                    // Profile section
+                    cardSection(icon: "chart.bar.doc.horizontal.fill", title: "Kundenprofil") {
+                        HStack(spacing: 16) {
+                            pField("Branche / Industrie", hint: "z. B. Automotive, Retail, Finance") {
+                                TextField("Automotive", text: $draft.industry)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("TECH-NIVEAU")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText).kerning(0.5)
+                                Picker("", selection: $draft.techLevel) {
+                                    Text("Niedrig").tag("low")
+                                    Text("Mittel").tag("medium")
+                                    Text("Hoch").tag("high")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 200)
+                            }
+                        }
+
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("KOMMUNIKATIONSTON")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText).kerning(0.5)
+                                Picker("", selection: $draft.tone) {
+                                    Text("Formal").tag("formal")
+                                    Text("Informell").tag("informal")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 200)
+                            }
+                            pField("Farbe", hint: "cyan, blue, purple, green…") {
+                                TextField("cyan", text: $draft.color)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
+
+                        // Project directory
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("PROJEKT-VERZEICHNIS")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText).kerning(0.5)
+                            HStack(spacing: 8) {
+                                TextField("/Users/…/mein-projekt", text: $draft.projectDirectory)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 13, design: .monospaced))
+                                Button {
+                                    let panel = NSOpenPanel()
+                                    panel.canChooseDirectories = true
+                                    panel.canChooseFiles = false
+                                    panel.allowsMultipleSelection = false
+                                    panel.prompt = "Auswählen"
+                                    if let dir = draft.projectDirectory.isEmpty ? nil : URL(fileURLWithPath: draft.projectDirectory),
+                                       FileManager.default.fileExists(atPath: dir.path) {
+                                        panel.directoryURL = dir
+                                    }
+                                    if panel.runModal() == .OK, let url = panel.url {
+                                        draft.projectDirectory = url.path
+                                    }
+                                } label: {
+                                    Image(systemName: "folder.badge.plus")
+                                        .font(.system(size: 14))
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Projektordner auswählen")
+                                if !draft.projectDirectory.isEmpty {
+                                    Button {
+                                        draft.projectDirectory = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(theme.tertiaryText)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Projekt entfernen")
+                                }
+                            }
+                            if !draft.projectDirectory.isEmpty {
+                                Label(URL(fileURLWithPath: draft.projectDirectory).lastPathComponent,
+                                      systemImage: "folder.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(personaColor)
+                            } else {
+                                Text("Optional — Persona arbeitet dann im Kontext dieses Projekts")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                        }
+                    }
+
+                    // Requirements section
+                    cardSection(icon: "list.bullet.clipboard.fill", title: "Anforderungen") {
+                        pField("Prioritäten", hint: "Kommagetrennt, z. B. Preis, Lieferzeit, Qualität") {
+                            TextField("Preis, Lieferzeit, Qualität", text: $draft.priorities, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...3)
+                        }
+                        pField("Dealbreaker", hint: "Ausschlusskriterien, z. B. keine API, schlechte Dokumentation") {
+                            TextField("keine API, fehlende Dokumentation", text: $draft.dealbreakers, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...3)
+                        }
+                    }
+
+                    // Portrait section
+                    cardSection(icon: "person.crop.square", title: "Portrait") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(70), spacing: 8), count: 6), spacing: 8) {
+                            ForEach(portraitIds, id: \.self) { pid in
+                                portraitThumb(pid)
+                            }
+                        }
+                    }
+
+                    // System prompt section
+                    cardSection(icon: "text.quote", title: "System Prompt (optional)") {
+                        Text("Leer lassen = automatisch aus den Profildaten generiert.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+
+                        TextEditor(text: $draft.promptBody)
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(theme.primaryText)
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .frame(minHeight: 200, alignment: .topLeading)
+                            .background(theme.windowBg.opacity(theme.isLight ? 0.35 : 0.18), in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+
+                        Button {
+                            draft.promptBody = PersonaEditorSheet.buildDefaultPrompt(from: draft)
+                        } label: {
+                            Label("Prompt aus Profil generieren", systemImage: "sparkles")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(personaColor)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .background(theme.windowBg)
+    }
+
+    private func portraitThumb(_ pid: String) -> some View {
+        let isSelected = draft.portrait == pid
+        return Button {
+            draft.portrait = isSelected ? "" : pid
+        } label: {
+            ZStack {
+                if let img = AgentBaseballCard.loadPortrait(pid) {
+                    Image(nsImage: img)
+                        .resizable().scaledToFill()
+                        .frame(width: 70, height: 70).clipped()
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(theme.cardBorder.opacity(0.3))
+                    Text(pid).font(.system(size: 9)).foregroundStyle(theme.tertiaryText)
+                }
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(personaColor, lineWidth: 2.5)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(personaColor)
+                        .padding(4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                }
+            }
+            .frame(width: 70, height: 70)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func cardSection<Content: View>(icon: String, title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 13)).foregroundStyle(personaColor)
+                Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.primaryText)
+            }
+            content()
+        }
+        .padding(16)
+        .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+    }
+
+    @ViewBuilder
+    private func pField<Content: View>(_ label: String, hint: String, @ViewBuilder field: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText).kerning(0.5)
+            field()
+            if !hint.isEmpty {
+                Text(hint).font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Generates a structured system prompt from the persona profile fields.
+    static func buildDefaultPrompt(from draft: AgentDraft) -> String {
+        let customerDisplay = draft.customerName.isEmpty ? draft.name : draft.customerName
+        let industryNote = draft.industry.isEmpty ? "" : " in der Branche \(draft.industry)"
+        let techNote: String = {
+            switch draft.techLevel.lowercased() {
+            case "low":  return "Du hast wenig technisches Fachwissen und legst Wert auf einfache, verständliche Erklärungen."
+            case "high": return "Du bist technisch sehr versiert und erwartest präzise, fachgerechte Ausführungen."
+            default:     return "Du hast grundlegendes technisches Verständnis und schätzt klare Erklärungen mit ausreichend Detail."
+            }
+        }()
+        let toneNote = draft.tone.lowercased() == "formal"
+            ? "Deine Kommunikation ist formal und professionell."
+            : "Du kommunizierst locker und direkt."
+
+        let prioritiesSection = draft.priorities.isEmpty ? "" : """
+
+## Meine Prioritäten (in dieser Reihenfolge)
+\(draft.priorities.split(separator: ",").map { "- \($0.trimmingCharacters(in: .whitespaces))" }.joined(separator: "\n"))
+"""
+
+        let dealbreakersSection = draft.dealbreakers.isEmpty ? "" : """
+
+## Absolute Dealbreaker
+\(draft.dealbreakers.split(separator: ",").map { "- \($0.trimmingCharacters(in: .whitespaces))" }.joined(separator: "\n"))
+"""
+
+        let customNote = draft.description.isEmpty ? "" : "\n\nZusätzlicher Kontext: \(draft.description)"
+
+        return """
+Du bist \(customerDisplay)\(industryNote). \(techNote) \(toneNote)\(customNote)
+
+## Deine Aufgabe
+Wenn du ein Ergebnis, eine Lieferung oder ein Feature präsentiert bekommst, bewertest du es **ausschließlich aus deiner Kundenperspektive**.
+
+Gib dein Feedback strukturiert:
+1. **Gesamteindruck** (1–2 Sätze)
+2. **Score** (1–10) mit kurzer Begründung
+3. **Was überzeugt dich?** (Bulletpoints)
+4. **Was fehlt oder stört dich?** (Bulletpoints)
+5. **Empfehlung**: Freigabe / Überarbeitung nötig / Ablehnung
+\(prioritiesSection)\(dealbreakersSection)
+
+Bleibe stets in deiner Kundenrolle. Verwende keine Entwickler- oder Insider-Sprache — nur die Perspektive eines echten Kunden.
+"""
     }
 }
 
