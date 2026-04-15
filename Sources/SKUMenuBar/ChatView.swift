@@ -259,6 +259,11 @@ struct SingleChatSessionView: View {
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
     @State private var isCompacting: Bool = false
     @State private var compactedSummary: String? = nil
+    // Persona validation
+    @State private var selectedPersonaId: String = ""
+    @State private var showPersonaPicker = false
+    @State private var validationResult: PersonaValidationResult? = nil
+    @State private var isValidating: Bool = false
 
     // MCP per-session selection
     @State private var availableMCPs: [MCPServer] = []
@@ -269,7 +274,8 @@ struct SingleChatSessionView: View {
 
     private var anyPickerOpen: Bool {
         showModelPicker || showAgentPicker || showOrchPicker ||
-        showSnippetPicker || showPermPicker || showBranchPicker || showMCPPicker
+        showSnippetPicker || showPermPicker || showBranchPicker || showMCPPicker ||
+        showPersonaPicker
     }
 
     /// Checks whether `input` matches a trigger phrase.
@@ -308,6 +314,7 @@ struct SingleChatSessionView: View {
         showPermPicker    = false
         showBranchPicker  = false
         showMCPPicker     = false
+        showPersonaPicker = false
     }
     @FocusState private var inputFocused: Bool
 
@@ -498,26 +505,26 @@ struct SingleChatSessionView: View {
                             .frame(width: 16, height: 16)
                             .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))% von \(contextWindow / 1000)k")
                             Image(systemName: "arrow.up.circle")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundStyle(tokenColor.opacity(0.7))
                             Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                                .font(.system(size: 14, design: .monospaced))
+                                .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(tokenColor)
                             Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.secondaryText.opacity(0.5))
                             Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                                .font(.system(size: 14, design: .monospaced))
+                                .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
                             Text("tokens")
-                                .font(.system(size: 13))
+                                .font(.system(size: 12))
                                 .foregroundStyle(theme.secondaryText.opacity(0.5))
                             Text("/ \(contextWindow / 1000)k")
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText.opacity(0.4))
                             if compactThreshold > 0 {
                                 Text("· compact bei \(compactThreshold >= 1000 ? String(format: "%.0fk", Double(compactThreshold) / 1000) : "\(compactThreshold)")")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.system(size: 12, design: .monospaced))
                                     .foregroundStyle(theme.secondaryText.opacity(0.3))
                             }
                             // Manuell gewählter Agent
@@ -586,6 +593,15 @@ struct SingleChatSessionView: View {
                         .background(theme.windowBg)
                     }
 
+                    // Persona Validation Banner
+                    if isValidating {
+                        PersonaValidatingBanner(theme: theme)
+                    } else if let vr = validationResult {
+                        PersonaValidationBanner(result: vr, theme: theme) {
+                            validationResult = nil
+                        }
+                    }
+
                     inputBar
                         .background(GeometryReader { geo in
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
@@ -641,6 +657,7 @@ struct SingleChatSessionView: View {
                 sessionTitle = tab.title
                 selectedModel = tab.model
                 selectedAgent = tab.agentId
+                selectedPersonaId = tab.personaId
                 if tab.messages.isEmpty {
                     resumeSession(sid)
                 } else {
@@ -650,7 +667,10 @@ struct SingleChatSessionView: View {
                 messages = tab.messages
                 selectedModel = tab.model
                 selectedAgent = tab.agentId
+                selectedPersonaId = tab.personaId
             }
+            // Auto-select persona if project is already set and no persona chosen
+            if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
             // Proaktiv: wenn Claude-Limit aktiv + Fallback konfiguriert → Copilot-Modell setzen
             applyFallbackModelIfNeeded()
         }
@@ -666,13 +686,19 @@ struct SingleChatSessionView: View {
             if !isStreaming { tab.messages = messages }
             // Compact-Abschluss verarbeiten
             if !isStreaming && isCompacting { finishCompact() }
+            // Post-Task Persona Validation
+            if !isStreaming && !selectedPersonaId.isEmpty && !isValidating {
+                triggerPersonaValidation()
+            }
         }
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
         .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
+        .onChange(of: selectedPersonaId) { tab.personaId = selectedPersonaId }
         .onChange(of: workingDirectory) {
             tab.workingDirectory = workingDirectory
             fetchGitBranch()
+            autoSelectPersonaForProject()
         }
         // Wenn Rate-Limit-Status sich ändert → Modell live umschalten
         .onChange(of: state.claudeRateLimitActive) {
@@ -685,6 +711,11 @@ struct SingleChatSessionView: View {
             workingDirectory = path
             tab.title = URL(fileURLWithPath: path).lastPathComponent
             withAnimation(.spring(response: 0.3)) { showFilePanel = true }
+        }
+        .onChange(of: state.pendingChatMessage) {
+            guard let msg = state.pendingChatMessage else { return }
+            state.pendingChatMessage = nil
+            inputText = msg
         }
         // Save inputText and sync messages when switching away from this tab (opacity approach
         // keeps views alive, so onDisappear won't fire on tab switch)
@@ -1298,6 +1329,37 @@ struct SingleChatSessionView: View {
                 }
             }
             .modifier(panelStyle)
+        } else if showPersonaPicker {
+            let personas = state.agentService.agents.filter { $0.isPersona }
+            VStack(alignment: .leading, spacing: 0) {
+                pickerSectionHeader("KUNDEN-PERSONA")
+                pickerRow(label: "Keine Persona", selected: selectedPersonaId.isEmpty) {
+                    selectedPersonaId = ""; validationResult = nil; showPersonaPicker = false
+                }
+                if personas.isEmpty {
+                    Text("Noch keine Personas angelegt")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                } else {
+                    ForEach(personas) { p in
+                        let label = p.customerName.flatMap { $0.isEmpty ? nil : $0 } ?? p.name
+                        let sublabel = p.industry.flatMap { $0.isEmpty ? nil : $0 }
+                        VStack(alignment: .leading, spacing: 1) {
+                            pickerRow(label: label, selected: selectedPersonaId == p.id) {
+                                selectedPersonaId = p.id; validationResult = nil; showPersonaPicker = false
+                            }
+                            if let sub = sublabel {
+                                Text(sub)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .padding(.leading, 30).padding(.bottom, 3)
+                            }
+                        }
+                    }
+                }
+            }
+            .modifier(panelStyle)
         }
     }
 
@@ -1687,6 +1749,36 @@ struct SingleChatSessionView: View {
                         pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
                             selectedAgent = a.id
                             showAgentPicker = false
+                        }
+                    }
+                }
+            }
+
+            // Persona validation picker (only personas, teal color)
+            let personas = state.agentService.agents.filter { $0.isPersona }
+            if !personas.isEmpty {
+                let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+                let selectedPersona = personas.first { $0.id == selectedPersonaId }
+                stripSep
+                pickerButton(
+                    icon: "person.2.fill",
+                    label: selectedPersona?.customerName ?? selectedPersona?.name ?? "Persona",
+                    active: !selectedPersonaId.isEmpty,
+                    isPresented: $showPersonaPicker
+                ) {
+                    pickerRow(label: "Keine Persona", selected: selectedPersonaId.isEmpty) {
+                        selectedPersonaId = ""
+                        validationResult = nil
+                        showPersonaPicker = false
+                    }
+                    ForEach(personas) { p in
+                        pickerRow(
+                            label: p.customerName.flatMap { $0.isEmpty ? nil : $0 } ?? p.name,
+                            selected: selectedPersonaId == p.id
+                        ) {
+                            selectedPersonaId = p.id
+                            validationResult = nil
+                            showPersonaPicker = false
                         }
                     }
                 }
@@ -2317,6 +2409,62 @@ struct SingleChatSessionView: View {
             currentSessionId = nil
             errorMessage = nil
             sessionTitle = ""
+        }
+    }
+
+    // MARK: - Persona Validation
+
+    /// Auto-selects the persona whose projectDirectory matches the current workingDirectory.
+    private func autoSelectPersonaForProject() {
+        guard let cwd = workingDirectory, !cwd.isEmpty else { return }
+        // Normalize paths (resolve symlinks, trailing slash)
+        let normalize: (String) -> String = { path in
+            URL(fileURLWithPath: path).standardized.path
+        }
+        let cwdNorm = normalize(cwd)
+        if let match = state.agentService.agents.first(where: {
+            $0.isPersona &&
+            !($0.projectDirectory ?? "").isEmpty &&
+            normalize($0.projectDirectory!) == cwdNorm
+        }) {
+            if selectedPersonaId != match.id {
+                selectedPersonaId = match.id
+                validationResult = nil
+            }
+        }
+    }
+
+    private func triggerPersonaValidation() {
+        guard !selectedPersonaId.isEmpty,
+              let persona = state.agentService.agents.first(where: { $0.id == selectedPersonaId }),
+              persona.isPersona else { return }
+
+        // Find last user → assistant exchange
+        let lastAssistant = messages.last(where: { $0.role == .assistant && !$0.content.isEmpty })
+        guard let assistantMsg = lastAssistant else { return }
+
+        // Find the user message that preceded it
+        var userRequest = ""
+        if let idx = messages.lastIndex(where: { $0.id == assistantMsg.id }),
+           idx > 0 {
+            let preceding = messages[..<idx].reversed().first(where: { $0.role == .user })
+            userRequest = preceding?.content ?? ""
+        }
+
+        isValidating = true
+        validationResult = nil
+
+        Task { @MainActor in
+            let result = await state.agentService.validateWithPersona(
+                persona: persona,
+                userRequest: userRequest,
+                taskOutput: assistantMsg.content
+            )
+            isValidating = false
+            switch result {
+            case .success(let vr): validationResult = vr
+            case .failure: break   // Silent fail — don't interrupt workflow
+            }
         }
     }
 
@@ -4179,6 +4327,245 @@ private struct SnippetRowView: View {
             hovered = isHovered
             if isHovered { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+    }
+}
+
+// MARK: - Persona Validation Banner (validating…)
+
+private struct PersonaValidatingBanner: View {
+    let theme: AppTheme
+    @State private var pulse = false
+
+    private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                Circle().fill(personaColor.opacity(0.15)).frame(width: 26, height: 26)
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 11)).foregroundStyle(personaColor)
+            }
+            .scaleEffect(pulse ? 1.08 : 1.0)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+            .onAppear { pulse = true }
+
+            ProgressView().controlSize(.mini)
+
+            Text("Persona analysiert Ergebnis…")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(personaColor)
+            Spacer()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .background(personaColor.opacity(0.07))
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(personaColor.opacity(0.2)), alignment: .top)
+    }
+}
+
+// MARK: - Persona Validation Banner (result)
+
+private struct PersonaValidationBanner: View {
+    let result: PersonaValidationResult
+    let theme: AppTheme
+    let onDismiss: () -> Void
+
+    @EnvironmentObject var state: AppState
+    @State private var expanded = false
+    @State private var fixSent = false
+    private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Top divider
+            Rectangle().fill(result.verdict.color.opacity(0.30)).frame(height: 1)
+
+            // Header row (always visible)
+            HStack(spacing: 8) {
+                // Persona icon
+                ZStack {
+                    Circle().fill(personaColor.opacity(0.12)).frame(width: 28, height: 28)
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 11)).foregroundStyle(personaColor)
+                }
+
+                // Persona name
+                Text(result.personaName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+
+                // Score badge
+                ZStack {
+                    Circle().fill(result.scoreColor.opacity(0.18)).frame(width: 30, height: 30)
+                    Text("\(result.score)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(result.scoreColor)
+                }
+
+                // Verdict chip
+                HStack(spacing: 4) {
+                    Image(systemName: result.verdict.icon)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(result.verdict.label)
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(result.verdict.color)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(result.verdict.color.opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(result.verdict.color.opacity(0.3), lineWidth: 0.5))
+
+                Spacer()
+
+                // Expand/collapse
+                Button {
+                    withAnimation(.spring(response: 0.3)) { expanded.toggle() }
+                } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Einklappen" : "Details anzeigen")
+
+                // Dismiss
+                Button {
+                    withAnimation(.spring(response: 0.25)) { onDismiss() }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Bewertung schließen")
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(result.verdict.color.opacity(0.05))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3)) { expanded.toggle() }
+            }
+
+            // Expanded details
+            if expanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Summary
+                    if !result.summary.isEmpty {
+                        Text(result.summary)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(alignment: .top, spacing: 16) {
+                        // Strengths
+                        if !result.strengths.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("Überzeugt", systemImage: "hand.thumbsup.fill")
+                                    .font(.system(size: 10, weight: .bold)).kerning(0.3)
+                                    .foregroundStyle(Color.green.opacity(0.8))
+                                ForEach(result.strengths, id: \.self) { s in
+                                    HStack(alignment: .top, spacing: 5) {
+                                        Text("·").foregroundStyle(Color.green.opacity(0.6))
+                                        Text(s).font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+
+                        // Weaknesses
+                        if !result.weaknesses.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("Fehlt / stört", systemImage: "hand.thumbsdown.fill")
+                                    .font(.system(size: 10, weight: .bold)).kerning(0.3)
+                                    .foregroundStyle(Color.orange.opacity(0.8))
+                                ForEach(result.weaknesses, id: \.self) { w in
+                                    HStack(alignment: .top, spacing: 5) {
+                                        Text("·").foregroundStyle(Color.orange.opacity(0.6))
+                                        Text(w).font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                    }
+
+                    // Recommendation
+                    if !result.recommendation.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(personaColor)
+                            Text(result.recommendation)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(8)
+                        .background(personaColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(personaColor.opacity(0.20), lineWidth: 0.5))
+                    }
+
+                    // Fix-Handoff Actions
+                    if !result.weaknesses.isEmpty || !result.recommendation.isEmpty {
+                        Divider().opacity(0.3)
+                        HStack(spacing: 8) {
+                            Button {
+                                state.pendingChatMessage = buildFixPrompt()
+                                fixSent = true
+                            } label: {
+                                Label("Issues beheben", systemImage: "wrench.and.screwdriver")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(Capsule().fill(personaColor))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Issues als Fix-Prompt in den Chat laden")
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(buildFixPrompt(), forType: .string)
+                                fixSent = true
+                            } label: {
+                                Label("Kopieren", systemImage: "doc.on.doc")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(personaColor)
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(Capsule().fill(personaColor.opacity(0.10)))
+                                    .overlay(Capsule().strokeBorder(personaColor.opacity(0.3), lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Fix-Prompt in die Zwischenablage kopieren")
+
+                            if fixSent {
+                                Label("Gesendet", systemImage: "checkmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 14).padding(.bottom, 10).padding(.top, 4)
+                .background(result.verdict.color.opacity(0.04))
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    private func buildFixPrompt() -> String {
+        var lines: [String] = ["Bitte behebe die folgenden Issues aus dem \(result.personaName)-Review:\n"]
+        if !result.weaknesses.isEmpty {
+            lines.append("## Gefundene Probleme")
+            for w in result.weaknesses { lines.append("- \(w)") }
+            lines.append("")
+        }
+        if !result.recommendation.isEmpty {
+            lines.append("## Empfehlung")
+            lines.append(result.recommendation)
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
