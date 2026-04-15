@@ -23,8 +23,10 @@ final class AppState: ObservableObject {
     // MARK: - Local CLI usage (read from ~/.claude/projects/**/*.jsonl)
     @Published var localTodayTokens: Int    = 0
     @Published var localWeekTokens:  Int    = 0
+    @Published var localSessionTokens: Int  = 0   // last 5 hours (= Claude session window)
     @Published var localTodayCost:   Double = 0
     @Published var localWeekCost:    Double = 0
+    @Published var localMonthCost:   Double = 0
     @Published var localDailyByDate: [String: Double] = [:]  // "yyyy-MM-dd" -> estimated cost USD
 
     // MARK: - Copilot / GitHub Models usage (in-session, not persisted)
@@ -488,7 +490,7 @@ final class AppState: ObservableObject {
 
     func loadLocalCLIUsage() async {
         // Run all file I/O off the main thread
-        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, [String: Double], Double, Double) in
+        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, Int, Int, [String: Double], Double, Double, Double) in
             let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent(".claude/projects")
 
@@ -498,16 +500,18 @@ final class AppState: ObservableObject {
             let weekday = cal.component(.weekday, from: now)
             let daysFromTue = (weekday - 3 + 7) % 7
             let startOfWeek = cal.date(byAdding: .day, value: -daysFromTue, to: startOfToday) ?? startOfToday
+            let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? startOfToday
+            let startOfSession = now.addingTimeInterval(-5 * 3600)  // last 5 hours
 
-            var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0
-            var costToday: Double = 0, costWeek: Double = 0
+            var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0, inSession = 0, outSession = 0
+            var costToday: Double = 0, costWeek: Double = 0, costMonth: Double = 0
             var dailyByDate: [String: Double] = [:]
 
             let fm = FileManager.default
             guard let enumerator = fm.enumerator(at: projectsDir,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]) else {
-                return (0, 0, 0, 0, [:], 0, 0)
+                return (0, 0, 0, 0, 0, 0, [:], 0, 0, 0)
             }
 
             let iso = ISO8601DateFormatter()
@@ -531,22 +535,26 @@ final class AppState: ObservableObject {
                     let model = msg?["model"] as? String ?? ""
                     let (ip, op) = AppState.modelPrice(model)
                     let lineCost = Double(inp) * ip + Double(out) * op
+                    if dt >= startOfSession { inSession += inp; outSession += out }
                     if dt >= startOfToday { inToday += inp; outToday += out; costToday += lineCost }
                     if dt >= startOfWeek  { inWeek  += inp; outWeek  += out; costWeek  += lineCost }
+                    if dt >= startOfMonth { costMonth += lineCost }
                     if lineCost > 0 {
                         dailyByDate[dayFmt.string(from: dt), default: 0] += lineCost
                     }
                 }
             }
-            return (inToday, outToday, inWeek, outWeek, dailyByDate, costToday, costWeek)
+            return (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth)
         }.value
 
-        let (inToday, outToday, inWeek, outWeek, dailyByDate, costToday, costWeek) = result
-        localTodayTokens = inToday + outToday
-        localWeekTokens  = inWeek  + outWeek
-        localTodayCost   = costToday
-        localWeekCost    = costWeek
-        localDailyByDate = dailyByDate
+        let (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth) = result
+        localTodayTokens   = inToday + outToday
+        localWeekTokens    = inWeek  + outWeek
+        localSessionTokens = inSession + outSession
+        localTodayCost     = costToday
+        localWeekCost      = costWeek
+        localMonthCost     = costMonth
+        localDailyByDate   = dailyByDate
     }
 
     /// Per-model price lookup (input, output) per token.

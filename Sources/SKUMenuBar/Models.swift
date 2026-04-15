@@ -17,6 +17,9 @@ struct GitHubSettings: Codable {
     var eurRate:  Double = 0.92        // USD → EUR exchange rate
     // Claude cost limit
     var claudeWeeklyCostLimit: Double = 0  // 0 = deaktiviert (USD pro Woche)
+    // Claude.ai Plan Limits (manuell aus claude.ai/settings/usage eintragen)
+    var claudeSessionTokenLimit: Int    = 0  // 0 = deaktiviert, z.B. 88000 für Pro
+    var claudeMonthlySpendLimit: Double = 0  // 0 = deaktiviert (EUR, z.B. 100.0)
     // Copilot Fallback
     var copilotFallbackEnabled: Bool   = false
     var copilotFallbackModel:   String = "github/claude-sonnet-4-5"
@@ -42,6 +45,8 @@ struct GitHubSettings: Codable {
         currency          = (try? c.decodeIfPresent(String.self, forKey: .currency))         ?? "USD"
         eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
         claudeWeeklyCostLimit   = (try? c.decodeIfPresent(Double.self, forKey: .claudeWeeklyCostLimit)) ?? 0
+        claudeSessionTokenLimit  = (try? c.decodeIfPresent(Int.self,    forKey: .claudeSessionTokenLimit))  ?? 0
+        claudeMonthlySpendLimit  = (try? c.decodeIfPresent(Double.self, forKey: .claudeMonthlySpendLimit))  ?? 0
         copilotFallbackEnabled = (try? c.decodeIfPresent(Bool.self,   forKey: .copilotFallbackEnabled)) ?? false
         var savedModel = (try? c.decodeIfPresent(String.self, forKey: .copilotFallbackModel)) ?? "github/claude-sonnet-4-5"
         // Migrate old saved value that was missing github/ prefix

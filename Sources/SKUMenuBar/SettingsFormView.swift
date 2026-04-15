@@ -30,6 +30,7 @@ struct SettingsFormView: View {
     @Environment(\.appTheme) var theme
 
     @State private var draft = GitHubSettings()
+    @State private var hasDocumentsAccess: Bool? = nil
 
     private var accent: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -200,6 +201,31 @@ struct SettingsFormView: View {
                                                     .styledInput(theme: theme)
                                             }
                                         }
+                                        // Plan Limits (von claude.ai/settings/usage ablesen)
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            fieldLabel("Plan Limits (von claude.ai/settings/usage)")
+                                            HStack(spacing: 12) {
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("Session-Token-Limit")
+                                                        .font(.system(size: 11))
+                                                        .foregroundStyle(theme.secondaryText)
+                                                    TextField("z. B. 88000", value: $draft.claudeSessionTokenLimit, format: .number)
+                                                        .textFieldStyle(.plain)
+                                                        .styledInput(theme: theme)
+                                                }
+                                                VStack(alignment: .leading, spacing: 6) {
+                                                    Text("Monats-Ausgabenlimit (€)")
+                                                        .font(.system(size: 11))
+                                                        .foregroundStyle(theme.secondaryText)
+                                                    TextField("z. B. 100", value: $draft.claudeMonthlySpendLimit, format: .number)
+                                                        .textFieldStyle(.plain)
+                                                        .styledInput(theme: theme)
+                                                }
+                                            }
+                                            Text("Abzulesen auf claude.ai/settings/usage · Session = 5h-Fenster")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
                                     }
                                 }
                             }
@@ -299,6 +325,59 @@ struct SettingsFormView: View {
                         } // end GridRow 3
                     } // end Grid
 
+                    // ── Datei-Zugriff — full width ─────────────────────────
+                    configSection(title: "Datei-Zugriff", icon: "folder.badge.gearshape",
+                                  hint: "Erlaubt myClaude dauerhaft auf Projektordner in ~/Documents zuzugreifen — ohne Bestätigungsdialog bei jedem Deploy") {
+                        configCard {
+                            HStack(spacing: 16) {
+                                // Status indicator
+                                HStack(spacing: 8) {
+                                    if let access = hasDocumentsAccess {
+                                        Circle()
+                                            .fill(access ? Color.green : Color.orange)
+                                            .frame(width: 8, height: 8)
+                                        Text(access
+                                             ? "Zugriff auf ~/Documents vorhanden"
+                                             : "Kein Zugriff auf ~/Documents — macOS fragt bei jedem neuen Build erneut")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(access ? theme.primaryText : theme.primaryText)
+                                    } else {
+                                        ProgressView().controlSize(.small)
+                                        Text("Prüfe Zugriff…")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(theme.secondaryText)
+                                    }
+                                }
+                                Spacer()
+                                Button {
+                                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+                                } label: {
+                                    Label("Full Disk Access öffnen", systemImage: "gear")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(accent)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    checkDocumentsAccess()
+                                } label: {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(theme.secondaryText)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Status neu prüfen")
+                            }
+                            Divider().foregroundStyle(theme.cardBorder)
+                            Text("Öffne Systemeinstellungen → Datenschutz & Sicherheit → Voller Festplattenzugriff und füge myClaude hinzu. Danach erscheint der Bestätigungsdialog nie wieder — auch nach einem Rebuild nicht.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
                     // ── Appearance — full width ────────────────────────────
                     configSection(title: "Appearance", icon: "paintpalette") {
                         configCard {
@@ -359,7 +438,22 @@ struct SettingsFormView: View {
             }
         }
         .font(.system(size: 14))
-        .onAppear { draft = state.settings }
+        .onAppear {
+            draft = state.settings
+            checkDocumentsAccess()
+        }
+    }
+
+    // MARK: - File Access Check
+
+    private func checkDocumentsAccess() {
+        Task.detached(priority: .utility) {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            guard let docs else { await MainActor.run { hasDocumentsAccess = true }; return }
+            // Try a lightweight read; if TCC blocks it we get an error
+            let accessible = (try? FileManager.default.contentsOfDirectory(atPath: docs.path)) != nil
+            await MainActor.run { hasDocumentsAccess = accessible }
+        }
     }
 
     // MARK: - Section Header

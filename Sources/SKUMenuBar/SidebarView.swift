@@ -374,122 +374,147 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var limitFlowBar: some View {
-        // Priority 1: Rate-Limit aktiv (blockiert Weiterarbeiten)
-        if state.claudeRateLimitActive, let expiry = state.claudeRateLimitExpiry {
-            TimelineView(.periodic(from: .now, by: 60)) { _ in
-                rateLimitBar(expiry: expiry)
-            }
-        }
-        // Priority 2: Wochen-Budget kritisch (≥ 70%)
-        else if state.settings.claudeWeeklyCostLimit > 0 {
-            let limit   = state.settings.claudeWeeklyCostLimit
-            let used    = state.localWeekCost
-            let pct     = min(1.0, used / limit)
-            if pct >= 0.70 {
-                weekBudgetBar(used: used, limit: limit, pct: pct)
-            }
-        }
-    }
+        let sessionLimit = state.settings.claudeSessionTokenLimit
+        let weekLimit    = state.settings.claudeWeeklyCostLimit
+        let monthLimit   = state.settings.claudeMonthlySpendLimit
 
-    private func rateLimitBar(expiry: Date) -> some View {
-        let remaining   = max(0, expiry.timeIntervalSinceNow)
-        let hours       = Int(remaining / 3600)
-        let minutes     = Int((remaining.truncatingRemainder(dividingBy: 3600)) / 60)
-        let resetLabel: String
-        if remaining <= 0 {
-            resetLabel = "bereit"
-        } else if hours > 23 {
-            let days = hours / 24
-            resetLabel = "noch \(days)d"
-        } else if hours > 0 {
-            resetLabel = "noch \(hours)h \(minutes)min"
-        } else {
-            resetLabel = "noch \(minutes)min"
-        }
+        let sessionUsed  = state.localSessionTokens
+        let weekUsed     = state.localWeekCost
+        // Monthly: prefer Anthropic Admin API cost if available, else local estimate
+        let monthUsed    = state.claudeMonthCost > 0 ? state.claudeMonthCost : state.localMonthCost
 
-        // Fortschritt: wie viel der Wartezeit ist schon vorbei?
-        // Annahme: Sperrdauer max 5h (Session-Limit) oder bis expiry
-        let totalWait: Double = 5 * 3600
-        let elapsed   = max(0, totalWait - remaining)
-        let progress  = min(1.0, elapsed / totalWait)
+        let sessionPct   = sessionLimit  > 0 ? min(1.0, Double(sessionUsed) / Double(sessionLimit)) : 0
+        let weekPct      = weekLimit     > 0 ? min(1.0, weekUsed  / weekLimit)  : 0
+        // Monthly: claudeMonthCost is USD, limit is EUR — convert if needed
+        let monthLimitUSD = monthLimit > 0 ? monthLimit / state.settings.eurRate : 0
+        let monthPct     = monthLimitUSD > 0 ? min(1.0, monthUsed / monthLimitUSD) : 0
 
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: remaining <= 0 ? "checkmark.circle.fill" : "exclamationmark.octagon.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(remaining <= 0 ? .green : .red)
-                Text(remaining <= 0 ? "Rate Limit aufgehoben" : "Rate Limit · \(resetLabel)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(remaining <= 0 ? .green : .red)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 5)
+        let hasAnyLimit  = sessionLimit > 0 || weekLimit > 0 || monthLimit > 0
+        let rateLimitOn  = state.claudeRateLimitActive
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.red.opacity(0.15))
-                    Capsule()
-                        .fill(remaining <= 0 ? Color.green : Color.red.opacity(0.75))
-                        .frame(width: geo.size.width * progress)
-                        .animation(.easeInOut(duration: 0.6), value: progress)
+        if hasAnyLimit || rateLimitOn {
+            VStack(spacing: 0) {
+                // Rate-Limit Banner oben wenn aktiv
+                if rateLimitOn, let expiry = state.claudeRateLimitExpiry {
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        planLimitRow(
+                            icon: "exclamationmark.octagon.fill",
+                            label: "Current session",
+                            detail: rateLimitCountdown(expiry),
+                            pct: rateLimitProgress(expiry),
+                            color: .red,
+                            resetLabel: nil
+                        )
+                    }
+                } else if sessionLimit > 0 {
+                    planLimitRow(
+                        icon: "clock.arrow.circlepath",
+                        label: "Current session",
+                        detail: "\(formatTokens(sessionUsed)) / \(formatTokens(sessionLimit)) tok",
+                        pct: sessionPct,
+                        color: sessionPct >= 0.9 ? .red : sessionPct >= 0.7 ? .orange : accentColor,
+                        resetLabel: sessionResetLabel()
+                    )
+                }
+
+                if weekLimit > 0 {
+                    if sessionLimit > 0 || rateLimitOn {
+                        Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+                            .padding(.horizontal, 12)
+                    }
+                    planLimitRow(
+                        icon: "calendar.badge.clock",
+                        label: "Weekly limits",
+                        detail: "\(state.fmt(weekUsed)) / \(state.fmt(weekLimit))",
+                        pct: weekPct,
+                        color: weekPct >= 0.9 ? .red : weekPct >= 0.7 ? .orange : accentColor,
+                        resetLabel: weekResetLabel()
+                    )
+                }
+
+                if monthLimit > 0 {
+                    if sessionLimit > 0 || weekLimit > 0 || rateLimitOn {
+                        Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+                            .padding(.horizontal, 12)
+                    }
+                    planLimitRow(
+                        icon: "eurosign.circle",
+                        label: "Extra usage",
+                        detail: String(format: "€%.0f / €%.0f", monthUsed * state.settings.eurRate, monthLimit),
+                        pct: monthPct,
+                        color: monthPct >= 0.9 ? .red : monthPct >= 0.7 ? .orange : accentColor,
+                        resetLabel: "Reset Mai 1"
+                    )
                 }
             }
-            .frame(height: 3)
-            .padding(.horizontal, 12)
-            .padding(.top, 4)
-            .padding(.bottom, 5)
+            .padding(.vertical, 4)
+            Divider().foregroundStyle(theme.cardBorder)
         }
     }
 
-    private func weekBudgetBar(used: Double, limit: Double, pct: Double) -> some View {
-        let barColor: Color = pct >= 0.90 ? .red : .orange
-        // Nächster Reset: Montag 00:00
-        let cal  = Calendar.current
-        let now  = Date()
-        var comps = DateComponents()
-        comps.weekday = 2 // Montag
-        comps.hour    = 0
-        comps.minute  = 0
-        let nextReset = cal.nextDate(after: now, matching: comps, matchingPolicy: .nextTime)
-        let resetLabel: String = {
-            guard let r = nextReset else { return "" }
-            let diff = r.timeIntervalSinceNow
-            let h    = Int(diff / 3600)
-            if h >= 24 { return "Reset Mo" }
-            return "Reset in \(h)h"
-        }()
-
-        return VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(barColor)
-                Text("Budget \(Int(pct * 100))% · \(resetLabel)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(barColor)
+    private func planLimitRow(icon: String, label: String, detail: String, pct: Double, color: Color, resetLabel: String?) -> some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(color)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
                 Spacer()
-                Text("\(state.fmt(used)) / \(state.fmt(limit))")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(barColor.opacity(0.8))
+                Text(detail)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(color)
+                if let reset = resetLabel {
+                    Text("· \(reset)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 5)
+            .padding(.top, 4)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(barColor.opacity(0.12))
+                    Capsule().fill(color.opacity(0.12))
                     Capsule()
-                        .fill(barColor.opacity(0.8))
+                        .fill(color.opacity(pct >= 0.9 ? 0.9 : 0.65))
                         .frame(width: geo.size.width * pct)
-                        .animation(.easeInOut(duration: 0.5), value: pct)
+                        .animation(.spring(response: 0.5), value: pct)
                 }
             }
             .frame(height: 3)
             .padding(.horizontal, 12)
-            .padding(.top, 4)
-            .padding(.bottom, 5)
+            .padding(.bottom, 4)
         }
+    }
+
+    private func rateLimitCountdown(_ expiry: Date) -> String {
+        let remaining = max(0, expiry.timeIntervalSinceNow)
+        if remaining <= 0 { return "bereit" }
+        let h = Int(remaining / 3600)
+        let m = Int((remaining.truncatingRemainder(dividingBy: 3600)) / 60)
+        return h > 0 ? "noch \(h)h \(m)min" : "noch \(m)min"
+    }
+
+    private func rateLimitProgress(_ expiry: Date) -> Double {
+        let remaining = max(0, expiry.timeIntervalSinceNow)
+        let elapsed   = max(0, 5 * 3600 - remaining)
+        return min(1.0, elapsed / (5 * 3600))
+    }
+
+    private func sessionResetLabel() -> String {
+        // Session resets 5h after first message — we show time until +5h from now as proxy
+        "alle 5h"
+    }
+
+    private func weekResetLabel() -> String {
+        var comps = DateComponents()
+        comps.weekday = 4  // Mittwoch
+        comps.hour    = 7; comps.minute = 0
+        guard let next = Calendar.current.nextDate(after: Date(), matching: comps, matchingPolicy: .nextTime) else { return "" }
+        let h = Int(next.timeIntervalSinceNow / 3600)
+        return h >= 48 ? "Reset Mi" : "Reset in \(h)h"
     }
 
     // MARK: - Footer
