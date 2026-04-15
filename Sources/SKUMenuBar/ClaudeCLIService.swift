@@ -353,7 +353,7 @@ final class ClaudeCLIService: ObservableObject {
         }
         for h in headers { cliArgs += ["--header", h] }
         for e in envVars { cliArgs += ["-e", e] }
-        cliArgs += [name, commandOrUrl]
+        cliArgs += ["--", name, commandOrUrl]
         cliArgs += args
         let output = (try? await runCommand(cliArgs)) ?? "Fehler"
         return (!output.lowercased().contains("error"), output)
