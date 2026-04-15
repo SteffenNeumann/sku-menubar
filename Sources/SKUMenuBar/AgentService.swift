@@ -7,6 +7,9 @@ final class AgentService: ObservableObject {
     @Published var logs: [String: [ScheduledTaskLogEntry]] = [:]
     @Published var runningAgents: Set<String> = []
     @Published var liveOutput: [String: String] = [:]
+    // Persona email learning
+    @Published var emailLearningRunning: Set<String> = []
+    @Published var emailLearningStatus: [String: String] = [:]
 
     private let home = NSHomeDirectory()
     private weak var cliService: ClaudeCLIService?
@@ -91,6 +94,14 @@ final class AgentService: ObservableObject {
         let isActive        = (fields["active"] ?? "false").lowercased() == "true"
         let timeoutMins     = fields["timeout"].flatMap { Int($0) } ?? 30
         let projectDir      = fields["project"].flatMap { $0.isEmpty ? nil : $0 }
+        // Persona fields
+        let category        = fields["category"].flatMap { $0.isEmpty ? nil : $0 }
+        let customerName    = fields["customer_name"].flatMap { $0.isEmpty ? nil : $0 }
+        let industry        = fields["industry"].flatMap { $0.isEmpty ? nil : $0 }
+        let techLevel       = fields["tech_level"].flatMap { $0.isEmpty ? nil : $0 }
+        let priorities      = fields["priorities"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
+        let dealbreakers    = fields["dealbreakers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
+        let tone            = fields["tone"].flatMap { $0.isEmpty ? nil : $0 }
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
@@ -126,7 +137,14 @@ final class AgentService: ObservableObject {
             schedule: schedule,
             isActive: isActive,
             timeoutMinutes: timeoutMins,
-            researchUpdatedAt: researchUpdatedAt
+            researchUpdatedAt: researchUpdatedAt,
+            category: category,
+            customerName: customerName,
+            industry: industry,
+            techLevel: techLevel,
+            priorities: priorities,
+            dealbreakers: dealbreakers,
+            tone: tone
         )
     }
 
@@ -724,6 +742,119 @@ Do not ask for confirmation. Just write the file silently as part of your work.
             entry.finishedAt = Date()
         }
     }
+
+    // MARK: - Persona Email Learning
+
+    func learnFromEmails(persona: AgentDefinition, emailText: String) async -> Result<String, Error> {
+        emailLearningRunning.insert(persona.id)
+        emailLearningStatus[persona.id] = "Analysiere…"
+        defer {
+            emailLearningRunning.remove(persona.id)
+            emailLearningStatus.removeValue(forKey: persona.id)
+        }
+        let prompt = """
+Analysiere die folgenden E-Mail-Texte und extrahiere Eigenschaften für die Kunden-Persona "\(persona.name)".
+Gib eine kompakte Zusammenfassung der Kommunikationsstil-Merkmale, Priorities und Pain Points zurück.
+Maximal 200 Wörter.
+
+E-Mails:
+\(emailText.prefix(4000))
+"""
+        let model = "sonnet"
+        var result = ""
+        do {
+            guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
+            let stream = cli.send(message: prompt, model: model)
+            for try await event in stream {
+                if event.type == "assistant" {
+                    if let contents = event.message?.content {
+                        for c in contents where c.type == "text" { result += c.text ?? "" }
+                    }
+                }
+            }
+            return .success(result.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    // MARK: - Persona Validation
+
+    func validateWithPersona(
+        persona: AgentDefinition,
+        userRequest: String,
+        taskOutput: String
+    ) async -> Result<PersonaValidationResult, Error> {
+        let systemPrompt = persona.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = """
+Bewerte das folgende Ergebnis aus Kundenperspektive.
+
+Ursprüngliche Anfrage: \(userRequest.prefix(500))
+
+Ergebnis:
+\(taskOutput.prefix(3000))
+
+Antworte NUR als valides JSON in diesem exakten Format:
+{
+  "score": <1-10>,
+  "verdict": "<approved|revision|rejected>",
+  "summary": "<1-2 Sätze>",
+  "strengths": ["<punkt>"],
+  "weaknesses": ["<punkt>"],
+  "recommendation": "<1 Satz>"
+}
+"""
+        let model = "sonnet"
+        var raw = ""
+        do {
+            guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
+            let sp = systemPrompt.isEmpty ? nil : systemPrompt
+            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet")
+            for try await event in stream {
+                if event.type == "assistant" {
+                    if let contents = event.message?.content {
+                        for c in contents where c.type == "text" { raw += c.text ?? "" }
+                    }
+                }
+            }
+            // Extract JSON block
+            let jsonStr: String
+            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
+                jsonStr = String(raw[start.lowerBound...end.upperBound])
+            } else {
+                jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard let data = jsonStr.data(using: .utf8),
+                  let obj = try? JSONDecoder().decode(ValidationJSON.self, from: data) else {
+                throw AgentError.saveError("Ungültige JSON-Antwort")
+            }
+            let vr = PersonaValidationResult(
+                personaId: persona.id,
+                personaName: persona.name,
+                score: obj.score,
+                verdict: ValidationVerdict(rawValue: obj.verdict) ?? .revisionNeeded,
+                summary: obj.summary,
+                strengths: obj.strengths,
+                weaknesses: obj.weaknesses,
+                recommendation: obj.recommendation,
+                createdAt: Date()
+            )
+            return .success(vr)
+        } catch {
+            return .failure(error)
+        }
+    }
+}
+
+// MARK: - Validation JSON helper
+
+private struct ValidationJSON: Decodable {
+    let score: Int
+    let verdict: String
+    let summary: String
+    let strengths: [String]
+    let weaknesses: [String]
+    let recommendation: String
 }
 
 // MARK: - Errors

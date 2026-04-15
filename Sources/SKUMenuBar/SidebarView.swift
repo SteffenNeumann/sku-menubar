@@ -76,6 +76,9 @@ struct SidebarView: View {
                 claudeUsageWidget
                 Divider().foregroundStyle(theme.cardBorder)
 
+                // Limit Flow Bar (nur wenn kritisch)
+                limitFlowBar
+
                 // Footer
                 sidebarFooter
             }
@@ -365,6 +368,128 @@ struct SidebarView: View {
         n >= 1_000_000 ? String(format: "%.1fM", Double(n)/1_000_000)
         : n >= 1_000   ? String(format: "%.0fK", Double(n)/1_000)
         : "\(n)"
+    }
+
+    // MARK: - Limit Flow Bar
+
+    @ViewBuilder
+    private var limitFlowBar: some View {
+        // Priority 1: Rate-Limit aktiv (blockiert Weiterarbeiten)
+        if state.claudeRateLimitActive, let expiry = state.claudeRateLimitExpiry {
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                rateLimitBar(expiry: expiry)
+            }
+        }
+        // Priority 2: Wochen-Budget kritisch (≥ 70%)
+        else if state.settings.claudeWeeklyCostLimit > 0 {
+            let limit   = state.settings.claudeWeeklyCostLimit
+            let used    = state.localWeekCost
+            let pct     = min(1.0, used / limit)
+            if pct >= 0.70 {
+                weekBudgetBar(used: used, limit: limit, pct: pct)
+            }
+        }
+    }
+
+    private func rateLimitBar(expiry: Date) -> some View {
+        let remaining   = max(0, expiry.timeIntervalSinceNow)
+        let hours       = Int(remaining / 3600)
+        let minutes     = Int((remaining.truncatingRemainder(dividingBy: 3600)) / 60)
+        let resetLabel: String
+        if remaining <= 0 {
+            resetLabel = "bereit"
+        } else if hours > 23 {
+            let days = hours / 24
+            resetLabel = "noch \(days)d"
+        } else if hours > 0 {
+            resetLabel = "noch \(hours)h \(minutes)min"
+        } else {
+            resetLabel = "noch \(minutes)min"
+        }
+
+        // Fortschritt: wie viel der Wartezeit ist schon vorbei?
+        // Annahme: Sperrdauer max 5h (Session-Limit) oder bis expiry
+        let totalWait: Double = 5 * 3600
+        let elapsed   = max(0, totalWait - remaining)
+        let progress  = min(1.0, elapsed / totalWait)
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: remaining <= 0 ? "checkmark.circle.fill" : "exclamationmark.octagon.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(remaining <= 0 ? .green : .red)
+                Text(remaining <= 0 ? "Rate Limit aufgehoben" : "Rate Limit · \(resetLabel)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(remaining <= 0 ? .green : .red)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 5)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.red.opacity(0.15))
+                    Capsule()
+                        .fill(remaining <= 0 ? Color.green : Color.red.opacity(0.75))
+                        .frame(width: geo.size.width * progress)
+                        .animation(.easeInOut(duration: 0.6), value: progress)
+                }
+            }
+            .frame(height: 3)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 5)
+        }
+    }
+
+    private func weekBudgetBar(used: Double, limit: Double, pct: Double) -> some View {
+        let barColor: Color = pct >= 0.90 ? .red : .orange
+        // Nächster Reset: Montag 00:00
+        let cal  = Calendar.current
+        let now  = Date()
+        var comps = DateComponents()
+        comps.weekday = 2 // Montag
+        comps.hour    = 0
+        comps.minute  = 0
+        let nextReset = cal.nextDate(after: now, matching: comps, matchingPolicy: .nextTime)
+        let resetLabel: String = {
+            guard let r = nextReset else { return "" }
+            let diff = r.timeIntervalSinceNow
+            let h    = Int(diff / 3600)
+            if h >= 24 { return "Reset Mo" }
+            return "Reset in \(h)h"
+        }()
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(barColor)
+                Text("Budget \(Int(pct * 100))% · \(resetLabel)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(barColor)
+                Spacer()
+                Text("\(state.fmt(used)) / \(state.fmt(limit))")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(barColor.opacity(0.8))
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 5)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(barColor.opacity(0.12))
+                    Capsule()
+                        .fill(barColor.opacity(0.8))
+                        .frame(width: geo.size.width * pct)
+                        .animation(.easeInOut(duration: 0.5), value: pct)
+                }
+            }
+            .frame(height: 3)
+            .padding(.horizontal, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 5)
+        }
     }
 
     // MARK: - Footer

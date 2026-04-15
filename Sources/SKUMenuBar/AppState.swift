@@ -52,14 +52,17 @@ final class AppState: ObservableObject {
                 if ud.double(forKey: rateLimitExpiryKey) < Date().timeIntervalSince1970 {
                     let fallback = Date().addingTimeInterval(30 * 24 * 3600).timeIntervalSince1970
                     ud.set(fallback, forKey: rateLimitExpiryKey)
+                    claudeRateLimitExpiry = Date(timeIntervalSince1970: ud.double(forKey: rateLimitExpiryKey))
                 }
                 ud.set(true, forKey: rateLimitActiveKey)
             } else {
                 ud.set(false, forKey: rateLimitActiveKey)
                 ud.set(0.0,   forKey: rateLimitExpiryKey)
+                claudeRateLimitExpiry = nil
             }
         }
     }
+    @Published var claudeRateLimitExpiry: Date? = nil
     @Published var lastChatProvider: ChatProviderSource? = nil
 
     /// Parse the expiry date from a rate-limit error message and persist it.
@@ -77,6 +80,7 @@ final class AppState: ObservableObject {
                 fmt.timeZone = TimeZone(identifier: "UTC")
                 if let expiry = fmt.date(from: "\(datePart) \(timePart)") {
                     ud.set(expiry.timeIntervalSince1970, forKey: rateLimitExpiryKey)
+                    claudeRateLimitExpiry = expiry
                 }
             }
         }
@@ -91,6 +95,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatSessionTitle: String? = nil
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
+    @Published var pendingChatMessage: String? = nil      // pre-fill chat input + navigate to chat
     @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
     @Published var hideSidebar: Bool = false               // hide the main navigation sidebar
 
@@ -163,6 +168,7 @@ final class AppState: ObservableObject {
         let expiry      = ud.double(forKey: rateLimitExpiryKey)
         if savedActive && (expiry == 0 || expiry > Date().timeIntervalSince1970) {
             claudeRateLimitActive = true
+            if expiry > 0 { claudeRateLimitExpiry = Date(timeIntervalSince1970: expiry) }
         } else if expiry > 0 && expiry <= Date().timeIntervalSince1970 {
             // Expiry passed — clear
             ud.set(false, forKey: rateLimitActiveKey)
@@ -190,6 +196,7 @@ final class AppState: ObservableObject {
             let (_, _, _, loadedSessions) = await (agents, projects, usage, sessions)
             activeSessions = loadedSessions
             agentService.startScheduler()
+            historyService.startWatching()
         }
     }
 
