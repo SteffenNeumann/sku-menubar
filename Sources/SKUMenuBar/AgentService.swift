@@ -45,7 +45,7 @@ final class AgentService: ObservableObject {
             }
         }
         agents = result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        loadAllLogs()
+        Task { loadAllLogs() }
     }
 
     // MARK: - Parse YAML frontmatter from .md file
@@ -163,6 +163,13 @@ final class AgentService: ObservableObject {
         if !draft.schedule.isEmpty  { lines.append("schedule: \(draft.schedule)") }
         if !draft.timeoutMinutes.isEmpty { lines.append("timeout: \(draft.timeoutMinutes)") }
         if draft.isActive          { lines.append("active: true") }
+        if !draft.category.isEmpty        { lines.append("category: \(draft.category)") }
+        if !draft.customerName.isEmpty    { lines.append("customer_name: \"\(draft.customerName)\"") }
+        if !draft.industry.isEmpty        { lines.append("industry: \"\(draft.industry)\"") }
+        if draft.techLevel != "medium"    { lines.append("tech_level: \(draft.techLevel)") }
+        if !draft.priorities.isEmpty      { lines.append("priorities: \(draft.priorities)") }
+        if !draft.dealbreakers.isEmpty    { lines.append("dealbreakers: \(draft.dealbreakers)") }
+        if draft.tone != "formal"         { lines.append("tone: \(draft.tone)") }
         lines.append("---")
         if !draft.promptBody.isEmpty {
             lines.append("")
@@ -753,12 +760,42 @@ Do not ask for confirmation. Just write the file silently as part of your work.
             emailLearningStatus.removeValue(forKey: persona.id)
         }
         let prompt = """
-Analysiere die folgenden E-Mail-Texte und extrahiere Eigenschaften für die Kunden-Persona "\(persona.name)".
-Gib eine kompakte Zusammenfassung der Kommunikationsstil-Merkmale, Priorities und Pain Points zurück.
-Maximal 200 Wörter.
+Du bist ein Experte für Persönlichkeitsanalyse und Kommunikationspsychologie.
+
+Analysiere die folgenden E-Mails von "\(persona.name)" so tief wie möglich — als würdest du ein detailliertes psychologisches Profil für einen Coach erstellen, der diese Person perfekt imitieren soll.
+
+Ziel: Wer dieses Profil liest, soll danach in der Lage sein, so zu urteilen, zu formulieren und zu reagieren wie "\(persona.name)" — als ob die Person direkt daneben sitzt.
+
+Gib deine Analyse in exakt diesem Format zurück (alle Abschnitte ausfüllen, keine Abschnitte weglassen):
+
+## Stimme & Sprache
+Wie schreibt die Person? Satzlänge, Direktheit, Formalitätsniveau. Mindestens 5 typische wörtliche Phrasen oder Formulierungen aus den E-Mails zitieren.
+
+## Entscheidungslogik
+Wonach entscheidet die Person? Welche Kriterien sind ausschlaggebend (Preis, Vertrauen, Qualität, Geschwindigkeit, Beziehung...)? In welcher Reihenfolge?
+
+## Emotionale Trigger
+Was bringt die Person dazu, positiv zu reagieren? Was löst Skepsis, Ungeduld oder Ablehnung aus? Konkrete Beispiele aus den E-Mails.
+
+## Warnsignale — wird kritisch wenn...
+Was sind die impliziten Erwartungen, die nie ausgesprochen werden aber immer vorausgesetzt? Woran merkt man, dass die Person unzufrieden ist?
+
+## Zustimmungssignale
+Wie äußert die Person Zustimmung, Zufriedenheit oder Vertrauen? Typische Formulierungen und Verhaltensweisen.
+
+## Implizite Werte & Prioritäten
+Was ist der Person wirklich wichtig — auch wenn sie es nicht direkt sagt? Welche Weltanschauung oder Haltung steckt hinter den Nachrichten?
+
+## Umgang mit Problemen & Eskalation
+Wie reagiert die Person auf Fehler, Verzögerungen oder Enttäuschungen? Eskaliert sie schnell oder langsam? Direkt oder indirekt?
+
+## Roleplay-Anweisung
+Formuliere in 3–5 Sätzen eine direkte Anweisung für eine KI, wie sie sich verhalten soll wenn sie diese Person spielt. Beispiel: "Antworte immer kurz und direkt. Stelle nach jedem Ergebnis die implizite Frage: Wurde meine Zeit respektiert?"
+
+---
 
 E-Mails:
-\(emailText.prefix(4000))
+\(emailText.prefix(20000))
 """
         let model = "sonnet"
         var result = ""
@@ -772,7 +809,14 @@ E-Mails:
                     }
                 }
             }
-            return .success(result.trimmingCharacters(in: .whitespacesAndNewlines))
+            let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Erkenntnisse in Memory-Verzeichnis speichern
+            let memDir = writableMemoryDir(for: persona)
+            let insightsURL = memDir.appendingPathComponent("email_insights.md")
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd HH:mm"
+            let header = "# E-Mail-Erkenntnisse — \(persona.name)\nAnalysiert: \(fmt.string(from: Date()))\n\n"
+            try? (header + trimmed).write(to: insightsURL, atomically: true, encoding: .utf8)
+            return .success(trimmed)
         } catch {
             return .failure(error)
         }
