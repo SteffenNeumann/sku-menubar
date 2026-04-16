@@ -1890,14 +1890,18 @@ private struct EmailLearningSheet: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.prompt = "Laden"
-        panel.allowedContentTypes = [.plainText, .text]
-        panel.title = "E-Mail-Datei auswählen"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        emailText = (try? String(contentsOf: url, encoding: .utf8))
-            ?? (try? String(contentsOf: url, encoding: .isoLatin1))
-            ?? ""
+        let emlType = UTType(filenameExtension: "eml") ?? .data
+        let mboxType = UTType(filenameExtension: "mbox") ?? .data
+        panel.allowedContentTypes = [.plainText, .text, emlType, mboxType]
+        panel.allowsOtherFileTypes = true
+        panel.title = "E-Mail-Dateien auswählen"
+        guard panel.runModal() == .OK else { return }
+        emailText = panel.urls.compactMap { url in
+            (try? String(contentsOf: url, encoding: .utf8))
+                ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+        }.joined(separator: "\n\n---\n\n")
     }
 
     private func runAnalysis() {
@@ -1914,6 +1918,20 @@ private struct EmailLearningSheet: View {
             case .success(let extracted):
                 result = extracted
                 errorMessage = nil
+                // Erkenntnisse in promptBody der Persona speichern
+                // Immer die aktuellste Version laden, damit keine Felder verloren gehen
+                let currentPersona = agentService.agents.first(where: { $0.id == persona.id }) ?? persona
+                var draft = AgentDraft(agent: currentPersona)
+                let section = "\n\n## E-Mail-Erkenntnisse\n\(extracted)"
+                if draft.promptBody.contains("## E-Mail-Erkenntnisse") {
+                    // Bestehenden Abschnitt ersetzen
+                    if let range = draft.promptBody.range(of: #"## E-Mail-Erkenntnisse[\s\S]*"#, options: .regularExpression) {
+                        draft.promptBody.replaceSubrange(range, with: "## E-Mail-Erkenntnisse\n\(extracted)")
+                    }
+                } else {
+                    draft.promptBody += section
+                }
+                _ = try? await agentService.saveAgent(draft, previousId: nil)
             case .failure(let err):
                 errorMessage = err.localizedDescription
             }
