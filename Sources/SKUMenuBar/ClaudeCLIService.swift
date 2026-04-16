@@ -208,6 +208,55 @@ final class ClaudeCLIService: ObservableObject {
         }
     }
 
+    // MARK: - Auth Login
+
+    /// Runs `claude auth login` — opens the system browser for OAuth.
+    /// Resolves when login completes successfully, throws on failure.
+    func login() async throws {
+        let path = claudePath
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Task.detached(priority: .userInitiated) {
+                let process = Process()
+                let home = NSHomeDirectory()
+                process.executableURL = URL(fileURLWithPath: path)
+                process.arguments = ["auth", "login"]
+
+                var env = ProcessInfo.processInfo.environment
+                let extraPaths = "\(home)/.local/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin"
+                env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+                env["HOME"] = home
+                env["XDG_CONFIG_HOME"] = "\(home)/.config"
+                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                process.environment = env
+
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError  = errPipe
+
+                process.terminationHandler = { proc in
+                    if proc.terminationStatus == 0 {
+                        continuation.resume()
+                    } else {
+                        let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        let msg = [out, err].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n")
+                        continuation.resume(throwing: CLIError.processError(
+                            exitCode: Int(proc.terminationStatus),
+                            stderr: msg.isEmpty ? "Login fehlgeschlagen (exit \(proc.terminationStatus))" : msg
+                        ))
+                    }
+                }
+
+                do { try process.run() } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Run claude command (non-streaming, returns full stdout)
 
     func runCommand(_ args: [String]) async throws -> String {
@@ -268,6 +317,7 @@ final class ClaudeCLIService: ObservableObject {
             var name      = trimmed
             var transport = "unknown"
             var statusText = ""
+            var urlDetail = ""  // actual URL or command string for this server
 
             // Detect which format we have:
             // Old format: "name (type): status"  → paren before first colon
@@ -291,22 +341,29 @@ final class ClaudeCLIService: ObservableObject {
                 name = String(trimmed[..<fc]).trimmingCharacters(in: .whitespaces)
                 let rest = String(trimmed[trimmed.index(after: fc)...]).trimmingCharacters(in: .whitespaces)
 
-                // Extract transport from (HTTP)/(SSE)/(stdio) in rest
+                // Extract transport from (HTTP)/(SSE)/(stdio) in rest, URL is before the paren
+                var urlOrCommand = rest
                 if let pOpen = rest.firstIndex(of: "("),
                    let pClose = rest[pOpen...].firstIndex(of: ")") {
                     transport = String(rest[rest.index(after: pOpen)..<pClose]).lowercased()
+                    urlOrCommand = String(rest[..<pOpen]).trimmingCharacters(in: .whitespaces)
                 }
 
                 // Extract status after " - "
                 if let dashRange = rest.range(of: " - ") {
                     statusText = String(rest[dashRange.upperBound...])
                         .trimmingCharacters(in: .whitespaces)
-                        // strip leading unicode checkmarks/crosses
                         .replacingOccurrences(of: "^[✓✗!?·\\s]+", with: "", options: .regularExpression)
                         .trimmingCharacters(in: .whitespaces)
+                    // Also trim " - status" from the URL part
+                    if let dashInUrl = urlOrCommand.range(of: " - ") {
+                        urlOrCommand = String(urlOrCommand[..<dashInUrl.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    }
                 } else {
                     statusText = rest
                 }
+                // Store the actual URL/command separately so buildMCPConfigJSON can use it
+                urlDetail = urlOrCommand
             }
 
             guard !name.isEmpty else { continue }
@@ -328,7 +385,7 @@ final class ClaudeCLIService: ObservableObject {
                 name: name,
                 type: transport,
                 status: status,
-                detail: statusText
+                detail: urlDetail.isEmpty ? statusText : urlDetail
             ))
         }
         return servers

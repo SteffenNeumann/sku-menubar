@@ -744,6 +744,7 @@ struct SingleChatSessionView: View {
         currentSessionId = sessionId
         sessionTitle = tab.title
         errorMessage = nil
+        isAuthError = false
 
         Task {
             // Ensure projects are loaded before searching
@@ -931,11 +932,14 @@ struct SingleChatSessionView: View {
     }
 
     @State private var errorExpanded: Bool = false
+    @State private var isAuthError: Bool = false
+    @State private var isLoggingIn: Bool = false
+    @State private var loginSucceeded: Bool = false
 
     private func errorBubble(_ text: String) -> some View {
         let isLong = text.count > 120
         let displayText = isLong && !errorExpanded ? String(text.prefix(120)) + "…" : text
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                     .padding(.top, 1)
@@ -953,12 +957,84 @@ struct SingleChatSessionView: View {
                 .foregroundStyle(.red.opacity(0.8))
                 .buttonStyle(.plain)
             }
+
+            // Auth-Error: Login-Banner anzeigen
+            if isAuthError {
+                Divider().opacity(0.3)
+                if loginSucceeded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text("Login erfolgreich — neue Nachricht senden.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.green)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Claude ist nicht eingeloggt.")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
+                        Text("Starte den Login-Prozess — der Browser öffnet sich automatisch für die Authentifizierung.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.secondaryText)
+                        Button {
+                            startLogin()
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isLoggingIn {
+                                    ProgressView().scaleEffect(0.7)
+                                    Text("Warte auf Browser-Login…")
+                                } else {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                    Text("claude auth login starten")
+                                }
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(isLoggingIn ? Color.gray : Color.accentColor,
+                                        in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLoggingIn)
+                    }
+                }
+            }
         }
         .padding(10)
         .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.red.opacity(0.25), lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 6)
+    }
+
+    private func detectAuthError(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("authentication_error") || t.contains("invalid auth") ||
+               t.contains("not logged in") || t.contains("unauthenticated") ||
+               (t.contains("401") && (t.contains("error") || t.contains("auth")))
+    }
+
+    private func startLogin() {
+        isLoggingIn = true
+        loginSucceeded = false
+        Task {
+            do {
+                try await state.cliService.login()
+                await MainActor.run {
+                    isLoggingIn = false
+                    loginSucceeded = true
+                    errorMessage = nil
+                    isAuthError = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoggingIn = false
+                    errorMessage = "Login fehlgeschlagen: \(error.localizedDescription)"
+                    isAuthError = false
+                }
+            }
+        }
     }
 
     // MARK: - Input bar
@@ -1505,10 +1581,15 @@ struct SingleChatSessionView: View {
                 }
             }
             guard let config = mcpConfigs[server.id] else {
-                // Fallback: HTTP/SSE ohne config → URL aus detail
-                if server.type == "http" || server.type == "sse" {
-                    mcpServers[server.name] = ["type": server.type, "url": server.detail]
+                // Fallback: use detail (URL/command) when getMCPServerConfig fails
+                let detailUrl = server.detail
+                if (server.type == "http" || server.type == "sse") && !detailUrl.isEmpty && detailUrl.hasPrefix("http") {
+                    mcpServers[server.name] = ["type": server.type, "url": detailUrl]
+                } else if server.type == "unknown" && !detailUrl.isEmpty && detailUrl.hasPrefix("http") {
+                    // Unknown type but looks like a URL → try http
+                    mcpServers[server.name] = ["type": "http", "url": detailUrl]
                 }
+                // stdio without config: cannot reconstruct → skip (getMCPServerConfig must succeed)
                 continue
             }
 
@@ -2036,6 +2117,7 @@ struct SingleChatSessionView: View {
             messages = []
             currentSessionId = nil
             errorMessage = nil
+            isAuthError = false
             attachedFiles = []
             sessionTitle = ""
             autoTriggeredAgentName = nil
@@ -2062,6 +2144,7 @@ struct SingleChatSessionView: View {
 
         inputText = ""
         errorMessage = nil
+        isAuthError = false
         messages.append(ChatMessage(role: .user, content: text))
 
         let agents = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
@@ -2408,6 +2491,7 @@ struct SingleChatSessionView: View {
             messages = [summaryNote]
             currentSessionId = nil
             errorMessage = nil
+            isAuthError = false
             sessionTitle = ""
         }
     }
@@ -2499,6 +2583,7 @@ struct SingleChatSessionView: View {
         let sentFiles = attachedFiles
         attachedFiles = []
         errorMessage = nil
+        isAuthError = false
 
         var displayText = text
         if !sentFiles.isEmpty {
@@ -2766,6 +2851,7 @@ struct SingleChatSessionView: View {
                             bestError = "Claude hat einen Fehler zurückgegeben (kein Fehlertext vom CLI erhalten)."
                         }
                         errorMessage = bestError
+                        isAuthError = detectAuthError(bestError)
                         if messages.indices.contains(assistantIndex) {
                             messages[assistantIndex].isStreaming = false
                         }
@@ -2841,6 +2927,7 @@ struct SingleChatSessionView: View {
             }
 
             errorMessage = displayError
+            isAuthError = detectAuthError(displayError)
             if messages.indices.contains(assistantIndex),
                messages[assistantIndex].content.isEmpty,
                messages[assistantIndex].toolCalls.isEmpty {
@@ -3816,14 +3903,6 @@ struct MessageBubbleView: View {
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(accentColor.opacity(0.15))
-                        .frame(width: 18, height: 18)
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(accentColor)
-                }
                 HStack(spacing: 5) {
                     HStack(spacing: 4) {
                         Image(systemName: resolvedSource.icon)
