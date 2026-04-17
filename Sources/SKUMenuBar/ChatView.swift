@@ -1111,11 +1111,6 @@ struct SingleChatSessionView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            // MCP pill bar (when servers are configured and some are deactivated)
-            if !availableMCPs.isEmpty {
-                mcpPillBar
-            }
-
             // File attachment chips
             if !attachedFiles.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1642,6 +1637,7 @@ struct SingleChatSessionView: View {
         label: String,
         active: Bool,
         isPresented: Binding<Bool>,
+        maxLabelWidth: CGFloat = 80,
         measuredHeight: Binding<CGFloat> = .constant(0),
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
@@ -1659,7 +1655,7 @@ struct SingleChatSessionView: View {
                     .foregroundStyle(active ? accentColor : theme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: 80)
+                    .frame(maxWidth: maxLabelWidth)
                 Image(systemName: isPresented.wrappedValue ? "chevron.down" : "chevron.up")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(theme.tertiaryText.opacity(0.70))
@@ -1749,14 +1745,21 @@ struct SingleChatSessionView: View {
                 let mcpActive = !activeMCPIds.isEmpty
                 let mcpLabel: String = {
                     if activeMCPIds == Set(["__none__"]) { return "Kein MCP" }
-                    if activeMCPIds.isEmpty { return "MCPs (\(availableMCPs.count))" }
-                    return "MCPs (\(activeMCPIds.count)/\(availableMCPs.count))"
+                    if activeMCPIds.isEmpty { return "Alle MCPs" }
+                    let active = availableMCPs.filter { activeMCPIds.contains($0.id) }
+                    let maxShow = 3
+                    if active.count <= maxShow {
+                        return active.map(\.name).joined(separator: " · ")
+                    } else {
+                        return active.prefix(maxShow).map(\.name).joined(separator: " · ") + " +\(active.count - maxShow)"
+                    }
                 }()
                 pickerButton(
                     icon: "server.rack",
                     label: mcpLabel,
                     active: mcpActive,
-                    isPresented: $showMCPPicker
+                    isPresented: $showMCPPicker,
+                    maxLabelWidth: 160
                 ) { EmptyView() }
             }
 
