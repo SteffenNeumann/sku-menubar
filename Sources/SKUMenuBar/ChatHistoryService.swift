@@ -15,17 +15,19 @@ final class ChatHistoryService: ObservableObject {
     // Accessed only on DispatchQueue.main — nonisolated(unsafe) avoids actor-hop overhead.
     nonisolated(unsafe) private var debounceWork: DispatchWorkItem?
 
-    /// Start watching ~/.claude/history.jsonl and ~/.claude/projects/ for changes.
+    /// Start watching ~/.claude/ and ~/.claude/projects/ for changes.
+    /// Watches parent directories instead of files directly, so atomic writes
+    /// (Claude CLI uses temp→rename) are reliably detected.
     /// Safe to call multiple times — cancels any existing watchers first.
     nonisolated func startWatching() {
-        let historyPath = NSHomeDirectory() + "/.claude/history.jsonl"
+        // Watch ~/.claude/ directory — catches atomic writes to history.jsonl (rename fires .write on parent dir)
+        let claudeDir = NSHomeDirectory() + "/.claude"
         let projectsPath = NSHomeDirectory() + "/.claude/projects"
 
-        // history.jsonl watcher
-        let histFD = open(historyPath, O_EVTONLY)
+        let histFD = open(claudeDir, O_EVTONLY)
         if histFD >= 0 {
             let src = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: histFD, eventMask: .write, queue: DispatchQueue.main)
+                fileDescriptor: histFD, eventMask: [.write, .link], queue: DispatchQueue.main)
             src.setEventHandler { [weak self] in self?.scheduleReload() }
             src.setCancelHandler { close(histFD) }
             src.resume()
@@ -35,7 +37,7 @@ final class ChatHistoryService: ObservableObject {
             }
         }
 
-        // projects/ directory watcher (catches new session files)
+        // projects/ directory watcher (catches new project subdirectories + session files)
         let dirFD = open(projectsPath, O_EVTONLY)
         if dirFD >= 0 {
             let src = DispatchSource.makeFileSystemObjectSource(
@@ -60,7 +62,7 @@ final class ChatHistoryService: ObservableObject {
             }
         }
         debounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     var projectsDir: URL {

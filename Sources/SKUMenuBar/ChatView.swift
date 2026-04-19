@@ -690,6 +690,10 @@ struct SingleChatSessionView: View {
             if !isStreaming && !selectedPersonaId.isEmpty && !isValidating {
                 triggerPersonaValidation()
             }
+            // Reload history so Sidebar + Verlauf reflect the completed session immediately
+            if !isStreaming {
+                Task { await state.historyService.loadProjects() }
+            }
         }
         .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
         .onChange(of: selectedModel) { tab.model = selectedModel }
@@ -2003,6 +2007,9 @@ struct SingleChatSessionView: View {
         }
         if panel.runModal() == .OK, let url = panel.url {
             workingDirectory = url.path
+            if !showFilePanel {
+                withAnimation(.spring(response: 0.3)) { showFilePanel = true }
+            }
         }
     }
 
@@ -3338,7 +3345,11 @@ struct ChatFilePanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.windowBg)
-        .onAppear { load() }
+        .onAppear {
+            // Always force-load on appear — resets guard so timing issues with animations don't skip the initial tree render
+            currentRoot = ""
+            load()
+        }
         .onChange(of: rootPath) { load() }
     }
 
