@@ -76,9 +76,6 @@ struct SidebarView: View {
                 claudeUsageWidget
                 Divider().foregroundStyle(theme.cardBorder)
 
-                // Limit Flow Bar (nur wenn kritisch)
-                limitFlowBar
-
                 // Footer
                 sidebarFooter
             }
