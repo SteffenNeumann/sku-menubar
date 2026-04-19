@@ -266,7 +266,7 @@ struct SidebarView: View {
         let weekTokens     = state.localWeekTokens
         let todayCost      = state.localTodayCost
         let weekPct        = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
-        let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : accentColor
+        let barColor: Color = accentColor
         let fallbackActive = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
         let lastProvider = state.lastChatProvider
 
@@ -409,7 +409,7 @@ struct SidebarView: View {
                         label: "Current session",
                         detail: "\(formatTokens(sessionUsed)) / \(formatTokens(sessionLimit)) tok",
                         pct: sessionPct,
-                        color: sessionPct >= 0.9 ? .red : sessionPct >= 0.7 ? .orange : accentColor,
+                        color: accentColor,
                         resetLabel: sessionResetLabel()
                     )
                 } else if sessionUsed > 0 {
@@ -432,7 +432,7 @@ struct SidebarView: View {
                         label: "Weekly limits",
                         detail: "\(formatTokens(weekUsed)) / \(formatTokens(weekLimit)) tok",
                         pct: weekPct,
-                        color: weekPct >= 0.9 ? .red : weekPct >= 0.7 ? .orange : accentColor,
+                        color: accentColor,
                         resetLabel: weekResetLabel()
                     )
                 } else if weekUsed > 0 {
@@ -455,7 +455,7 @@ struct SidebarView: View {
                         label: "Extra usage",
                         detail: String(format: "€%.0f / €%.0f", monthUsed * state.settings.eurRate, monthLimit),
                         pct: monthPct,
-                        color: monthPct >= 0.9 ? .red : monthPct >= 0.7 ? .orange : accentColor,
+                        color: accentColor,
                         resetLabel: "Reset Mai 1"
                     )
                 } else if monthUsed > 0 {
@@ -476,47 +476,30 @@ struct SidebarView: View {
     }
 
     private func planLimitRow(icon: String, label: String, detail: String, pct: Double, color: Color, resetLabel: String?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color)
-                    .frame(width: 12)
-                Text(label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 12)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+            Spacer(minLength: 2)
+            Text(detail)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            if let reset = resetLabel {
+                Text("· \(reset)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
                     .lineLimit(1)
-                Spacer(minLength: 2)
-                Text(detail)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                if let reset = resetLabel {
-                    Text("· \(reset)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.tertiaryText)
-                        .lineLimit(1)
-                }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 4)
-
-            Capsule()
-                .fill(color.opacity(0.12))
-                .frame(maxWidth: .infinity)
-                .frame(height: 3)
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(color.opacity(pct >= 0.9 ? 0.9 : 0.65))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 3)
-                        .scaleEffect(x: max(0, min(1, pct)), anchor: .leading)
-                        .animation(.spring(response: 0.5), value: pct)
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
     }
 
     private func rateLimitCountdown(_ expiry: Date) -> String {
