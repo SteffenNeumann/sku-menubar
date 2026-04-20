@@ -175,6 +175,14 @@ struct FileExplorerView: View {
     @State private var pendingNode: ExplorerNode? = nil
     @State private var showSaveToast: Bool = false
 
+    // Persona Review
+    @State private var showPersonaReview: Bool = false
+    @State private var personaReviewResult: PersonaFileReview? = nil
+    @State private var isReviewing: Bool = false
+    @State private var selectedReviewPersona: AgentDefinition? = nil
+    @State private var reviewScreenshot: NSImage? = nil
+    @State private var capturedWebView: WKWebView? = nil
+
     // Commit sheet
     @State private var showCommitSheet: Bool = false
     @State private var commitMessage: String = ""
@@ -229,10 +237,37 @@ struct FileExplorerView: View {
             // Right: preview / info panel
             VStack(spacing: 0) {
                 rightHeader
-                previewPanel
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .overlay(alignment: .bottom) {
-                        if showSaveToast {
+                ZStack(alignment: .bottom) {
+                    previewPanel
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // Persona review overlay (slides up from bottom)
+                    if showPersonaReview, let node = selectedNode {
+                        PersonaReviewOverlay(
+                            node: node,
+                            persona: selectedReviewPersona,
+                            allPersonas: state.agentService.agents.filter { $0.isPersona },
+                            result: personaReviewResult,
+                            isReviewing: isReviewing,
+                            screenshot: reviewScreenshot,
+                            onSelectPersona: { selectedReviewPersona = $0 },
+                            onReview: { triggerPersonaReview(node: node) },
+                            onSendToChat: { wish in sendReviewToChat(wish: wish, node: node) },
+                            onClose: {
+                                withAnimation(.spring(duration: 0.3)) {
+                                    showPersonaReview = false
+                                    personaReviewResult = nil
+                                    reviewScreenshot = nil
+                                }
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(10)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if showSaveToast {
                             HStack(spacing: 6) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
@@ -401,6 +436,9 @@ struct FileExplorerView: View {
                                 )
                         }
                         .buttonStyle(.plain)
+
+                        // Persona review button
+                        personaReviewButton(node: node)
                     }
                     if !node.isDirectory && node.isTextFile {
                         if isEditing {
@@ -493,6 +531,101 @@ struct FileExplorerView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
         }
+    }
+
+    // MARK: - Persona Review Helpers
+
+    @ViewBuilder
+    private func personaReviewButton(node: ExplorerNode) -> some View {
+        let personas = state.agentService.agents.filter { $0.isPersona }
+        if !personas.isEmpty {
+            Button {
+                // Auto-select default persona for this project if not yet set
+                if selectedReviewPersona == nil {
+                    func norm(_ p: String) -> String { URL(fileURLWithPath: p).standardized.path }
+                    let current = norm(rootPath)
+                    selectedReviewPersona = personas.first(where: {
+                        $0.associatedProjects.contains(where: { norm($0) == current })
+                        || $0.projectDirectory.map { norm($0) == current } == true
+                    }) ?? personas.first
+                }
+                withAnimation(.spring(duration: 0.3)) {
+                    showPersonaReview.toggle()
+                    if showPersonaReview { personaReviewResult = nil }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "theatermasks.fill")
+                        .font(.system(size: 10))
+                    Text(selectedReviewPersona?.name ?? "Bewerten")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(showPersonaReview ? accentColor : theme.secondaryText)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(
+                    showPersonaReview ? accentColor.opacity(0.12) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 5)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(showPersonaReview ? accentColor.opacity(0.3) : Color.clear, lineWidth: 0.5)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func triggerPersonaReview(node: ExplorerNode) {
+        guard let persona = selectedReviewPersona else { return }
+        isReviewing = true
+        personaReviewResult = nil
+
+        // Capture screenshot for display only (thumbnail in overlay — NOT passed to CLI)
+        if showLivePreview, let wv = capturedWebView {
+            wv.takeSnapshot(with: WKSnapshotConfiguration()) { [weak wv] img, _ in
+                _ = wv
+                DispatchQueue.main.async { self.reviewScreenshot = img }
+            }
+        }
+
+        // Read file content for Claude
+        let fileContent: String
+        if let text = previewText {
+            fileContent = text
+        } else if let text = try? String(contentsOf: node.url, encoding: .utf8) {
+            fileContent = text
+        } else {
+            fileContent = "(Binärdatei – keine Textvorschau verfügbar)"
+        }
+
+        let fileName = node.name
+
+        Task {
+            let result = await state.agentService.reviewFileWithPersona(
+                persona: persona,
+                fileName: fileName,
+                fileContent: fileContent
+            )
+            await MainActor.run {
+                isReviewing = false
+                switch result {
+                case .success(let review): personaReviewResult = review
+                case .failure(let err): print("Persona review error: \(err)")
+                }
+            }
+        }
+    }
+
+    private func sendReviewToChat(wish: String, node: ExplorerNode) {
+        guard let persona = selectedReviewPersona else { return }
+        let contextMsg = "[\(persona.name) zu \(node.name)]: \(wish)"
+        var newTab = ChatTab(title: "\(persona.name) · \(node.name)")
+        newTab.workingDirectory = rootPath
+        newTab.agentId = persona.id
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
+        state.pendingChatMessage = contextMsg
+        state.pendingNavigateToChat = true
     }
 
     // MARK: - Tree Panel
@@ -783,7 +916,8 @@ struct FileExplorerView: View {
                     sourceURL: node.url,
                     accessRoot: URL(fileURLWithPath: rootPath),
                     highlightLine: editorHoveredLine,
-                    onPreviewHover: { line in previewHoveredLine = line }
+                    onPreviewHover: { line in previewHoveredLine = line },
+                    onWebViewCreated: { wv in capturedWebView = wv }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1428,6 +1562,8 @@ struct WebPreviewView: NSViewRepresentable {
         }
     }
 
+    var onWebViewCreated: ((WKWebView) -> Void)? = nil
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -1443,6 +1579,7 @@ struct WebPreviewView: NSViewRepresentable {
         if #available(macOS 14.0, *) {
             webView.underPageBackgroundColor = .clear
         }
+        onWebViewCreated?(webView)
         return webView
     }
 
@@ -1492,6 +1629,245 @@ struct WebPreviewView: NSViewRepresentable {
             result.append(modified)
         }
         return result.joined(separator: "\n")
+    }
+}
+
+// MARK: - Persona Review Overlay
+
+struct PersonaReviewOverlay: View {
+    let node: ExplorerNode
+    var persona: AgentDefinition?
+    let allPersonas: [AgentDefinition]
+    let result: PersonaFileReview?
+    let isReviewing: Bool
+    let screenshot: NSImage?
+    let onSelectPersona: (AgentDefinition) -> Void
+    let onReview: () -> Void
+    let onSendToChat: (String) -> Void
+    let onClose: () -> Void
+
+    @Environment(\.appTheme) var theme
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Handle bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(theme.cardBorder)
+                .frame(width: 36, height: 4)
+                .padding(.top, 8)
+
+            // Header row
+            HStack(spacing: 10) {
+                Image(systemName: "theatermasks.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(accentColor)
+                Text("Persona Bewertung")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+
+                // Persona picker
+                if !allPersonas.isEmpty {
+                    Menu {
+                        ForEach(allPersonas) { p in
+                            Button {
+                                onSelectPersona(p)
+                            } label: {
+                                HStack {
+                                    if persona?.id == p.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                    Text(p.name)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 10))
+                            Text(persona?.name ?? "Persona wählen")
+                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9))
+                        }
+                        .foregroundStyle(persona != nil ? accentColor : theme.secondaryText)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(
+                            (persona != nil ? accentColor.opacity(0.1) : theme.cardSurface),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(persona != nil ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5)
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+
+                // Review button
+                Button {
+                    onReview()
+                } label: {
+                    HStack(spacing: 5) {
+                        if isReviewing {
+                            ProgressView().scaleEffect(0.6).frame(width: 12, height: 12)
+                            Text("Bewertet…")
+                        } else {
+                            Image(systemName: "sparkles")
+                            Text(result == nil ? "Jetzt bewerten" : "Neu bewerten")
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(persona != nil && !isReviewing ? .white : theme.secondaryText)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(
+                        persona != nil && !isReviewing ? accentColor : theme.cardSurface,
+                        in: RoundedRectangle(cornerRadius: 7)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(persona == nil || isReviewing)
+
+                Button { onClose() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 10)
+
+            Divider()
+
+            // Result area
+            if let r = result {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 14) {
+                        // Rating + summary
+                        HStack(alignment: .top, spacing: 14) {
+                            // Screenshot thumbnail
+                            if let img = screenshot {
+                                Image(nsImage: img)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 80, height: 54)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    // Rating circles
+                                    HStack(spacing: 3) {
+                                        ForEach(0..<10, id: \.self) { i in
+                                            Circle()
+                                                .fill(i < r.rating ? r.ratingColor : theme.cardBorder)
+                                                .frame(width: 8, height: 8)
+                                        }
+                                    }
+                                    Text("\(r.rating)/10")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(r.ratingColor)
+                                }
+                                Text(r.summary)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .lineLimit(3)
+                            }
+                        }
+
+                        Divider()
+
+                        // Three columns: liked / disliked / wishes
+                        HStack(alignment: .top, spacing: 12) {
+                            reviewColumn(icon: "hand.thumbsup.fill", color: .green,
+                                         title: "Gefällt mir", items: r.liked, sendable: false)
+                            reviewColumn(icon: "hand.thumbsdown.fill", color: .red,
+                                         title: "Gefällt nicht", items: r.disliked, sendable: false)
+                            reviewColumn(icon: "lightbulb.fill", color: accentColor,
+                                         title: "Wünsche", items: r.wishes, sendable: true)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+            } else if !isReviewing {
+                // Empty state
+                VStack(spacing: 8) {
+                    Image(systemName: "theatermasks")
+                        .font(.system(size: 28))
+                        .foregroundStyle(theme.tertiaryText)
+                    Text(persona == nil
+                         ? "Wähle eine Persona aus um die Bewertung zu starten"
+                         : "Klicke auf \"Jetzt bewerten\" um \(persona!.name) zu fragen")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                // Loading state
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("\(persona?.name ?? "Persona") bewertet…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            }
+        }
+        .background(theme.windowBg)
+        .overlay(alignment: .top) {
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+        }
+        .frame(maxHeight: result != nil ? 320 : 160)
+        .shadow(color: .black.opacity(0.2), radius: 12, y: -4)
+    }
+
+    @ViewBuilder
+    private func reviewColumn(icon: String, color: Color, title: String, items: [String], sendable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 10)).foregroundStyle(color)
+                Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.secondaryText)
+            }
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("•")
+                        .font(.system(size: 11))
+                        .foregroundStyle(color.opacity(0.7))
+                    Text(item)
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if sendable {
+                        Spacer(minLength: 0)
+                        Button {
+                            onSendToChat(item)
+                        } label: {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(color.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("In Chat senden")
+                    }
+                }
+                .padding(6)
+                .background(color.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 

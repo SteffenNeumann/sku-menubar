@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 final class AgentService: ObservableObject {
@@ -102,6 +103,12 @@ final class AgentService: ObservableObject {
         let priorities      = fields["priorities"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let dealbreakers    = fields["dealbreakers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let tone            = fields["tone"].flatMap { $0.isEmpty ? nil : $0 }
+        let associatedProjects = fields["associated_projects"].map {
+            $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        } ?? []
+
+        let agentId = url.deletingPathExtension().lastPathComponent
+        let contextImages = loadContextImages(for: agentId)
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
@@ -123,7 +130,7 @@ final class AgentService: ObservableObject {
         }
 
         return AgentDefinition(
-            id: url.deletingPathExtension().lastPathComponent,
+            id: agentId,
             name: name,
             description: description,
             model: model,
@@ -144,7 +151,9 @@ final class AgentService: ObservableObject {
             techLevel: techLevel,
             priorities: priorities,
             dealbreakers: dealbreakers,
-            tone: tone
+            tone: tone,
+            associatedProjects: associatedProjects,
+            contextImages: contextImages
         )
     }
 
@@ -170,6 +179,9 @@ final class AgentService: ObservableObject {
         if !draft.priorities.isEmpty      { lines.append("priorities: \(draft.priorities)") }
         if !draft.dealbreakers.isEmpty    { lines.append("dealbreakers: \(draft.dealbreakers)") }
         if draft.tone != "formal"         { lines.append("tone: \(draft.tone)") }
+        if !draft.associatedProjects.isEmpty {
+            lines.append("associated_projects: \(draft.associatedProjects.joined(separator: ", "))")
+        }
         lines.append("---")
         if !draft.promptBody.isEmpty {
             lines.append("")
@@ -205,11 +217,73 @@ final class AgentService: ObservableObject {
         let content = previewAgentFile(draft)
         try content.write(to: newURL, atomically: true, encoding: .utf8)
 
+        // Migrate context images sidecar if renaming
+        if let prevId = previousId, prevId != agentId {
+            let oldSidecar = agentsDir.appendingPathComponent("\(prevId)-images.json")
+            let newSidecar = agentsDir.appendingPathComponent("\(agentId)-images.json")
+            try? fm.moveItem(at: oldSidecar, to: newSidecar)
+            let oldImgDir = agentsDir.appendingPathComponent("images/\(prevId)")
+            let newImgDir = agentsDir.appendingPathComponent("images/\(agentId)")
+            try? fm.moveItem(at: oldImgDir, to: newImgDir)
+        }
+
+        try saveContextImages(draft.contextImages, for: agentId)
+
         await loadAgents()
         guard let saved = agents.first(where: { $0.id == agentId }) else {
             throw AgentError.saveError("Agent konnte nach dem Speichern nicht geladen werden.")
         }
         return saved
+    }
+
+    // MARK: - Context Images
+
+    func imagesDir(for agentId: String) -> URL {
+        agentsDir.appendingPathComponent("images/\(agentId)")
+    }
+
+    func loadContextImages(for agentId: String) -> [PersonaContextImage] {
+        let sidecar = agentsDir.appendingPathComponent("\(agentId)-images.json")
+        guard let data = try? Data(contentsOf: sidecar),
+              let images = try? JSONDecoder().decode([PersonaContextImage].self, from: data) else {
+            return []
+        }
+        return images
+    }
+
+    func saveContextImages(_ images: [PersonaContextImage], for agentId: String) throws {
+        let sidecar = agentsDir.appendingPathComponent("\(agentId)-images.json")
+        if images.isEmpty {
+            try? FileManager.default.removeItem(at: sidecar)
+            return
+        }
+        let data = try JSONEncoder().encode(images)
+        try data.write(to: sidecar, options: .atomic)
+    }
+
+    func saveContextImage(_ image: NSImage, agentId: String) throws -> PersonaContextImage {
+        let fm = FileManager.default
+        let dir = imagesDir(for: agentId)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let filename = "\(UUID().uuidString).jpg"
+        let fileURL = dir.appendingPathComponent(filename)
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
+            throw AgentError.saveError("Bild konnte nicht konvertiert werden.")
+        }
+        try jpegData.write(to: fileURL)
+        return PersonaContextImage(filename: filename, description: "")
+    }
+
+    func deleteContextImage(_ image: PersonaContextImage, agentId: String) {
+        let fileURL = imagesDir(for: agentId).appendingPathComponent(image.filename)
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    func loadContextImageData(_ image: PersonaContextImage, agentId: String) -> NSImage? {
+        let fileURL = imagesDir(for: agentId).appendingPathComponent(image.filename)
+        return NSImage(contentsOf: fileURL)
     }
 
     // MARK: - Delete
@@ -592,7 +666,8 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                     systemPrompt: instructions.isEmpty ? nil : instructions,
                     model: agent.model.isEmpty ? nil : agent.model,
                     workingDirectory: agent.projectDirectory,
-                    skipPermissions: true
+                    skipPermissions: true,
+                    maxTurns: 50
                 )
             }
             let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -888,6 +963,88 @@ Antworte NUR als valides JSON in diesem exakten Format:
             return .failure(error)
         }
     }
+
+    // MARK: - Persona File Review
+
+    func reviewFileWithPersona(
+        persona: AgentDefinition,
+        fileName: String,
+        fileContent: String
+    ) async -> Result<PersonaFileReview, Error> {
+        let systemPrompt = persona.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Build context from persona's context images (descriptions only)
+        var imageContext = ""
+        if !persona.contextImages.isEmpty {
+            let descs = persona.contextImages
+                .filter { !$0.description.isEmpty }
+                .map { "- \($0.description)" }
+                .joined(separator: "\n")
+            if !descs.isEmpty {
+                imageContext = "\n\nVisueller Kontext über dich:\n\(descs)"
+            }
+        }
+
+        let prompt = """
+Du bist \(persona.name). Bewerte die folgende Webseite / Datei aus deiner persönlichen Perspektive.
+\(imageContext)
+
+Datei: \(fileName)
+
+Inhalt:
+\(fileContent.prefix(8000))
+
+Antworte NUR als valides JSON in exakt diesem Format (auf Deutsch, aus deiner Ich-Perspektive):
+{
+  "rating": <0-10>,
+  "liked": ["<was dir gefällt>", ...],
+  "disliked": ["<was dir nicht gefällt>", ...],
+  "wishes": ["<konkreter Wunsch / Verbesserung>", ...],
+  "summary": "<2-3 Sätze persönliches Fazit>"
+}
+
+Wichtig:
+- Mindestens 2 Einträge pro Liste
+- Wünsche sollen konkret und umsetzbar sein
+- Sprich in der Ich-Form, als wärst du der Kunde
+"""
+
+        var raw = ""
+        do {
+            guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
+            let sp = systemPrompt.isEmpty ? nil : systemPrompt
+            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet")
+            for try await event in stream {
+                if event.type == "assistant" {
+                    if let contents = event.message?.content {
+                        for c in contents where c.type == "text" { raw += c.text ?? "" }
+                    }
+                }
+            }
+            let jsonStr: String
+            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
+                jsonStr = String(raw[start.lowerBound...end.upperBound])
+            } else {
+                jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard let data = jsonStr.data(using: .utf8),
+                  let obj = try? JSONDecoder().decode(ReviewJSON.self, from: data) else {
+                throw AgentError.saveError("Ungültige JSON-Antwort vom Review")
+            }
+            return .success(PersonaFileReview(
+                personaId: persona.id,
+                personaName: persona.name,
+                rating: max(0, min(10, obj.rating)),
+                liked: obj.liked,
+                disliked: obj.disliked,
+                wishes: obj.wishes,
+                summary: obj.summary,
+                createdAt: Date()
+            ))
+        } catch {
+            return .failure(error)
+        }
+    }
 }
 
 // MARK: - Validation JSON helper
@@ -899,6 +1056,14 @@ private struct ValidationJSON: Decodable {
     let strengths: [String]
     let weaknesses: [String]
     let recommendation: String
+}
+
+private struct ReviewJSON: Decodable {
+    let rating: Int
+    let liked: [String]
+    let disliked: [String]
+    let wishes: [String]
+    let summary: String
 }
 
 // MARK: - Errors

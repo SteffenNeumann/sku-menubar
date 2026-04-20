@@ -458,6 +458,9 @@ struct AgentDefinition: Identifiable, Hashable {
     let priorities: [String]
     let dealbreakers: [String]
     let tone: String?           // "formal" | "informal"
+    // Persona review context
+    let associatedProjects: [String]        // project paths this persona is linked to
+    let contextImages: [PersonaContextImage] // visual context for reviews
 
     var isPersona: Bool { category == "persona" }
 
@@ -565,6 +568,9 @@ struct AgentDraft {
     var priorities: String = ""    // comma-separated
     var dealbreakers: String = ""  // comma-separated
     var tone: String = "formal"
+    // Persona review context
+    var associatedProjects: [String] = []
+    var contextImages: [PersonaContextImage] = []
 
     var isPersona: Bool { category == "persona" }
 
@@ -591,6 +597,8 @@ struct AgentDraft {
         priorities   = agent.priorities.joined(separator: ", ")
         dealbreakers = agent.dealbreakers.joined(separator: ", ")
         tone         = agent.tone ?? "formal"
+        associatedProjects = agent.associatedProjects
+        contextImages      = agent.contextImages
     }
 }
 
@@ -640,6 +648,36 @@ struct PersonaValidationResult: Identifiable {
 
     var scoreColor: Color {
         switch score {
+        case 8...10: return .green
+        case 5...7:  return .orange
+        default:     return .red
+        }
+    }
+}
+
+// MARK: - Persona Context Image
+
+struct PersonaContextImage: Codable, Identifiable, Equatable, Hashable {
+    var id: String = UUID().uuidString
+    var filename: String       // stored in ~/.claude/agents/images/<agentId>/
+    var description: String    // "Das bist du", "Dein Studio", "Moodboard"
+}
+
+// MARK: - Persona File Review
+
+struct PersonaFileReview: Identifiable {
+    let id = UUID()
+    let personaId: String
+    let personaName: String
+    let rating: Int            // 0–10
+    let liked: [String]
+    let disliked: [String]
+    let wishes: [String]
+    let summary: String
+    let createdAt: Date
+
+    var ratingColor: Color {
+        switch rating {
         case 8...10: return .green
         case 5...7:  return .orange
         default:     return .red

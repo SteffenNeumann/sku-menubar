@@ -31,6 +31,13 @@ struct MainWindowView: View {
                 selectedSection = .chat
             }
         }
+        .onChange(of: state.pendingNavigateToChat) { _, navigate in
+            if navigate {
+                state.pendingNavigateToChat = false
+                columnVisibility = .all
+                selectedSection = .chat
+            }
+        }
         .onChange(of: state.hideSidebar) { _, hidden in
             withAnimation { columnVisibility = hidden ? .detailOnly : .all }
         }

@@ -24,7 +24,8 @@ final class ClaudeCLIService: ObservableObject {
         addDirs: [String] = [],
         skipPermissions: Bool = false,
         maxTurns: Int? = nil,
-        mcpConfigJSON: String? = nil   // wenn gesetzt: --strict-mcp-config + --mcp-config <json>
+        mcpConfigJSON: String? = nil,   // wenn gesetzt: --strict-mcp-config + --mcp-config <json>
+        imagePaths: [String] = []       // optional image files to attach (for persona reviews)
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -58,6 +59,9 @@ final class ClaudeCLIService: ObservableObject {
                 }
                 for dir in addDirs where !dir.isEmpty {
                     args += ["--add-dir", dir]
+                }
+                for imgPath in imagePaths where !imgPath.isEmpty {
+                    args += ["--image", imgPath]
                 }
                 guard !message.isEmpty else {
                     continuation.finish(throwing: NSError(domain: "ClaudeCLI", code: -1,

@@ -2,6 +2,12 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 // MARK: - Safe resource bundle accessor
 // Bundle.module crashes when SKUMenuBar_myClaude.bundle is not found at the
 // hardcoded build path (breaks in distributed .app builds). This accessor
@@ -1942,6 +1948,7 @@ private struct EmailLearningSheet: View {
 // MARK: - Persona Editor Sheet
 
 struct PersonaEditorSheet: View {
+    @EnvironmentObject var state: AppState
     @Binding var draft: AgentDraft
     let title: String
     let theme: AppTheme
@@ -2050,58 +2057,6 @@ struct PersonaEditorSheet: View {
                                     .textFieldStyle(.roundedBorder)
                             }
                         }
-
-                        // Project directory
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("PROJEKT-VERZEICHNIS")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(theme.tertiaryText).kerning(0.5)
-                            HStack(spacing: 8) {
-                                TextField("/Users/…/mein-projekt", text: $draft.projectDirectory)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 13, design: .monospaced))
-                                Button {
-                                    let panel = NSOpenPanel()
-                                    panel.canChooseDirectories = true
-                                    panel.canChooseFiles = false
-                                    panel.allowsMultipleSelection = false
-                                    panel.prompt = "Auswählen"
-                                    if let dir = draft.projectDirectory.isEmpty ? nil : URL(fileURLWithPath: draft.projectDirectory),
-                                       FileManager.default.fileExists(atPath: dir.path) {
-                                        panel.directoryURL = dir
-                                    }
-                                    if panel.runModal() == .OK, let url = panel.url {
-                                        draft.projectDirectory = url.path
-                                    }
-                                } label: {
-                                    Image(systemName: "folder.badge.plus")
-                                        .font(.system(size: 14))
-                                }
-                                .buttonStyle(.bordered)
-                                .help("Projektordner auswählen")
-                                if !draft.projectDirectory.isEmpty {
-                                    Button {
-                                        draft.projectDirectory = ""
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(theme.tertiaryText)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Projekt entfernen")
-                                }
-                            }
-                            if !draft.projectDirectory.isEmpty {
-                                Label(URL(fileURLWithPath: draft.projectDirectory).lastPathComponent,
-                                      systemImage: "folder.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(personaColor)
-                            } else {
-                                Text("Optional — Persona arbeitet dann im Kontext dieses Projekts")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(theme.tertiaryText)
-                            }
-                        }
                     }
 
                     // Requirements section
@@ -2115,6 +2070,149 @@ struct PersonaEditorSheet: View {
                             TextField("keine API, fehlende Dokumentation", text: $draft.dealbreakers, axis: .vertical)
                                 .textFieldStyle(.roundedBorder)
                                 .lineLimit(2...3)
+                        }
+                    }
+
+                    // Associated Projects section (replaces single projectDirectory for personas)
+                    cardSection(icon: "folder.badge.person.crop", title: "Zugehörige Projekte") {
+                        Text("Diese Persona wird in diesen Projekten als Standard vorgeschlagen.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+
+                        // Existing chips
+                        if !draft.associatedProjects.isEmpty {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(draft.associatedProjects.enumerated()), id: \.offset) { idx, path in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(personaColor)
+                                        Text(URL(fileURLWithPath: path).lastPathComponent)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(theme.primaryText)
+                                            .lineLimit(1)
+                                        Button {
+                                            draft.associatedProjects.remove(at: idx)
+                                        } label: {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundStyle(theme.secondaryText)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(personaColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(personaColor.opacity(0.2), lineWidth: 0.5))
+                                    .help(path)
+                                }
+                            }
+                        }
+
+                        // Add project button
+                        Button {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.allowsMultipleSelection = false
+                            panel.prompt = "Hinzufügen"
+                            if panel.runModal() == .OK, let url = panel.url {
+                                if !draft.associatedProjects.contains(url.path) {
+                                    draft.associatedProjects.append(url.path)
+                                }
+                            }
+                        } label: {
+                            Label("Projekt hinzufügen", systemImage: "folder.badge.plus")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    // Context Images section
+                    cardSection(icon: "photo.stack.fill", title: "Visueller Kontext") {
+                        Text("Bilder mit Beschreibung — die Persona nutzt diesen Kontext bei Bewertungen (z. B. \"Das bist du\", \"Dein Studio\").")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+
+                        if !draft.contextImages.isEmpty {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 10)], spacing: 10) {
+                                ForEach(Array(draft.contextImages.enumerated()), id: \.element.id) { idx, img in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ZStack(alignment: .topTrailing) {
+                                            if let nsImg = state.agentService.loadContextImageData(img, agentId: draft.id) {
+                                                Image(nsImage: nsImg)
+                                                    .resizable()
+                                                    .aspectRatio(contentMode: .fill)
+                                                    .frame(height: 90)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                            } else {
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(theme.cardSurface)
+                                                    .frame(height: 90)
+                                                    .overlay(
+                                                        Image(systemName: "photo")
+                                                            .font(.system(size: 20))
+                                                            .foregroundStyle(theme.tertiaryText)
+                                                    )
+                                            }
+                                            Button {
+                                                state.agentService.deleteContextImage(img, agentId: draft.id)
+                                                draft.contextImages.remove(at: idx)
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 16))
+                                                    .foregroundStyle(.white)
+                                                    .shadow(radius: 2)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .padding(4)
+                                        }
+                                        TextField("Beschreibung…", text: Binding(
+                                            get: { draft.contextImages[safe: idx]?.description ?? "" },
+                                            set: { if draft.contextImages.indices.contains(idx) { draft.contextImages[idx].description = $0 } }
+                                        ))
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11))
+                                    }
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                                            .padding(-1)
+                                    )
+                                }
+                            }
+                        }
+
+                        Button {
+                            let panel = NSOpenPanel()
+                            panel.canChooseFiles = true
+                            panel.canChooseDirectories = false
+                            panel.allowsMultipleSelection = true
+                            panel.allowedContentTypes = [.jpeg, .png, .webP, .tiff, .gif]
+                            panel.prompt = "Hinzufügen"
+                            if panel.runModal() == .OK {
+                                for url in panel.urls {
+                                    guard let nsImg = NSImage(contentsOf: url) else { continue }
+                                    do {
+                                        var contextImg = try state.agentService.saveContextImage(nsImg, agentId: draft.id)
+                                        contextImg.description = url.deletingPathExtension().lastPathComponent
+                                        draft.contextImages.append(contextImg)
+                                    } catch {
+                                        print("Fehler beim Speichern des Bildes: \(error)")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Bild hochladen", systemImage: "photo.badge.plus")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(draft.id.isEmpty)
+                        if draft.id.isEmpty {
+                            Text("Bitte zuerst eine Kennung vergeben.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
                         }
                     }
 
@@ -2697,6 +2795,11 @@ private struct AgentEditorSheet: View {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
             process.arguments = ["-lc", "claude -p \(userPrompt.shellQuoted)"]
+            var env = ProcessInfo.processInfo.environment
+            env.removeValue(forKey: "ANTHROPIC_BASE_URL")
+            env.removeValue(forKey: "ANTHROPIC_API_KEY")
+            env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
+            process.environment = env
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = Pipe()

@@ -98,6 +98,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
     @Published var pendingChatMessage: String? = nil      // pre-fill chat input + navigate to chat
+    @Published var pendingNavigateToChat: Bool = false    // trigger navigation to chat section
     @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
     @Published var hideSidebar: Bool = false               // hide the main navigation sidebar
 
