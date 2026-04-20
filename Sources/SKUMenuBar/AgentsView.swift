@@ -995,8 +995,19 @@ struct AgentsView: View {
             onDelete: { pendingDeleteAgent = persona },
             onDuplicate: { duplicateAgent(persona) },
             onMemory: { memoryAgent = persona },
-            onLearn: { emailLearningPersona = persona }
+            onLearn: { emailLearningPersona = persona },
+            onChat: { openChatWithPersona(persona) }
         )
+    }
+
+    private func openChatWithPersona(_ persona: AgentDefinition) {
+        let displayName = persona.customerName ?? persona.name
+        var newTab = ChatTab(title: displayName)
+        newTab.agentId = persona.id
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
+        state.pendingChatMessage = "Hallo \(displayName)!"
+        state.pendingNavigateToChat = true
     }
 
     private func agentCard(_ agent: AgentDefinition) -> some View {
@@ -1402,6 +1413,7 @@ private struct PersonaCard: View {
     let onDuplicate: () -> Void
     let onMemory: () -> Void
     let onLearn: () -> Void
+    let onChat: () -> Void
 
     @State private var hovered = false
     @State private var hoveredAction: String? = nil
@@ -1606,6 +1618,8 @@ private struct PersonaCard: View {
             // Action bar
             Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
             HStack(spacing: 0) {
+                barBtn(id: "chat",    icon: "bubble.left.fill",  action: onChat)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 barBtn(id: "edit",    icon: "wand.and.stars",  action: onEdit)
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 barBtn(id: "learn",   icon: "envelope.badge.fill", action: onLearn)
