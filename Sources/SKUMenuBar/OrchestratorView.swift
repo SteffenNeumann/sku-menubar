@@ -21,6 +21,7 @@ struct OrchestratorSubtask: Identifiable {
     let agentName: String
     let task: String
     let rationale: String
+    let dependsOn: [String]   // ids of subtasks that must finish before this one starts
     var output: String = ""
     var isStreaming: Bool = false
     var isDone: Bool = false
@@ -920,9 +921,11 @@ struct OrchestratorView: View {
         }.joined(separator: "\n")
 
         let prompt = """
-Du bist ein präziser Task-Planner. Analysiere den Task und teile ihn in 2-5 sinnvolle, \
-unabhängig ausführbare Subtasks auf. Jeder Subtask geht an den am besten geeigneten Agent. \
-Nutze jeden Agent höchstens einmal.
+Du bist ein präziser Task-Planner. Analysiere den Task und teile ihn in 2-5 sinnvolle Subtasks auf. \
+Jeder Subtask geht an den am besten geeigneten Agent. Nutze jeden Agent höchstens einmal.
+
+Wichtig: Wenn ein Subtask die Ergebnisse eines anderen benötigt, trage dessen id in "dependsOn" ein. \
+Subtasks ohne Abhängigkeiten laufen parallel — setze dependsOn nur wenn wirklich nötig.
 
 Verfügbare Agents:
 \(agentLines)
@@ -938,7 +941,8 @@ Antworte AUSSCHLIESSLICH mit validem JSON, kein Markdown, kein erklärender Text
       "agentId": "agent-id-oder-leer-für-plain-claude",
       "agentName": "Agent Name",
       "task": "Spezifischer, detaillierter Subtask für diesen Agent",
-      "rationale": "Warum dieser Agent für diesen Subtask ideal ist"
+      "rationale": "Warum dieser Agent für diesen Subtask ideal ist",
+      "dependsOn": []
     }
   ]
 }
@@ -980,7 +984,8 @@ Antworte AUSSCHLIESSLICH mit validem JSON, kein Markdown, kein erklärender Text
             let arr  = obj["subtasks"] as? [[String: Any]]
         else {
             subtasks = [OrchestratorSubtask(id: "1", agentId: "", agentName: "Claude",
-                                            task: masterTask, rationale: "Direktausführung")]
+                                            task: masterTask, rationale: "Direktausführung",
+                                            dependsOn: [])]
             planDescription = "Direkte Ausführung (Planner-Output konnte nicht geparst werden)"
             phase = .planReady
             return
@@ -991,12 +996,15 @@ Antworte AUSSCHLIESSLICH mit validem JSON, kein Markdown, kein erklärender Text
             guard let id = d["id"] as? String, let agentId = d["agentId"] as? String,
                   let agentName = d["agentName"] as? String, let task = d["task"] as? String
             else { return nil }
+            let deps = d["dependsOn"] as? [String] ?? []
             return OrchestratorSubtask(id: id, agentId: agentId, agentName: agentName,
-                                       task: task, rationale: d["rationale"] as? String ?? "")
+                                       task: task, rationale: d["rationale"] as? String ?? "",
+                                       dependsOn: deps)
         }
         if subtasks.isEmpty {
             subtasks = [OrchestratorSubtask(id: "1", agentId: "", agentName: "Claude",
-                                            task: masterTask, rationale: "Fallback")]
+                                            task: masterTask, rationale: "Fallback",
+                                            dependsOn: [])]
         }
         phase = .planReady
     }
@@ -1014,10 +1022,41 @@ Antworte AUSSCHLIESSLICH mit validem JSON, kein Markdown, kein erklärender Text
     @MainActor
     private func runSubtask(index: Int) async {
         guard index < subtasks.count else { return }
-        subtasks[index].isStreaming = true
         let subtask = subtasks[index]
-        let stream  = state.cliService.send(
-            message:   subtask.task,
+
+        // Wait for all declared dependencies to finish
+        if !subtask.dependsOn.isEmpty {
+            while true {
+                let pending = subtask.dependsOn.filter { depId in
+                    !(subtasks.first(where: { $0.id == depId })?.isDone ?? true)
+                }
+                if pending.isEmpty { break }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
+
+        subtasks[index].isStreaming = true
+
+        // Build message: inject predecessor outputs so this agent can build on them
+        var message = subtask.task
+        let predecessorSections = subtask.dependsOn.compactMap { depId -> String? in
+            guard let dep = subtasks.first(where: { $0.id == depId }), !dep.output.isEmpty else { return nil }
+            return "## Ergebnis von \(dep.agentName)\n\(dep.output)"
+        }
+        if !predecessorSections.isEmpty {
+            message = """
+Kontext aus vorherigen Schritten:
+
+\(predecessorSections.joined(separator: "\n\n---\n\n"))
+
+---
+
+Deine Aufgabe: \(subtask.task)
+"""
+        }
+
+        let stream = state.cliService.send(
+            message:   message,
             agentName: subtask.agentId.isEmpty ? nil : subtask.agentId,
             model:     "claude-sonnet-4-6"
         )
