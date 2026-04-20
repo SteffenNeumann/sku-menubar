@@ -253,6 +253,7 @@ struct FileExplorerView: View {
                             onSelectPersona: { selectedReviewPersona = $0 },
                             onReview: { triggerPersonaReview(node: node) },
                             onSendToChat: { wish in sendReviewToChat(wish: wish, node: node) },
+                            onStartChat: { startChatFromReview(node: node) },
                             onClose: {
                                 withAnimation(.spring(duration: 0.3)) {
                                     showPersonaReview = false
@@ -625,6 +626,22 @@ struct FileExplorerView: View {
         state.chatTabs.append(newTab)
         state.selectedChatTabIndex = state.chatTabs.count - 1
         state.pendingChatMessage = contextMsg
+        state.pendingNavigateToChat = true
+    }
+
+    private func startChatFromReview(node: ExplorerNode) {
+        guard let persona = selectedReviewPersona, let r = personaReviewResult else { return }
+        let displayName = persona.customerName ?? persona.name
+        var summary = "Ich habe gerade \(node.name) bewertet (\(r.rating)/10).\n\n"
+        if !r.liked.isEmpty   { summary += "Was mir gefällt:\n" + r.liked.map { "• \($0)" }.joined(separator: "\n") + "\n\n" }
+        if !r.disliked.isEmpty { summary += "Was mich stört:\n" + r.disliked.map { "• \($0)" }.joined(separator: "\n") + "\n\n" }
+        if !r.wishes.isEmpty  { summary += "Meine Wünsche:\n" + r.wishes.map { "• \($0)" }.joined(separator: "\n") }
+        var newTab = ChatTab(title: "\(displayName) · Gespräch")
+        newTab.workingDirectory = rootPath
+        newTab.agentId = persona.id
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
+        state.pendingChatMessage = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         state.pendingNavigateToChat = true
     }
 
@@ -1644,6 +1661,7 @@ struct PersonaReviewOverlay: View {
     let onSelectPersona: (AgentDefinition) -> Void
     let onReview: () -> Void
     let onSendToChat: (String) -> Void
+    let onStartChat: () -> Void
     let onClose: () -> Void
 
     @Environment(\.appTheme) var theme
@@ -1732,6 +1750,21 @@ struct PersonaReviewOverlay: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(persona == nil || isReviewing)
+
+                if result != nil {
+                    Button { onStartChat() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bubble.left.fill")
+                            Text("Gespräch")
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 Button { onClose() } label: {
                     Image(systemName: "xmark")
