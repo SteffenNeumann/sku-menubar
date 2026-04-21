@@ -1019,17 +1019,20 @@ Wichtig:
                     if let contents = event.message?.content {
                         for c in contents where c.type == "text" { raw += c.text ?? "" }
                     }
+                } else if event.type == "result", let resultText = event.result, !resultText.isEmpty {
+                    // Fallback: CLI liefert Gesamttext im result-Event
+                    if raw.isEmpty { raw = resultText }
                 }
             }
             let jsonStr: String
             if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
-                jsonStr = String(raw[start.lowerBound...end.upperBound])
+                jsonStr = String(raw[start.lowerBound..<end.upperBound])
             } else {
                 jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard let data = jsonStr.data(using: .utf8),
                   let obj = try? JSONDecoder().decode(ReviewJSON.self, from: data) else {
-                throw AgentError.saveError("Ungültige JSON-Antwort vom Review")
+                throw AgentError.saveError("KI-Antwort konnte nicht geparst werden (kein gültiges JSON). Bitte erneut versuchen.")
             }
             return .success(PersonaFileReview(
                 personaId: persona.id,

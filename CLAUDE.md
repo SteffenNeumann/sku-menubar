@@ -10,7 +10,7 @@ veralteten Builds ohne Fehlermeldung — ein nicht sichtbares Versionierungs-Pro
 
 ---
 
-## Deploy-Workflow (4 Schritte — immer alle 4)
+## Deploy-Workflow (5 Schritte — immer alle 5)
 
 ```bash
 # 1. Vor dem Deploy: Git-Stand prüfen
@@ -20,15 +20,21 @@ git log --oneline -5
 # 2. App beenden
 pkill -f myClaude 2>/dev/null; sleep 0.3
 
-# 3. Release-Build (aus dem Projekt-Root)
+# 3. BuildInfo aktualisieren (SHA + Timestamp in der Sidebar)
+bash tools/gen-buildinfo.sh
+
+# 4. Release-Build (aus dem Projekt-Root)
 swift build -c release
 
-# 4. Binary kopieren + App starten
+# 5. Binary kopieren + App starten
 cp .build/arm64-apple-macosx/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
 open ~/Applications/myClaude.app
+
+# 6. Gitstamp aktualisieren (Timestamp in der Sidebar)
+printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
 ```
 
-**Schritt 4 niemals weglassen** — die App muss neu aus dem Dock gestartet werden.
+**Schritte 3 und 6 niemals weglassen** — BuildInfo.swift muss vor dem Build generiert sein, damit SHA und Datum korrekt in die App kompiliert werden.
 
 ---
 

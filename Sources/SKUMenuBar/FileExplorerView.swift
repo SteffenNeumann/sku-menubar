@@ -182,6 +182,7 @@ struct FileExplorerView: View {
     @State private var selectedReviewPersona: AgentDefinition? = nil
     @State private var reviewScreenshot: NSImage? = nil
     @State private var capturedWebView: WKWebView? = nil
+    @State private var reviewError: String? = nil
 
     // Commit sheet
     @State private var showCommitSheet: Bool = false
@@ -250,18 +251,27 @@ struct FileExplorerView: View {
                             result: personaReviewResult,
                             isReviewing: isReviewing,
                             screenshot: reviewScreenshot,
+                            reviewError: reviewError,
                             onSelectPersona: { selectedReviewPersona = $0 },
-                            onReview: { triggerPersonaReview(node: node) },
+                            onReview: {
+                                reviewError = nil
+                                triggerPersonaReview(node: node)
+                            },
                             onSendToChat: { wish in sendReviewToChat(wish: wish, node: node) },
-                            onStartChat: { startChatFromReview(node: node) },
+                            onStartConversation: { startConversationFromReview(node: node) },
+                            onExportConversation: { conversationText in
+                                exportConversationToChat(text: conversationText, node: node)
+                            },
                             onClose: {
                                 withAnimation(.spring(duration: 0.3)) {
                                     showPersonaReview = false
                                     personaReviewResult = nil
                                     reviewScreenshot = nil
+                                    reviewError = nil
                                 }
                             }
                         )
+                        .environmentObject(state)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(10)
                     }
@@ -611,7 +621,7 @@ struct FileExplorerView: View {
                 isReviewing = false
                 switch result {
                 case .success(let review): personaReviewResult = review
-                case .failure(let err): print("Persona review error: \(err)")
+                case .failure(let err): reviewError = err.localizedDescription
                 }
             }
         }
@@ -623,9 +633,55 @@ struct FileExplorerView: View {
         var newTab = ChatTab(title: "\(persona.name) · \(node.name)")
         newTab.workingDirectory = rootPath
         newTab.agentId = persona.id
+        // inputText direkt setzen – pendingChatMessage kommt zu früh, bevor der Tab gerendert ist
+        newTab.inputText = contextMsg
         state.chatTabs.append(newTab)
         state.selectedChatTabIndex = state.chatTabs.count - 1
-        state.pendingChatMessage = contextMsg
+        state.pendingNavigateToChat = true
+    }
+
+    private func startConversationFromReview(node: ExplorerNode) {
+        guard let persona = selectedReviewPersona,
+              let review = personaReviewResult else { return }
+
+        // Vollständige Bewertung als strukturierten Text aufbauen
+        let stars = String(repeating: "★", count: review.rating) + String(repeating: "☆", count: 10 - review.rating)
+        var lines: [String] = [
+            "Ich bin \(persona.name) und habe \"\(node.name)\" bewertet.",
+            "",
+            "**Bewertung: \(review.rating)/10** \(stars)",
+            "",
+            "**Fazit:** \(review.summary)",
+            "",
+            "**Was mir gefällt:**",
+        ]
+        lines += review.liked.map { "• \($0)" }
+        lines += ["", "**Was mir nicht gefällt:**"]
+        lines += review.disliked.map { "• \($0)" }
+        lines += ["", "**Meine Wünsche:**"]
+        lines += review.wishes.map { "• \($0)" }
+        lines += ["", "---", "Ich freue mich auf deine Fragen!"]
+
+        let contextMsg = lines.joined(separator: "\n")
+
+        var newTab = ChatTab(title: "\(persona.name) · Gespräch")
+        newTab.workingDirectory = rootPath
+        newTab.agentId = persona.id
+        newTab.inputText = contextMsg
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
+        state.pendingNavigateToChat = true
+    }
+
+    /// Exportiert den Inline-Gesprächs-Kontext aus dem Overlay in einen neuen Chat-Tab
+    private func exportConversationToChat(text: String, node: ExplorerNode) {
+        guard let persona = selectedReviewPersona else { return }
+        var newTab = ChatTab(title: "\(persona.name) · Kontext")
+        newTab.workingDirectory = rootPath
+        newTab.agentId = persona.id
+        newTab.inputText = text
+        state.chatTabs.append(newTab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
         state.pendingNavigateToChat = true
     }
 
@@ -1651,6 +1707,14 @@ struct WebPreviewView: NSViewRepresentable {
 
 // MARK: - Persona Review Overlay
 
+/// Simple message model for inline persona conversation
+struct PersonaChatMessage: Identifiable {
+    let id = UUID()
+    let role: Role // .user or .persona
+    let text: String
+    enum Role { case user, persona }
+}
+
 struct PersonaReviewOverlay: View {
     let node: ExplorerNode
     var persona: AgentDefinition?
@@ -1658,13 +1722,27 @@ struct PersonaReviewOverlay: View {
     let result: PersonaFileReview?
     let isReviewing: Bool
     let screenshot: NSImage?
+    let reviewError: String?
     let onSelectPersona: (AgentDefinition) -> Void
     let onReview: () -> Void
     let onSendToChat: (String) -> Void
-    let onStartChat: () -> Void
+    let onStartConversation: () -> Void
+    let onExportConversation: (String) -> Void
     let onClose: () -> Void
 
+    // Resize
+    @State private var panelHeight: CGFloat = 160
+
+    // Inline Gespräch
+    @State private var showChat: Bool = false
+    @State private var chatMessages: [PersonaChatMessage] = []
+    @State private var chatInput: String = ""
+    @State private var isChatStreaming: Bool = false
+    @State private var streamingText: String = ""
+    @FocusState private var chatFocused: Bool
+
     @Environment(\.appTheme) var theme
+    @EnvironmentObject var state: AppState
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -1672,11 +1750,16 @@ struct PersonaReviewOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Handle bar
-            RoundedRectangle(cornerRadius: 2)
-                .fill(theme.cardBorder)
-                .frame(width: 36, height: 4)
-                .padding(.top, 8)
+            // NSView-based vertical resize handle (reliable on macOS)
+            VerticalResizeHandle { delta in
+                panelHeight = max(160, min(700, panelHeight + delta))
+            }
+            .frame(height: 14)
+            .overlay(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(theme.secondaryText.opacity(0.35))
+                    .frame(width: 36, height: 4)
+            )
 
             // Header row
             HStack(spacing: 10) {
@@ -1696,41 +1779,30 @@ struct PersonaReviewOverlay: View {
                                 onSelectPersona(p)
                             } label: {
                                 HStack {
-                                    if persona?.id == p.id {
-                                        Image(systemName: "checkmark")
-                                    }
+                                    if persona?.id == p.id { Image(systemName: "checkmark") }
                                     Text(p.name)
                                 }
                             }
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 10))
-                            Text(persona?.name ?? "Persona wählen")
-                                .font(.system(size: 11, weight: .medium))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 9))
+                            Image(systemName: "person.fill").font(.system(size: 10))
+                            Text(persona?.name ?? "Persona wählen").font(.system(size: 11, weight: .medium))
+                            Image(systemName: "chevron.down").font(.system(size: 9))
                         }
                         .foregroundStyle(persona != nil ? accentColor : theme.secondaryText)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(
-                            (persona != nil ? accentColor.opacity(0.1) : theme.cardSurface),
-                            in: RoundedRectangle(cornerRadius: 6)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(persona != nil ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5)
-                        )
+                        .background((persona != nil ? accentColor.opacity(0.1) : theme.cardSurface),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(persona != nil ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
 
                 // Review button
-                Button {
-                    onReview()
-                } label: {
+                Button { onReview() } label: {
                     HStack(spacing: 5) {
                         if isReviewing {
                             ProgressView().scaleEffect(0.6).frame(width: 12, height: 12)
@@ -1743,27 +1815,37 @@ struct PersonaReviewOverlay: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(persona != nil && !isReviewing ? .white : theme.secondaryText)
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(
-                        persona != nil && !isReviewing ? accentColor : theme.cardSurface,
-                        in: RoundedRectangle(cornerRadius: 7)
-                    )
+                    .background(persona != nil && !isReviewing ? accentColor : theme.cardSurface,
+                                in: RoundedRectangle(cornerRadius: 7))
                 }
                 .buttonStyle(.plain)
                 .disabled(persona == nil || isReviewing)
 
-                if result != nil {
-                    Button { onStartChat() } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "bubble.left.fill")
-                            Text("Gespräch")
+                // Gespräch-Toggle (nur wenn Bewertung vorliegt)
+                if result != nil, persona != nil {
+                    Button {
+                        withAnimation(.spring(duration: 0.3)) {
+                            showChat.toggle()
+                            if showChat && panelHeight < 420 { panelHeight = 420 }
                         }
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(accentColor)
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5))
+                        if showChat && chatMessages.isEmpty { seedInitialMessage() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: showChat ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                                .font(.system(size: 11))
+                            Text("Gespräch")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(showChat ? .white : accentColor)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(showChat ? accentColor : accentColor.opacity(0.1),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
+                    .help(showChat ? "Gesprächs-Panel ausblenden" : "Mit \(persona!.name) diskutieren")
+                    .transition(.scale.combined(with: .opacity))
                 }
 
                 Button { onClose() } label: {
@@ -1779,92 +1861,276 @@ struct PersonaReviewOverlay: View {
 
             Divider()
 
-            // Result area
-            if let r = result {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        // Rating + summary
-                        HStack(alignment: .top, spacing: 14) {
-                            // Screenshot thumbnail
-                            if let img = screenshot {
-                                Image(nsImage: img)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 80, height: 54)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 8) {
-                                    // Rating circles
-                                    HStack(spacing: 3) {
-                                        ForEach(0..<10, id: \.self) { i in
-                                            Circle()
-                                                .fill(i < r.rating ? r.ratingColor : theme.cardBorder)
-                                                .frame(width: 8, height: 8)
-                                        }
-                                    }
-                                    Text("\(r.rating)/10")
-                                        .font(.system(size: 13, weight: .bold))
-                                        .foregroundStyle(r.ratingColor)
+            if showChat, result != nil {
+                // ── INLINE CHAT MODE ──────────────────────────────────
+                VStack(spacing: 0) {
+                    // Message list
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(chatMessages) { msg in
+                                    chatBubble(msg)
                                 }
-                                Text(r.summary)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(theme.secondaryText)
-                                    .lineLimit(3)
+                                // Streaming bubble
+                                if isChatStreaming && !streamingText.isEmpty {
+                                    chatBubble(PersonaChatMessage(role: .persona, text: streamingText + "▋"))
+                                        .id("streaming")
+                                }
                             }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
                         }
-
-                        Divider()
-
-                        // Three columns: liked / disliked / wishes
-                        HStack(alignment: .top, spacing: 12) {
-                            reviewColumn(icon: "hand.thumbsup.fill", color: .green,
-                                         title: "Gefällt mir", items: r.liked, sendable: false)
-                            reviewColumn(icon: "hand.thumbsdown.fill", color: .red,
-                                         title: "Gefällt nicht", items: r.disliked, sendable: false)
-                            reviewColumn(icon: "lightbulb.fill", color: accentColor,
-                                         title: "Wünsche", items: r.wishes, sendable: true)
+                        .onChange(of: chatMessages.count) {
+                            withAnimation { proxy.scrollTo(chatMessages.last?.id, anchor: .bottom) }
+                        }
+                        .onChange(of: streamingText) {
+                            withAnimation { proxy.scrollTo("streaming", anchor: .bottom) }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+
+                    Divider()
+
+                    // Input row
+                    HStack(spacing: 8) {
+                        TextField("Schreib \(persona?.name ?? "Persona")…", text: $chatInput, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .lineLimit(1...4)
+                            .focused($chatFocused)
+                            .onSubmit { sendChatMessage() }
+
+                        // Export button
+                        if chatMessages.count >= 2 {
+                            Button {
+                                exportConversation()
+                            } label: {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(accentColor.opacity(0.8))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Gesprächs-Kontext in Chat exportieren")
+                        }
+
+                        Button {
+                            sendChatMessage()
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(chatInput.isEmpty || isChatStreaming ? theme.tertiaryText : accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(chatInput.isEmpty || isChatStreaming)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(theme.cardSurface)
                 }
-            } else if !isReviewing {
-                // Empty state
-                VStack(spacing: 8) {
-                    Image(systemName: "theatermasks")
-                        .font(.system(size: 28))
-                        .foregroundStyle(theme.tertiaryText)
-                    Text(persona == nil
-                         ? "Wähle eine Persona aus um die Bewertung zu starten"
-                         : "Klicke auf \"Jetzt bewerten\" um \(persona!.name) zu fragen")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.secondaryText)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             } else {
-                // Loading state
-                VStack(spacing: 10) {
-                    ProgressView()
-                    Text("\(persona?.name ?? "Persona") bewertet…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.secondaryText)
+                // ── REVIEW MODE ──────────────────────────────────────
+                if let r = result {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            HStack(alignment: .top, spacing: 14) {
+                                if let img = screenshot {
+                                    Image(nsImage: img)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 80, height: 54)
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+                                }
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        HStack(spacing: 3) {
+                                            ForEach(0..<10, id: \.self) { i in
+                                                Circle()
+                                                    .fill(i < r.rating ? r.ratingColor : theme.cardBorder)
+                                                    .frame(width: 8, height: 8)
+                                            }
+                                        }
+                                        Text("\(r.rating)/10")
+                                            .font(.system(size: 13, weight: .bold))
+                                            .foregroundStyle(r.ratingColor)
+                                    }
+                                    Text(r.summary)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(theme.secondaryText)
+                                        .lineLimit(3)
+                                }
+                            }
+                            Divider()
+                            HStack(alignment: .top, spacing: 12) {
+                                reviewColumn(icon: "hand.thumbsup.fill", color: .green,
+                                             title: "Gefällt mir", items: r.liked, sendable: false)
+                                reviewColumn(icon: "hand.thumbsdown.fill", color: .red,
+                                             title: "Gefällt nicht", items: r.disliked, sendable: false)
+                                reviewColumn(icon: "lightbulb.fill", color: accentColor,
+                                             title: "Wünsche", items: r.wishes, sendable: true)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                } else if let errMsg = reviewError {
+                    VStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 22)).foregroundStyle(.orange)
+                        Text(errMsg)
+                            .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
+                            .multilineTextAlignment(.center).padding(.horizontal, 16)
+                        Button("Erneut versuchen") { onReview() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(accentColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else if !isReviewing {
+                    VStack(spacing: 8) {
+                        Image(systemName: "theatermasks")
+                            .font(.system(size: 28)).foregroundStyle(theme.tertiaryText)
+                        Text(persona == nil
+                             ? "Wähle eine Persona aus um die Bewertung zu starten"
+                             : "Klicke auf \"Jetzt bewerten\" um \(persona!.name) zu fragen")
+                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("\(persona?.name ?? "Persona") bewertet…")
+                            .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
             }
         }
         .background(theme.windowBg)
         .overlay(alignment: .top) {
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
         }
-        .frame(maxHeight: result != nil ? 320 : 160)
+        .frame(height: panelHeight)
         .shadow(color: .black.opacity(0.2), radius: 12, y: -4)
+        .onChange(of: result != nil) { hasResult in
+            withAnimation(.spring(duration: 0.3)) {
+                panelHeight = hasResult ? 320 : 160
+            }
+        }
     }
+
+    // MARK: - Chat helpers
+
+    private func seedInitialMessage() {
+        guard let r = result, let p = persona else { return }
+        let stars = String(repeating: "★", count: r.rating) + String(repeating: "☆", count: 10 - r.rating)
+        let seed = "Ich bin \(p.name) und habe deine Seite bewertet: \(r.rating)/10 \(stars)\n\n\(r.summary)\n\nFrag mich gerne alles!"
+        chatMessages = [PersonaChatMessage(role: .persona, text: seed)]
+    }
+
+    private func sendChatMessage() {
+        let text = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isChatStreaming else { return }
+        chatInput = ""
+        chatMessages.append(PersonaChatMessage(role: .user, text: text))
+        isChatStreaming = true
+        streamingText = ""
+
+        Task {
+            await streamPersonaReply(userText: text)
+        }
+    }
+
+    private func streamPersonaReply(userText: String) async {
+        guard let p = persona else {
+            await MainActor.run {
+                isChatStreaming = false
+                chatMessages.append(PersonaChatMessage(role: .persona, text: "⚠️ Keine Persona ausgewählt."))
+            }
+            return
+        }
+        let cli = state.cliService
+
+        // Build conversation history as context
+        let historyLines = chatMessages.map { m in
+            m.role == .user ? "Nutzer: \(m.text)" : "\(p.name): \(m.text)"
+        }.joined(separator: "\n")
+
+        let systemPrompt = p.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = """
+\(historyLines)
+Nutzer: \(userText)
+\(p.name):
+"""
+
+        var accumulated = ""
+        do {
+            let stream = cli.send(message: prompt, systemPrompt: systemPrompt.isEmpty ? nil : systemPrompt, model: "sonnet")
+            for try await event in stream {
+                if event.type == "assistant", let contents = event.message?.content {
+                    for c in contents where c.type == "text" {
+                        accumulated += c.text ?? ""
+                        let snapshot = accumulated
+                        await MainActor.run { streamingText = snapshot }
+                    }
+                } else if event.type == "result", let r = event.result, !r.isEmpty, accumulated.isEmpty {
+                    accumulated = r
+                    await MainActor.run { streamingText = accumulated }
+                }
+            }
+        } catch {
+            accumulated = "⚠️ \(error.localizedDescription)"
+        }
+        await MainActor.run {
+            isChatStreaming = false
+            streamingText = ""
+            if !accumulated.isEmpty {
+                chatMessages.append(PersonaChatMessage(role: .persona, text: accumulated))
+            }
+        }
+    }
+
+    private func exportConversation() {
+        guard let p = persona else { return }
+        let lines = chatMessages.map { m in
+            m.role == .user ? "**Du:** \(m.text)" : "**\(p.name):** \(m.text)"
+        }
+        let exportText = "# Gespräch mit \(p.name) über \(node.name)\n\n" + lines.joined(separator: "\n\n")
+        onExportConversation(exportText)
+    }
+
+    // MARK: - Chat bubble
+
+    @ViewBuilder
+    private func chatBubble(_ msg: PersonaChatMessage) -> some View {
+        let isUser = msg.role == .user
+        HStack(alignment: .bottom, spacing: 6) {
+            if isUser { Spacer(minLength: 40) }
+            Text(msg.text)
+                .font(.system(size: 12))
+                .foregroundStyle(isUser ? .white : theme.primaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    isUser ? accentColor : theme.cardSurface,
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(isUser ? Color.clear : theme.cardBorder, lineWidth: 0.5)
+                )
+                .textSelection(.enabled)
+            if !isUser { Spacer(minLength: 40) }
+        }
+    }
+
+    // MARK: - Review column
 
     @ViewBuilder
     private func reviewColumn(icon: String, color: Color, title: String, items: [String], sendable: Bool) -> some View {
@@ -1875,22 +2141,14 @@ struct PersonaReviewOverlay: View {
             }
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .top, spacing: 6) {
-                    Text("•")
-                        .font(.system(size: 11))
-                        .foregroundStyle(color.opacity(0.7))
-                    Text(item)
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.primaryText)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("•").font(.system(size: 11)).foregroundStyle(color.opacity(0.7))
+                    Text(item).font(.system(size: 11)).foregroundStyle(theme.primaryText)
+                        .lineLimit(4).fixedSize(horizontal: false, vertical: true)
                     if sendable {
                         Spacer(minLength: 0)
-                        Button {
-                            onSendToChat(item)
-                        } label: {
+                        Button { onSendToChat(item) } label: {
                             Image(systemName: "arrow.right.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(color.opacity(0.7))
+                                .font(.system(size: 12)).foregroundStyle(color.opacity(0.7))
                         }
                         .buttonStyle(.plain)
                         .help("In Chat senden")
@@ -1968,6 +2226,59 @@ final class _ResizeDividerNSView: NSView {
 
     override func mouseUp(with event: NSEvent) {}
 
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+// MARK: - Vertical Resize Handle (top edge of PersonaReviewOverlay)
+
+struct VerticalResizeHandle: NSViewRepresentable {
+    /// Positive delta = drag upward = panel grows
+    let onDrag: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> _VerticalResizeNSView {
+        _VerticalResizeNSView(onDrag: onDrag)
+    }
+    func updateNSView(_ nsView: _VerticalResizeNSView, context: Context) {
+        nsView.onDrag = onDrag
+    }
+}
+
+final class _VerticalResizeNSView: NSView {
+    var onDrag: (CGFloat) -> Void
+    private var lastY: CGFloat = 0
+
+    init(onDrag: @escaping (CGFloat) -> Void) {
+        self.onDrag = onDrag
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil
+        ))
+    }
+    override func mouseEntered(with event: NSEvent) { NSCursor.resizeUpDown.set() }
+    override func mouseExited(with event: NSEvent)  { NSCursor.arrow.set() }
+
+    override func mouseDown(with event: NSEvent) {
+        lastY = event.locationInWindow.y
+    }
+    override func mouseDragged(with event: NSEvent) {
+        let currentY = event.locationInWindow.y
+        // macOS y-axis: up = positive → drag up = panel grows
+        let delta = currentY - lastY
+        lastY = currentY
+        DispatchQueue.main.async { self.onDrag(delta) }
+    }
+    override func mouseUp(with event: NSEvent) {}
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
