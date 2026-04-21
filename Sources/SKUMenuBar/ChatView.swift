@@ -4065,38 +4065,20 @@ struct MessageBubbleView: View {
     }
 
     private var streamingDots: some View {
-        HStack(spacing: 6) {
-            dot(up: dot0Up)
-            dot(up: dot1Up)
-            dot(up: dot2Up)
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 6) {
+                ForEach(0..<3, id: \.self) { i in
+                    let phase = (t - Double(i) * 0.15).truncatingRemainder(dividingBy: 0.76) / 0.76
+                    let y = -sin(phase * .pi) * 5
+                    Circle()
+                        .fill(accentColor.opacity(0.75))
+                        .frame(width: 7, height: 7)
+                        .offset(y: y)
+                }
+            }
         }
         .padding(.vertical, 6)
-        .onAppear {
-            let dur: Double = 0.38
-            withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
-                dot0Up = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
-                withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
-                    dot1Up = true
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
-                withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
-                    dot2Up = true
-                }
-            }
-        }
-        .onDisappear {
-            dot0Up = false; dot1Up = false; dot2Up = false
-        }
-    }
-
-    private func dot(up: Bool) -> some View {
-        Circle()
-            .fill(accentColor.opacity(0.75))
-            .frame(width: 7, height: 7)
-            .offset(y: up ? -5 : 0)
     }
 
     private var tokenFooter: some View {

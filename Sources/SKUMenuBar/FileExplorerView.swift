@@ -592,31 +592,29 @@ struct FileExplorerView: View {
         guard let persona = selectedReviewPersona else { return }
         isReviewing = true
         personaReviewResult = nil
+        reviewScreenshot = nil
 
-        // Capture screenshot — shown as thumbnail AND passed to Claude via --image
+        // Capture thumbnail for display in overlay
         if showLivePreview, let wv = capturedWebView {
             wv.takeSnapshot(with: WKSnapshotConfiguration()) { img, _ in
-                DispatchQueue.main.async {
-                    self.reviewScreenshot = img
-                    // Save PNG to temp file so Claude CLI can read it via --image
-                    var screenshotPath: String? = nil
-                    if let img, let tiffData = img.tiffRepresentation,
-                       let bitmap = NSBitmapImageRep(data: tiffData),
-                       let pngData = bitmap.representation(using: .png, properties: [:]) {
-                        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                            .appendingPathComponent("persona_review_preview.png")
-                        try? pngData.write(to: tmpURL)
-                        screenshotPath = tmpURL.path
-                    }
-                    self.doReview(node: node, persona: persona, screenshotPath: screenshotPath)
-                }
+                DispatchQueue.main.async { self.reviewScreenshot = img }
+            }
+        }
+
+        // Extract visible rendered text via JavaScript for Claude context
+        if showLivePreview, let wv = capturedWebView {
+            wv.evaluateJavaScript(
+                "(function(){ var t = document.title ? document.title + '\\n\\n' : ''; return t + (document.body ? document.body.innerText : ''); })()"
+            ) { result, _ in
+                let visibleText = (result as? String) ?? ""
+                self.doReview(node: node, persona: persona, livePreviewText: visibleText.isEmpty ? nil : visibleText)
             }
         } else {
-            doReview(node: node, persona: persona, screenshotPath: nil)
+            doReview(node: node, persona: persona, livePreviewText: nil)
         }
     }
 
-    private func doReview(node: ExplorerNode, persona: AgentDefinition, screenshotPath: String?) {
+    private func doReview(node: ExplorerNode, persona: AgentDefinition, livePreviewText: String?) {
         // Read file content for Claude
         let fileContent: String
         if let text = previewText {
@@ -634,7 +632,7 @@ struct FileExplorerView: View {
                 persona: persona,
                 fileName: fileName,
                 fileContent: fileContent,
-                screenshotPath: screenshotPath
+                livePreviewText: livePreviewText
             )
             await MainActor.run {
                 isReviewing = false

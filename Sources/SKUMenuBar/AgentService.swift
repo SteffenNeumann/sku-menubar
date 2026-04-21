@@ -970,7 +970,7 @@ Antworte NUR als valides JSON in diesem exakten Format:
         persona: AgentDefinition,
         fileName: String,
         fileContent: String,
-        screenshotPath: String? = nil
+        livePreviewText: String? = nil
     ) async -> Result<PersonaFileReview, Error> {
         let systemPrompt = persona.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -986,19 +986,27 @@ Antworte NUR als valides JSON in diesem exakten Format:
             }
         }
 
-        let hasScreenshot = screenshotPath != nil
-        let screenshotNote = hasScreenshot
-            ? "\n\nDu siehst außerdem einen Screenshot der gerenderten Seite — bewerte sowohl das visuelle Erscheinungsbild als auch den Code."
-            : "\n\nWICHTIG: Stelle dir die fertige, gerenderte Webseite bildlich vor – frag NIEMALS nach einem Screenshot."
+        // Build live preview context from JS-extracted visible text
+        let livePreviewSection: String
+        if let visibleText = livePreviewText, !visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            livePreviewSection = """
+
+
+Das siehst du gerade in der gerenderten Live-Vorschau (sichtbarer Text der Seite):
+\(visibleText.prefix(3000))
+"""
+        } else {
+            livePreviewSection = ""
+        }
 
         let prompt = """
 Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.
-\(imageContext)\(screenshotNote)
+\(imageContext)\(livePreviewSection)
 
 Datei: \(fileName)
 
 Quellcode:
-\(fileContent.prefix(8000))
+\(fileContent.prefix(6000))
 
 Antworte NUR als valides JSON in exakt diesem Format (auf Deutsch, aus deiner Ich-Perspektive):
 {
@@ -1019,8 +1027,7 @@ Wichtig:
         do {
             guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
             let sp = systemPrompt.isEmpty ? nil : systemPrompt
-            let imgPaths: [String] = screenshotPath.map { [$0] } ?? []
-            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet", imagePaths: imgPaths)
+            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet")
             for try await event in stream {
                 if event.type == "assistant" {
                     if let contents = event.message?.content {
