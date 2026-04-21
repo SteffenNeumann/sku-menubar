@@ -992,8 +992,8 @@ Antworte NUR als valides JSON in diesem exakten Format:
             livePreviewSection = """
 
 
-Das siehst du gerade in der gerenderten Live-Vorschau (sichtbarer Text der Seite):
-\(visibleText.prefix(3000))
+Das siehst du gerade in der gerenderten Live-Vorschau (vollständiger sichtbarer Text der Seite):
+\(visibleText.prefix(10000))
 """
         } else {
             livePreviewSection = ""

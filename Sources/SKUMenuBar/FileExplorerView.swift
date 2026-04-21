@@ -1888,7 +1888,12 @@ struct PersonaReviewOverlay: View {
                                 ForEach(chatMessages) { msg in
                                     chatBubble(msg)
                                 }
-                                // Streaming bubble
+                                // Thinking dots (waiting for first token)
+                                if isChatStreaming && streamingText.isEmpty {
+                                    thinkingDots
+                                        .id("thinking")
+                                }
+                                // Streaming bubble (tokens arriving)
                                 if isChatStreaming && !streamingText.isEmpty {
                                     chatBubble(PersonaChatMessage(role: .persona, text: streamingText + "▋"))
                                         .id("streaming")
@@ -1899,6 +1904,9 @@ struct PersonaReviewOverlay: View {
                         }
                         .onChange(of: chatMessages.count) {
                             withAnimation { proxy.scrollTo(chatMessages.last?.id, anchor: .bottom) }
+                        }
+                        .onChange(of: isChatStreaming) {
+                            if isChatStreaming { withAnimation { proxy.scrollTo("thinking", anchor: .bottom) } }
                         }
                         .onChange(of: streamingText) {
                             withAnimation { proxy.scrollTo("streaming", anchor: .bottom) }
@@ -2043,6 +2051,24 @@ struct PersonaReviewOverlay: View {
     }
 
     // MARK: - Chat helpers
+
+    private var thinkingDots: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { i in
+                    let phase = (t - Double(i) * 0.15).truncatingRemainder(dividingBy: 0.76) / 0.76
+                    let y = -sin(phase * .pi) * 4
+                    Circle()
+                        .fill(accentColor.opacity(0.7))
+                        .frame(width: 6, height: 6)
+                        .offset(y: y)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
 
     private func seedInitialMessage() {
         guard let r = result, let p = persona else { return }
