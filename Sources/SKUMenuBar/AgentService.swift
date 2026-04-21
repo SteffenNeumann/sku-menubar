@@ -986,8 +986,10 @@ Antworte NUR als valides JSON in diesem exakten Format:
         }
 
         let prompt = """
-Du bist \(persona.name). Bewerte die folgende Webseite / Datei aus deiner persönlichen Perspektive.
+Du bist \(persona.name). Bewerte den folgenden HTML/CSS/JS-Code aus deiner persönlichen Perspektive als Nutzer.
 \(imageContext)
+
+WICHTIG: Du bewertest den Quellcode direkt. Stelle dir die fertige, gerenderte Webseite bildlich vor – frag NIEMALS nach einem Screenshot oder nach dem aktuellen Aussehen, denn du hast den vollständigen Code vorliegen.
 
 Datei: \(fileName)
 

@@ -448,8 +448,10 @@ struct FileExplorerView: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Persona review button
-                        personaReviewButton(node: node)
+                        // Persona review button — nur sichtbar wenn Live Preview aktiv
+                        if showLivePreview {
+                            personaReviewButton(node: node)
+                        }
                     }
                     if !node.isDirectory && node.isTextFile {
                         if isEditing {
