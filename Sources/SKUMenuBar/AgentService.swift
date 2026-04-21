@@ -969,7 +969,8 @@ Antworte NUR als valides JSON in diesem exakten Format:
     func reviewFileWithPersona(
         persona: AgentDefinition,
         fileName: String,
-        fileContent: String
+        fileContent: String,
+        screenshotPath: String? = nil
     ) async -> Result<PersonaFileReview, Error> {
         let systemPrompt = persona.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -985,15 +986,18 @@ Antworte NUR als valides JSON in diesem exakten Format:
             }
         }
 
-        let prompt = """
-Du bist \(persona.name). Bewerte den folgenden HTML/CSS/JS-Code aus deiner persönlichen Perspektive als Nutzer.
-\(imageContext)
+        let hasScreenshot = screenshotPath != nil
+        let screenshotNote = hasScreenshot
+            ? "\n\nDu siehst außerdem einen Screenshot der gerenderten Seite — bewerte sowohl das visuelle Erscheinungsbild als auch den Code."
+            : "\n\nWICHTIG: Stelle dir die fertige, gerenderte Webseite bildlich vor – frag NIEMALS nach einem Screenshot."
 
-WICHTIG: Du bewertest den Quellcode direkt. Stelle dir die fertige, gerenderte Webseite bildlich vor – frag NIEMALS nach einem Screenshot oder nach dem aktuellen Aussehen, denn du hast den vollständigen Code vorliegen.
+        let prompt = """
+Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.
+\(imageContext)\(screenshotNote)
 
 Datei: \(fileName)
 
-Inhalt:
+Quellcode:
 \(fileContent.prefix(8000))
 
 Antworte NUR als valides JSON in exakt diesem Format (auf Deutsch, aus deiner Ich-Perspektive):
@@ -1015,7 +1019,8 @@ Wichtig:
         do {
             guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
             let sp = systemPrompt.isEmpty ? nil : systemPrompt
-            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet")
+            let imgPaths: [String] = screenshotPath.map { [$0] } ?? []
+            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet", imagePaths: imgPaths)
             for try await event in stream {
                 if event.type == "assistant" {
                     if let contents = event.message?.content {

@@ -593,14 +593,30 @@ struct FileExplorerView: View {
         isReviewing = true
         personaReviewResult = nil
 
-        // Capture screenshot for display only (thumbnail in overlay — NOT passed to CLI)
+        // Capture screenshot — shown as thumbnail AND passed to Claude via --image
         if showLivePreview, let wv = capturedWebView {
-            wv.takeSnapshot(with: WKSnapshotConfiguration()) { [weak wv] img, _ in
-                _ = wv
-                DispatchQueue.main.async { self.reviewScreenshot = img }
+            wv.takeSnapshot(with: WKSnapshotConfiguration()) { img, _ in
+                DispatchQueue.main.async {
+                    self.reviewScreenshot = img
+                    // Save PNG to temp file so Claude CLI can read it via --image
+                    var screenshotPath: String? = nil
+                    if let img, let tiffData = img.tiffRepresentation,
+                       let bitmap = NSBitmapImageRep(data: tiffData),
+                       let pngData = bitmap.representation(using: .png, properties: [:]) {
+                        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                            .appendingPathComponent("persona_review_preview.png")
+                        try? pngData.write(to: tmpURL)
+                        screenshotPath = tmpURL.path
+                    }
+                    self.doReview(node: node, persona: persona, screenshotPath: screenshotPath)
+                }
             }
+        } else {
+            doReview(node: node, persona: persona, screenshotPath: nil)
         }
+    }
 
+    private func doReview(node: ExplorerNode, persona: AgentDefinition, screenshotPath: String?) {
         // Read file content for Claude
         let fileContent: String
         if let text = previewText {
@@ -617,7 +633,8 @@ struct FileExplorerView: View {
             let result = await state.agentService.reviewFileWithPersona(
                 persona: persona,
                 fileName: fileName,
-                fileContent: fileContent
+                fileContent: fileContent,
+                screenshotPath: screenshotPath
             )
             await MainActor.run {
                 isReviewing = false
