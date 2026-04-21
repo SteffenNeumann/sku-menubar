@@ -594,27 +594,53 @@ struct FileExplorerView: View {
         personaReviewResult = nil
         reviewScreenshot = nil
 
-        // Capture thumbnail for display in overlay
-        if showLivePreview, let wv = capturedWebView {
-            wv.takeSnapshot(with: WKSnapshotConfiguration()) { img, _ in
-                DispatchQueue.main.async { self.reviewScreenshot = img }
-            }
+        guard showLivePreview, let wv = capturedWebView else {
+            doReview(node: node, persona: persona, livePreviewText: nil, screenshotPath: nil)
+            return
         }
 
-        // Extract visible rendered text via JavaScript for Claude context
-        if showLivePreview, let wv = capturedWebView {
-            wv.evaluateJavaScript(
-                "(function(){ var t = document.title ? document.title + '\\n\\n' : ''; return t + (document.body ? document.body.innerText : ''); })()"
-            ) { result, _ in
-                let visibleText = (result as? String) ?? ""
-                self.doReview(node: node, persona: persona, livePreviewText: visibleText.isEmpty ? nil : visibleText)
+        // Step 1: Get full-page height via JS, then capture full-page snapshot
+        wv.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight)") { heightResult, _ in
+            let fullHeight = (heightResult as? CGFloat) ?? wv.bounds.height
+            let pageWidth = max(wv.bounds.width, 1)
+
+            // Expand snapshot rect to full content height (capped at 8000px to avoid memory issues)
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: pageWidth, height: min(fullHeight, 8000))
+
+            wv.takeSnapshot(with: config) { img, _ in
+                DispatchQueue.main.async {
+                    self.reviewScreenshot = img
+
+                    // Save snapshot to temp PNG for Claude --image
+                    var savedPath: String? = nil
+                    if let img, let tiff = img.tiffRepresentation,
+                       let rep = NSBitmapImageRep(data: tiff),
+                       let pngData = rep.representation(using: .png, properties: [:]) {
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("persona_review_\(UUID().uuidString).png")
+                        try? pngData.write(to: tempURL)
+                        savedPath = tempURL.path
+                    }
+
+                    // Step 2: Extract full text for additional context
+                    wv.evaluateJavaScript(
+                        "(function(){ var t = document.title ? document.title + '\\n\\n' : ''; return t + (document.body ? document.body.innerText : ''); })()"
+                    ) { textResult, _ in
+                        let visibleText = (textResult as? String) ?? ""
+                        self.doReview(
+                            node: node,
+                            persona: persona,
+                            livePreviewText: visibleText.isEmpty ? nil : visibleText,
+                            screenshotPath: savedPath
+                        )
+                    }
+                }
             }
-        } else {
-            doReview(node: node, persona: persona, livePreviewText: nil)
         }
     }
 
-    private func doReview(node: ExplorerNode, persona: AgentDefinition, livePreviewText: String?) {
+    private func doReview(node: ExplorerNode, persona: AgentDefinition, livePreviewText: String?, screenshotPath: String?) {
         // Read file content for Claude
         let fileContent: String
         if let text = previewText {
@@ -632,10 +658,15 @@ struct FileExplorerView: View {
                 persona: persona,
                 fileName: fileName,
                 fileContent: fileContent,
-                livePreviewText: livePreviewText
+                livePreviewText: livePreviewText,
+                screenshotPath: screenshotPath
             )
             await MainActor.run {
                 isReviewing = false
+                // Clean up temp screenshot file
+                if let path = screenshotPath {
+                    try? FileManager.default.removeItem(atPath: path)
+                }
                 switch result {
                 case .success(let review): personaReviewResult = review
                 case .failure(let err): reviewError = err.localizedDescription

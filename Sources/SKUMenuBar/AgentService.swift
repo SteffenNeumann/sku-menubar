@@ -970,7 +970,8 @@ Antworte NUR als valides JSON in diesem exakten Format:
         persona: AgentDefinition,
         fileName: String,
         fileContent: String,
-        livePreviewText: String? = nil
+        livePreviewText: String? = nil,
+        screenshotPath: String? = nil
     ) async -> Result<PersonaFileReview, Error> {
         let systemPrompt = persona.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -992,15 +993,23 @@ Antworte NUR als valides JSON in diesem exakten Format:
             livePreviewSection = """
 
 
-Das siehst du gerade in der gerenderten Live-Vorschau (vollständiger sichtbarer Text der Seite):
-\(visibleText.prefix(10000))
+Zusätzlich der vollständige sichtbare Text der gerenderten Seite:
+\(visibleText.prefix(8000))
 """
         } else {
             livePreviewSection = ""
         }
 
+        // Screenshot section: tell Claude about the attached image
+        let screenshotSection: String
+        if screenshotPath != nil {
+            screenshotSection = "\n\nDas beigefügte Bild zeigt einen vollständigen Screenshot der gerenderten Live-Vorschau. Beziehe dich beim Bewerten direkt auf das, was du im Bild siehst."
+        } else {
+            screenshotSection = ""
+        }
+
         let prompt = """
-Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.
+Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.\(screenshotSection)
 \(imageContext)\(livePreviewSection)
 
 Datei: \(fileName)
@@ -1027,7 +1036,8 @@ Wichtig:
         do {
             guard let cli = cliService else { throw AgentError.saveError("CLI nicht verfügbar") }
             let sp = systemPrompt.isEmpty ? nil : systemPrompt
-            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet")
+            let imgPaths: [String] = screenshotPath.map { [$0] } ?? []
+            let stream = cli.send(message: prompt, systemPrompt: sp, model: "sonnet", imagePaths: imgPaths)
             for try await event in stream {
                 if event.type == "assistant" {
                     if let contents = event.message?.content {
