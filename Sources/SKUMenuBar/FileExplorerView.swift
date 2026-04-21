@@ -1915,13 +1915,13 @@ struct PersonaReviewOverlay: View {
                     // Message list
                     ScrollViewReader { proxy in
                         ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 ForEach(chatMessages) { msg in
                                     chatBubble(msg)
                                 }
-                                // Thinking dots (waiting for first token)
+                                // Typing bubble (waiting for first token)
                                 if isChatStreaming && streamingText.isEmpty {
-                                    thinkingDots
+                                    typingBubble
                                         .id("thinking")
                                 }
                                 // Streaming bubble (tokens arriving)
@@ -1932,6 +1932,7 @@ struct PersonaReviewOverlay: View {
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity)
                         }
                         .onChange(of: chatMessages.count) {
                             withAnimation { proxy.scrollTo(chatMessages.last?.id, anchor: .bottom) }
@@ -2083,22 +2084,39 @@ struct PersonaReviewOverlay: View {
 
     // MARK: - Chat helpers
 
-    private var thinkingDots: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 5) {
-                ForEach(0..<3, id: \.self) { i in
-                    let phase = (t - Double(i) * 0.15).truncatingRemainder(dividingBy: 0.76) / 0.76
-                    let y = -sin(phase * .pi) * 4
-                    Circle()
-                        .fill(accentColor.opacity(0.7))
-                        .frame(width: 6, height: 6)
-                        .offset(y: y)
+    private var typingBubble: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            // Persona avatar dot
+            Circle()
+                .fill(accentColor.opacity(0.25))
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Text(String(persona?.name.prefix(1) ?? "?"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(accentColor)
+                )
+
+            // Bubble with animated dots
+            TimelineView(.animation) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                HStack(spacing: 5) {
+                    ForEach(0..<3, id: \.self) { i in
+                        let phase = (t - Double(i) * 0.22).truncatingRemainder(dividingBy: 0.9) / 0.9
+                        let scale = 0.7 + sin(phase * .pi) * 0.45
+                        Circle()
+                            .fill(accentColor.opacity(0.55 + sin(phase * .pi) * 0.35))
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(scale)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
             }
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     private func seedInitialMessage() {
