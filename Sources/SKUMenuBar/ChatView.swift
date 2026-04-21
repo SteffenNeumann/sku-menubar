@@ -1622,6 +1622,34 @@ struct SingleChatSessionView: View {
         return json
     }
 
+    /// Returns the active MCPServerConfig list for use with the GitHub/Copilot path.
+    /// Mirrors buildMCPConfigJSON but returns typed configs instead of JSON.
+    private func buildActiveMCPConfigs() async -> [MCPServerConfig] {
+        guard !activeMCPIds.isEmpty else {
+            // All active — return all available configs
+            var configs: [MCPServerConfig] = []
+            for server in availableMCPs {
+                if mcpConfigs[server.id] == nil,
+                   let cfg = await state.cliService.getMCPServerConfig(name: server.name) {
+                    mcpConfigs[server.id] = cfg
+                }
+                if let cfg = mcpConfigs[server.id] { configs.append(cfg) }
+            }
+            return configs
+        }
+        if activeMCPIds == Set(["__none__"]) { return [] }
+
+        var configs: [MCPServerConfig] = []
+        for server in availableMCPs where activeMCPIds.contains(server.id) {
+            if mcpConfigs[server.id] == nil,
+               let cfg = await state.cliService.getMCPServerConfig(name: server.name) {
+                mcpConfigs[server.id] = cfg
+            }
+            if let cfg = mcpConfigs[server.id] { configs.append(cfg) }
+        }
+        return configs
+    }
+
     // MARK: - Load available MCPs
 
     private func loadAvailableMCPs() async {
@@ -2707,7 +2735,8 @@ struct SingleChatSessionView: View {
                 systemPrompt: ghSystemPrompt,
                 history: Array(historyMsgs),
                 githubToken: state.settings.token,
-                imageAttachments: imageAttachments
+                imageAttachments: imageAttachments,
+                mcpConfigs: await buildActiveMCPConfigs()
             )
         } else {
             // Always include workingDirectory in --add-dir so Claude CLI can read project files

@@ -80,7 +80,8 @@ final class GitHubModelsService {
         systemPrompt: String?,
         history: [GitHubMessage] = [],
         githubToken: String,
-        imageAttachments: [GitHubImageAttachment] = []
+        imageAttachments: [GitHubImageAttachment] = [],
+        mcpConfigs: [MCPServerConfig] = []
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
@@ -90,14 +91,35 @@ final class GitHubModelsService {
 
                     let apiModel = Self.copilotModelId(for: model)
                     let sessionId = UUID().uuidString
-                    let requestId = UUID().uuidString
+
+                    // MARK: MCP Setup — connect to active MCP servers and gather tool definitions
+                    var mcpSessionByTool: [String: MCPClientSession] = [:]
+                    var openAITools: [[String: Any]] = []
+                    var allMCPSessions: [MCPClientSession] = []
+
+                    for config in mcpConfigs {
+                        let session = MCPClientSession(config: config)
+                        do {
+                            try await session.connect()
+                            let tools = try await session.listTools()
+                            for tool in tools {
+                                if let name = tool["name"] as? String {
+                                    mcpSessionByTool[name] = session
+                                }
+                            }
+                            openAITools.append(contentsOf: MCPClientSession.toOpenAITools(tools))
+                            allMCPSessions.append(session)
+                        } catch {
+                            // Continue without this server
+                        }
+                    }
 
                     // Build messages as [[String: Any]] to support both text and vision content
-                    var messages: [[String: Any]] = []
+                    var conversationMessages: [[String: Any]] = []
                     if let sp = systemPrompt, !sp.isEmpty {
-                        messages.append(["role": "system", "content": sp])
+                        conversationMessages.append(["role": "system", "content": sp])
                     }
-                    for h in history { messages.append(["role": h.role, "content": h.content]) }
+                    for h in history { conversationMessages.append(["role": h.role, "content": h.content]) }
 
                     // Build user content: text + optional base64 images
                     let userContent: Any
@@ -115,17 +137,27 @@ final class GitHubModelsService {
                         }
                         userContent = contentParts
                     }
-                    messages.append(["role": "user", "content": userContent])
+                    conversationMessages.append(["role": "user", "content": userContent])
 
-                    let body: [String: Any] = ["model": apiModel, "messages": messages, "stream": true]
+                    continuation.yield(.systemInit(sessionId: sessionId))
+                    var usageInputTokens: Int? = nil
+                    var usageOutputTokens: Int? = nil
+                    var totalAccumulated = ""
 
+                    // MARK: Agentic loop — handles MCP tool calls transparently
+                    // Max 10 iterations to prevent infinite loops
+                    for _ in 0..<10 {
+                    var bodyDict: [String: Any] = ["model": apiModel, "messages": conversationMessages, "stream": true]
+                    if !openAITools.isEmpty { bodyDict["tools"] = openAITools }
+
+                    let requestId = UUID().uuidString
                     var req = URLRequest(url: self.endpoint)
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     req.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
                     req.setValue(requestId, forHTTPHeaderField: "X-Request-Id")
-                    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+                    req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
 
                     let (stream, response) = try await URLSession.shared.bytes(for: req)
                     if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -135,10 +167,7 @@ final class GitHubModelsService {
                         throw GitHubModelsError.httpError(http.statusCode, msg)
                     }
 
-                    continuation.yield(.systemInit(sessionId: sessionId))
                     var accumulated = ""
-                    var usageInputTokens: Int? = nil
-                    var usageOutputTokens: Int? = nil
 
                     // Accumulate streaming tool_calls (OpenAI delta format: partial arguments per chunk)
                     struct PendingTool { var id: String; var name: String; var args: String }
@@ -217,7 +246,66 @@ final class GitHubModelsService {
                         }
                     }
 
-                    continuation.yield(.resultSuccess(text: accumulated, model: "github/\(apiModel)", sessionId: sessionId, inputTokens: usageInputTokens, outputTokens: usageOutputTokens))
+                    totalAccumulated += accumulated
+
+                    // MARK: MCP Tool Execution — if the model requested tools AND we have MCP sessions
+                    let hasMCPToolCalls = !pendingTools.isEmpty && !mcpSessionByTool.isEmpty
+                    if hasMCPToolCalls {
+                        // Yield tool-use events to UI
+                        for key in pendingTools.keys.sorted() {
+                            guard let t = pendingTools[key] else { continue }
+                            if !toolsFlushed {
+                                continuation.yield(.toolUseEvent(
+                                    id: t.id, name: t.name,
+                                    input: Self.extractToolDisplay(from: t.args),
+                                    model: "github/\(apiModel)", sessionId: sessionId
+                                ))
+                            }
+                        }
+
+                        // Add assistant message with tool_calls to conversation
+                        let toolCallsForMsg: [[String: Any]] = pendingTools.keys.sorted().compactMap { key in
+                            guard let t = pendingTools[key] else { return nil }
+                            return ["id": t.id, "type": "function",
+                                    "function": ["name": t.name, "arguments": t.args] as [String: Any]]
+                        }
+                        var assistantMsg: [String: Any] = ["role": "assistant", "tool_calls": toolCallsForMsg]
+                        if !accumulated.isEmpty { assistantMsg["content"] = accumulated }
+                        conversationMessages.append(assistantMsg)
+
+                        // Execute each tool via its MCP session and append results
+                        for key in pendingTools.keys.sorted() {
+                            guard let t = pendingTools[key] else { continue }
+                            var toolResult: String
+                            if let session = mcpSessionByTool[t.name] {
+                                do {
+                                    let rawArgs = t.args.data(using: .utf8) ?? Data()
+                                    let args = (try? JSONSerialization.jsonObject(with: rawArgs) as? [String: Any]) ?? [:]
+                                    toolResult = try await session.callTool(name: t.name, arguments: args)
+                                } catch {
+                                    toolResult = "Error calling tool '\(t.name)': \(error.localizedDescription)"
+                                }
+                            } else {
+                                toolResult = "Tool '\(t.name)' is not available in the connected MCP servers."
+                            }
+                            conversationMessages.append([
+                                "role": "tool",
+                                "tool_call_id": t.id,
+                                "content": toolResult
+                            ])
+                        }
+                        // Continue agentic loop with updated conversation
+                        continue
+                    }
+
+                    // No MCP tool calls (or no sessions) — done
+                    break
+                    } // end agentic loop
+
+                    // Cleanup MCP sessions
+                    for session in allMCPSessions { session.stop() }
+
+                    continuation.yield(.resultSuccess(text: totalAccumulated, model: "github/\(apiModel)", sessionId: sessionId, inputTokens: usageInputTokens, outputTokens: usageOutputTokens))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
