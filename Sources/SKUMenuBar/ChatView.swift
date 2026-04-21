@@ -3842,7 +3842,9 @@ struct MessageBubbleView: View {
     var onDiffTap: ((String) -> Void)?
     @Environment(\.appTheme) var theme
     @State private var toolsExpanded: Bool = false
-    @State private var dotAnimating: Bool = false
+    @State private var dot0Up: Bool = false
+    @State private var dot1Up: Bool = false
+    @State private var dot2Up: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -4063,28 +4065,38 @@ struct MessageBubbleView: View {
     }
 
     private var streamingDots: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(accentColor.opacity(dotAnimating ? (i == 0 ? 0.9 : i == 1 ? 0.55 : 0.25) : 0.3))
-                    .frame(width: 7, height: 7)
-                    .offset(y: dotAnimating && i == 0 ? -5 : 0)
-                    .animation(
-                        .easeInOut(duration: 0.4)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(i) * 0.18),
-                        value: dotAnimating
-                    )
-            }
+        HStack(spacing: 6) {
+            dot(up: dot0Up)
+            dot(up: dot1Up)
+            dot(up: dot2Up)
         }
         .padding(.vertical, 6)
         .onAppear {
-            // Kleine Verzögerung damit SwiftUI den Initialzustand rendern kann
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                dotAnimating = true
+            let dur: Double = 0.38
+            withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
+                dot0Up = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
+                    dot1Up = true
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                withAnimation(.easeInOut(duration: dur).repeatForever(autoreverses: true)) {
+                    dot2Up = true
+                }
             }
         }
-        .onDisappear { dotAnimating = false }
+        .onDisappear {
+            dot0Up = false; dot1Up = false; dot2Up = false
+        }
+    }
+
+    private func dot(up: Bool) -> some View {
+        Circle()
+            .fill(accentColor.opacity(0.75))
+            .frame(width: 7, height: 7)
+            .offset(y: up ? -5 : 0)
     }
 
     private var tokenFooter: some View {
