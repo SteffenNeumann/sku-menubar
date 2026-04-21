@@ -20,3 +20,8 @@ enum BuildInfo {
 EOF
 
 echo "✅ BuildInfo.swift updated: $COMMIT · $BUILD_DATE"
+
+# Invalidate Swift build cache for BuildInfo so it is always recompiled.
+# Without this, incremental builds may skip recompiling and embed a stale timestamp.
+find "$REPO_ROOT/.build" -name "BuildInfo.swift.o" -delete 2>/dev/null || true
+find "$REPO_ROOT/.build" -name "BuildInfo*.o" -delete 2>/dev/null || true
