@@ -903,6 +903,13 @@ struct SingleChatSessionView: View {
                         }
                         .id(msg.id)
                     }
+                    // Typing dots: shown while waiting for the first token
+                    let lastIsEmptyAssistant = messages.last.map { $0.role == .assistant && $0.content.isEmpty } ?? false
+                    if isStreaming && lastIsEmptyAssistant {
+                        TypingDotsView()
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            .id("typing")
+                    }
                     if let err = errorMessage {
                         errorBubble(err)
                     }
@@ -4163,6 +4170,70 @@ func parseDiffFiles(_ diff: String) -> [DiffFile] {
         files.append(DiffFile(name: currentName, lines: currentLines))
     }
     return files
+}
+
+// MARK: - Typing Dots Animation (iMessage style, shown before first token arrives)
+
+private struct TypingDotsView: View {
+    @Environment(\.appTheme) var theme
+    @State private var phase: Int = 0
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            // Avatar space matching MessageBubbleView layout
+            Circle()
+                .fill(accentColor.opacity(0.18))
+                .frame(width: 28, height: 28)
+                .overlay(
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(accentColor)
+                )
+                .padding(.trailing, 10)
+                .padding(.bottom, 2)
+
+            // Bubble with three bouncing dots
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(accentColor.opacity(phase == i ? 0.9 : 0.3))
+                        .frame(width: 7, height: 7)
+                        .offset(y: phase == i ? -5 : 0)
+                        .animation(
+                            .spring(response: 0.35, dampingFraction: 0.55)
+                                .delay(Double(i) * 0.15),
+                            value: phase
+                        )
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.cardBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(theme.cardBorder.opacity(0.5), lineWidth: 0.5)
+                    )
+            )
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .onAppear { startLoop() }
+    }
+
+    private func startLoop() {
+        Timer.scheduledTimer(withTimeInterval: 0.45, repeats: true) { timer in
+            // Stop if view is gone (timer holds no strong ref to view)
+            phase = (phase + 1) % 3
+        }
+    }
 }
 
 // MARK: - Research Animation (shown while Claude uses tools during streaming)
