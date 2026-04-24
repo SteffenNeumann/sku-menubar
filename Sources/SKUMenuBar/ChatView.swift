@@ -3974,12 +3974,15 @@ struct MessageBubbleView: View {
             if !message.toolCalls.isEmpty {
                 if message.isStreaming {
                     ResearchAnimationView(recentTool: message.toolCalls.last?.name ?? "")
-                } else if message.source != .copilot {
+                } else {
                     toolsSummaryView(message.toolCalls)
                 }
             }
 
-            if !message.content.isEmpty {
+            // Während aktiver Recherche (Tool-Calls laufen) keinen Zwischentext zeigen —
+            // nur die ResearchAnimationView. Erst nach Abschluss wird der finale Text eingeblendet.
+            let isResearching = message.isStreaming && !message.toolCalls.isEmpty
+            if !message.content.isEmpty && !isResearching {
                 MarkdownTextView(text: message.content)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
