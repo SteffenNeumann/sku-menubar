@@ -2721,7 +2721,7 @@ struct SingleChatSessionView: View {
             // injizieren, damit sie nicht durch das History-Window rausfallen und korrekt als
             // Benutzerkontext (nicht als Assistent-Ausgabe) behandelt werden.
             let fileContextBlocks = allHistory
-                .filter { $0.content.hasPrefix("📂") }
+                .filter { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("📂") }
                 .map { $0.content }
             let fileContextSection = fileContextBlocks.isEmpty ? nil
                 : "Folgende Dateien wurden vom Benutzer in den Kontext geladen:\n\n" + fileContextBlocks.joined(separator: "\n\n")
@@ -2922,8 +2922,8 @@ struct SingleChatSessionView: View {
                     if let resultText = event.result, !resultText.isEmpty,
                        messages.indices.contains(assistantIndex) {
                         if source == .copilot {
-                            // Finale Antwort immer setzen (kein Zwischen-Text aus textDelta vorhanden)
-                            messages[assistantIndex].content = resultText
+                            // Finale Antwort immer setzen; <thinking>-Blöcke (o3/o4-mini) herausfiltern
+                            messages[assistantIndex].content = Self.stripThinkingTags(resultText)
                         } else if messages[assistantIndex].content.isEmpty {
                             // Flush any pending buffered tokens first; if there are any,
                             // they already contain the full text — don't overwrite with resultText.
@@ -3070,6 +3070,18 @@ struct SingleChatSessionView: View {
                 await state.historyService.loadProjects()
             }
         }
+    }
+
+    /// Entfernt <thinking>…</thinking> Blöcke aus dem Antwort-Text (o3/o4-mini Extended Thinking).
+    static func stripThinkingTags(_ text: String) -> String {
+        var result = text
+        while let start = result.range(of: "<thinking>"),
+              let end   = result.range(of: "</thinking>", range: start.upperBound..<result.endIndex) {
+            let removal = start.lowerBound..<end.upperBound
+            result.removeSubrange(removal)
+        }
+        // Auch führende/abschließende Leerzeilen bereinigen
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func fetchGitDiff(in directory: String) async -> String? {
