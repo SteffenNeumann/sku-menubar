@@ -239,11 +239,9 @@ final class GitHubModelsService {
                         }
 
                         accumulated += text
-                        // Wenn ein Tool-Call stattgefunden hat (toolsFlushed), Zwischentext nicht streamen —
-                        // nur am Ende via resultSuccess sauber ausgeben (kein Research-Rauschen).
-                        if !toolsFlushed {
-                            continuation.yield(.textDelta(text, model: "github/\(apiModel)", sessionId: sessionId))
-                        }
+                        // Kein Live-Streaming für GitHub/Copilot — keine textDelta Events.
+                        // Stattdessen: streamingDots / ResearchAnimationView während der Arbeit,
+                        // finale Antwort komplett via resultSuccess am Ende.
                     }
 
                     totalAccumulated += accumulated

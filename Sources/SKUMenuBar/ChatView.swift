@@ -2716,7 +2716,19 @@ struct SingleChatSessionView: View {
             let windowSize = max(1, state.settings.historyWindowSize) * 2  // turns × 2 (user+assistant)
             let allHistory = messages.dropLast(2).filter { $0.role == .user || $0.role == .assistant }
             let windowedHistory = allHistory.count > windowSize ? Array(allHistory.dropFirst(allHistory.count - windowSize)) : Array(allHistory)
+
+            // /files-Nachrichten aus der History extrahieren (starten mit "📂") und in System-Prompt
+            // injizieren, damit sie nicht durch das History-Window rausfallen und korrekt als
+            // Benutzerkontext (nicht als Assistent-Ausgabe) behandelt werden.
+            let fileContextBlocks = allHistory
+                .filter { $0.content.hasPrefix("📂") }
+                .map { $0.content }
+            let fileContextSection = fileContextBlocks.isEmpty ? nil
+                : "Folgende Dateien wurden vom Benutzer in den Kontext geladen:\n\n" + fileContextBlocks.joined(separator: "\n\n")
+
             let historyMsgs = windowedHistory.compactMap { msg -> GitHubMessage? in
+                // /files-Nachrichten nicht doppelt schicken (sie sind im System-Prompt)
+                if msg.content.hasPrefix("📂") { return nil }
                 return GitHubMessage(role: msg.role == .user ? "user" : "assistant", content: msg.content)
             }
             // Projektkontext in System-Prompt injizieren (GitHub API hat keine --add-dir Option)
@@ -2728,6 +2740,10 @@ struct SingleChatSessionView: View {
                 let treeSection = fileTree.isEmpty ? "" : "\n\nDateistruktur:\n```\n\(fileTree)\n```"
                 let projectCtx = "Du arbeitest im Projekt '\(projectName)' im Verzeichnis: \(wd)\(treeSection)\n\nDu kannst Dateien aus diesem Projekt per /files <glob> in den Kontext laden (z.B. /files *.swift)."
                 ghSystemPrompt = ghSystemPrompt.map { "\(projectCtx)\n\n\($0)" } ?? projectCtx
+            }
+            // Datei-Kontext an System-Prompt anhängen
+            if let fc = fileContextSection {
+                ghSystemPrompt = ghSystemPrompt.map { "\($0)\n\n\(fc)" } ?? fc
             }
             stream = state.ghModelsService.send(
                 message: message,
@@ -2901,18 +2917,23 @@ struct SingleChatSessionView: View {
                     // If CLI intercepted the message as a slash command (e.g. unknown skill),
                     // it may return text only in result.result without an assistant event.
                     // Also used by GitHub Models resultSuccess (accumulated full text).
-                    // Clear pendingContent to prevent double-flush at end of loop.
+                    // GitHub/Copilot: textDeltas are suppressed → always set final content here.
+                    // Claude CLI: only set if content is empty (textDeltas may have populated it).
                     if let resultText = event.result, !resultText.isEmpty,
-                       messages.indices.contains(assistantIndex),
-                       messages[assistantIndex].content.isEmpty {
-                        // Flush any pending buffered tokens first; if there are any,
-                        // they already contain the full text — don't overwrite with resultText.
-                        if pendingContent.isEmpty {
+                       messages.indices.contains(assistantIndex) {
+                        if source == .copilot {
+                            // Finale Antwort immer setzen (kein Zwischen-Text aus textDelta vorhanden)
                             messages[assistantIndex].content = resultText
-                        } else {
-                            messages[assistantIndex].content += pendingContent
-                            pendingContent = ""
-                            pendingTokenCount = 0
+                        } else if messages[assistantIndex].content.isEmpty {
+                            // Flush any pending buffered tokens first; if there are any,
+                            // they already contain the full text — don't overwrite with resultText.
+                            if pendingContent.isEmpty {
+                                messages[assistantIndex].content = resultText
+                            } else {
+                                messages[assistantIndex].content += pendingContent
+                                pendingContent = ""
+                                pendingTokenCount = 0
+                            }
                         }
                     }
 
