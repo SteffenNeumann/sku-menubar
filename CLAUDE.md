@@ -8,6 +8,20 @@ Alle Änderungen direkt auf dem aktuellen Branch (normalerweise `main`) arbeiten
 **Warum:** Worktrees divergieren von `main` und verlieren neuere Commits. Das führt zu
 veralteten Builds ohne Fehlermeldung — ein nicht sichtbares Versionierungs-Problem.
 
+### Wenn die Session selbst in einem Worktree läuft
+
+Erkennbar am System-Prompt: `You are operating in a git worktree.`  
+Das echte Repo (main) liegt immer unter: `/Users/steffen/Documents/GitHub/sku-menubar/`
+
+**Vorgehen:**
+1. Änderungen im Worktree normal vornehmen und committen
+2. Dateien per `cp` manuell ins echte Repo kopieren:
+   ```bash
+   cp Sources/SKUMenuBar/GeänderteDatei.swift /Users/steffen/Documents/GitHub/sku-menubar/Sources/SKUMenuBar/
+   ```
+3. Im echten Repo committen und deployen — **niemals vom Worktree-Pfad aus bauen**
+4. Worktree danach aufräumen: `git worktree remove --force <pfad>`
+
 ---
 
 ## Deploy-Workflow (5 Schritte — immer alle 5)

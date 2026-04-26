@@ -1896,6 +1896,26 @@ struct PersonaReviewOverlay: View {
                 .buttonStyle(.plain)
                 .disabled(persona == nil || isReviewing)
 
+                // Co-Design Loop button
+                if result != nil, let startLoop = onStartLoop {
+                    Button(action: startLoop) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("Loop")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(accentColor)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Co-Design Loop starten")
+                    .transition(.scale.combined(with: .opacity))
+                }
+
                 // Gespräch-Toggle (nur wenn Bewertung vorliegt)
                 if result != nil, persona != nil {
                     Button {
@@ -2056,18 +2076,6 @@ struct PersonaReviewOverlay: View {
                                              title: "Wünsche", items: r.wishes, sendable: true)
                             }
 
-                            if let startLoop = onStartLoop {
-                                Button(action: startLoop) {
-                                    Label("Co-Design Loop starten", systemImage: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 7)
-                                        .background(accentColor.opacity(0.15))
-                                        .foregroundStyle(accentColor)
-                                        .cornerRadius(7)
-                                }
-                                .buttonStyle(.plain)
-                            }
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)

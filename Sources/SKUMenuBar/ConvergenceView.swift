@@ -222,45 +222,270 @@ private struct SessionStatusView: View {
     let onFileUpdated: (String) -> Void
     let onClose: () -> Void
 
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var pulseOpacity: Double = 0.5
+
+    private var isRunning: Bool {
+        [ConvergencePhase.critic, .designer, .implementor].contains(session.phase)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                // Phase header
-                PhaseHeaderView(session: session, accentColor: accentColor, theme: theme)
-
-                Divider().opacity(0.3)
-
-                // Snapshot timeline
-                if !session.snapshots.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
+        VStack(spacing: 0) {
+            progressHeader
+            Divider().opacity(0.15)
+            agentPipeline
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            if isRunning && !session.liveOutput.isEmpty {
+                liveOutputRow
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            if !session.snapshots.isEmpty {
+                Divider().opacity(0.15)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Verlauf")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 10)
                         ForEach(session.snapshots) { snap in
                             SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
                                 session.restore(snapshot: snap)
                                 onFileUpdated(snap.fileContent)
                             }
+                            .padding(.horizontal, 8)
                         }
+                        Spacer(minLength: 6)
                     }
                 }
-
-                // Error
-                if let err = session.errorMessage {
-                    Text(err)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
-                        .padding(8)
-                        .background(Color.red.opacity(0.08))
-                        .cornerRadius(6)
-                }
-
-                // Action buttons
-                actionButtons
+                .frame(maxHeight: 150)
             }
-            .padding(14)
+            if let err = session.errorMessage {
+                Divider().opacity(0.15)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.06))
+                .padding(.horizontal, 10).padding(.vertical, 4)
+            }
+            Divider().opacity(0.15)
+            actionButtons.padding(12)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulseScale = 1.35
+                pulseOpacity = 1.0
+            }
         }
     }
+
+    // MARK: Progress header
+
+    private var progressHeader: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(phaseColor.opacity(0.25))
+                    .frame(width: 22, height: 22)
+                    .scaleEffect(isRunning ? pulseScale : 1)
+                    .opacity(isRunning ? (pulseOpacity * 0.6) : 0)
+                Circle()
+                    .fill(phaseColor)
+                    .frame(width: 10, height: 10)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(phaseLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                    .animation(.default, value: session.phase)
+                if session.iteration > 0 {
+                    Text("Runde \(session.iteration) von \(session.maxIterations)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+            Spacer()
+            if session.maxIterations > 0 && session.iteration > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(theme.cardSurface).frame(height: 4)
+                        Capsule()
+                            .fill(accentColor)
+                            .frame(width: geo.size.width * CGFloat(min(session.iteration, session.maxIterations)) / CGFloat(session.maxIterations), height: 4)
+                            .animation(.spring(duration: 0.4), value: session.iteration)
+                    }
+                }
+                .frame(width: 72, height: 4)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(phaseColor.opacity(0.06))
+    }
+
+    // MARK: Agent pipeline
+
+    private var agentPipeline: some View {
+        HStack(spacing: 0) {
+            agentNode(targetPhase: .critic, icon: "theatermasks.fill",
+                      name: session.criticName, color: .purple)
+            connectionLine(lit: phaseIndex > 0)
+            agentNode(targetPhase: .designer, icon: "paintbrush.fill",
+                      name: session.designerName, color: accentColor)
+            connectionLine(lit: phaseIndex > 1)
+            agentNode(targetPhase: .implementor, icon: "hammer.fill",
+                      name: session.implementorName, color: .orange)
+        }
+    }
+
+    private var phaseIndex: Int {
+        switch session.phase {
+        case .critic:     return 0
+        case .designer:   return 1
+        case .implementor: return 2
+        case .converged, .escalation, .cancelled: return 3
+        default: return -1
+        }
+    }
+
+    private func agentNode(targetPhase: ConvergencePhase, icon: String, name: String, color: Color) -> some View {
+        let isActive = session.phase == targetPhase
+        let pIdx = phaseIndex
+        let nodeIdx: Int = {
+            switch targetPhase {
+            case .critic: return 0
+            case .designer: return 1
+            case .implementor: return 2
+            default: return 0
+            }
+        }()
+        let isDone = pIdx > nodeIdx
+
+        return VStack(spacing: 6) {
+            ZStack {
+                if isActive {
+                    Circle()
+                        .fill(color.opacity(0.22))
+                        .frame(width: 48, height: 48)
+                        .scaleEffect(pulseScale)
+                }
+                Circle()
+                    .fill(isActive ? color : (isDone ? color.opacity(0.18) : theme.cardSurface))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Circle().strokeBorder(
+                            isActive ? color : color.opacity(isDone ? 0.45 : 0.18),
+                            lineWidth: isActive ? 1.5 : 1
+                        )
+                    )
+                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 7)
+
+                if isDone && !isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(color.opacity(0.85))
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 13))
+                        .foregroundStyle(isActive ? .white : color.opacity(isDone ? 0.6 : 0.3))
+                }
+            }
+            .animation(.spring(duration: 0.35), value: session.phase)
+
+            Text(firstName(name))
+                .font(.system(size: 9, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func connectionLine(lit: Bool) -> some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(lit ? accentColor.opacity(0.5) : theme.secondaryText.opacity(0.12))
+                .frame(height: 1.5)
+                .animation(.easeInOut(duration: 0.4), value: lit)
+            Image(systemName: "arrowtriangle.right.fill")
+                .font(.system(size: 5))
+                .foregroundStyle(lit ? accentColor.opacity(0.5) : theme.secondaryText.opacity(0.12))
+        }
+        .frame(width: 28)
+        .offset(y: -9)
+    }
+
+    private func firstName(_ name: String) -> String {
+        name.components(separatedBy: " ").first ?? name
+    }
+
+    // MARK: Live output
+
+    private var liveOutputRow: some View {
+        let raw = session.liveOutput
+        let display = (raw.count > 120 ? "…" + raw.suffix(120) : raw)
+            .replacingOccurrences(of: "\n", with: " ")
+        return HStack(alignment: .center, spacing: 8) {
+            Circle()
+                .fill(accentColor)
+                .frame(width: 4, height: 4)
+                .opacity(pulseOpacity)
+            Text(display)
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(theme.secondaryText.opacity(0.75))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(theme.cardSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(accentColor.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+
+    // MARK: Helpers
+
+    private var phaseColor: Color {
+        switch session.phase {
+        case .critic:      return .purple
+        case .designer:    return accentColor
+        case .implementor: return .orange
+        case .converged:   return .green
+        case .escalation:  return .orange
+        default:           return theme.secondaryText
+        }
+    }
+
+    private var phaseLabel: String {
+        switch session.phase {
+        case .idle:         return "Bereit"
+        case .critic:       return "\(firstName(session.criticName)) bewertet…"
+        case .designer:     return "\(firstName(session.designerName)) prüft…"
+        case .implementor:  return "\(firstName(session.implementorName)) setzt um…"
+        case .converged:    return "Konsens erreicht ✓"
+        case .escalation:   return escalationLabel
+        case .cancelled:    return "Abgebrochen"
+        }
+    }
+
+    private var escalationLabel: String {
+        switch session.escalationReason {
+        case .capReached:                      return "Max. Runden erreicht"
+        case .stalemate:                       return "Patt — gleiche Issues"
+        case .rejectFinal:                     return "Persona lehnt grundsätzlich ab"
+        case .designerInfeasibleNoAlternative: return "Designer: keine Alternative"
+        case nil:                              return "Loop beendet"
+        }
+    }
+
+    // MARK: Action buttons
 
     @ViewBuilder
     private var actionButtons: some View {
@@ -273,88 +498,28 @@ private struct SessionStatusView: View {
                 }
                 Button("⏹ Abbrechen") { session.cancel() }
                     .buttonStyle(ConvergenceButtonStyle(color: theme.secondaryText))
-
             case .converged:
                 Button("✓ Übernehmen & schließen") {
                     onFileUpdated(session.currentFileContent)
                     onClose()
                 }
                 .buttonStyle(ConvergenceButtonStyle(color: .green))
-
                 Button("↻ Weitere Runde") {
                     session.phase = .idle
                     session.start()
                 }
                 .buttonStyle(ConvergenceButtonStyle(color: accentColor))
-
             case .escalation:
-                Text(escalationText)
+                Text(escalationLabel)
                     .font(.system(size: 12))
                     .foregroundStyle(theme.secondaryText)
+                    .multilineTextAlignment(.center)
                 Button("Schließen") { onClose() }
                     .buttonStyle(ConvergenceButtonStyle(color: theme.secondaryText))
-
             case .cancelled:
                 Button("Schließen") { onClose() }
                     .buttonStyle(ConvergenceButtonStyle(color: theme.secondaryText))
             }
-        }
-    }
-
-    private var escalationText: String {
-        switch session.escalationReason {
-        case .capReached:                      return "Maximale Rundenzahl erreicht."
-        case .stalemate:                       return "Susanne wiederholt dieselben Issues (Patt)."
-        case .rejectFinal:                     return "Persona hat die Richtung grundsätzlich abgelehnt."
-        case .designerInfeasibleNoAlternative: return "Designer hält Wünsche für nicht umsetzbar."
-        case nil:                              return "Loop beendet."
-        }
-    }
-}
-
-// MARK: - Phase Header
-
-private struct PhaseHeaderView: View {
-    @ObservedObject var session: ConvergenceSession
-    let accentColor: Color
-    let theme: AppTheme
-
-    var body: some View {
-        HStack(spacing: 10) {
-            // Spinner or check
-            Group {
-                if [ConvergencePhase.critic, .designer, .implementor].contains(session.phase) {
-                    ProgressView().controlSize(.small)
-                } else if session.phase == .converged {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                } else if session.phase == .escalation {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                } else {
-                    Image(systemName: "circle").foregroundStyle(theme.tertiaryText)
-                }
-            }
-            .frame(width: 18)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(phaseLabel)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                Text("Runde \(session.iteration) von \(6)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
-            }
-        }
-    }
-
-    private var phaseLabel: String {
-        switch session.phase {
-        case .idle:        return "Bereit"
-        case .critic:      return "Persona bewertet…"
-        case .designer:    return "Designer prüft…"
-        case .implementor: return "Implementor setzt um…"
-        case .converged:   return "Konsens erreicht ✓"
-        case .escalation:  return "Eskalation ⚠"
-        case .cancelled:   return "Abgebrochen"
         }
     }
 }

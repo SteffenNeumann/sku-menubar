@@ -36,12 +36,13 @@ final class ConvergenceRunner {
 
     func runRound(
         input: RoundInput,
-        onPhase: @escaping (ConvergencePhase) -> Void
+        onPhase: @escaping (ConvergencePhase) -> Void,
+        onText: @escaping (String) -> Void = { _ in }
     ) async throws -> RoundOutput {
 
         // --- Step 1: Critic ---
         onPhase(.critic)
-        let critique = try await callCritic(input: input)
+        let critique = try await callCritic(input: input, onText: onText)
 
         // Short-circuit if approved — caller checks this but we still return
         // DesignDecision/ImplementationResult are empty placeholders on approve
@@ -54,7 +55,7 @@ final class ConvergenceRunner {
 
         // --- Step 2: Designer ---
         onPhase(.designer)
-        let decision = try await callDesigner(input: input, critique: critique)
+        let decision = try await callDesigner(input: input, critique: critique, onText: onText)
 
         // Short-circuit if infeasible with no alternatives
         if decision.allRejectedWithoutAlternative {
@@ -66,7 +67,7 @@ final class ConvergenceRunner {
         // --- Step 3: Implementor ---
         onPhase(.implementor)
         let (implResult, newContent) = try await callImplementor(
-            input: input, critique: critique, decision: decision)
+            input: input, critique: critique, decision: decision, onText: onText)
 
         return RoundOutput(critique: critique, decision: decision,
                            implementation: implResult, newFileContent: newContent)
@@ -74,7 +75,7 @@ final class ConvergenceRunner {
 
     // MARK: - Critic call
 
-    private func callCritic(input: RoundInput) async throws -> CritiqueReport {
+    private func callCritic(input: RoundInput, onText: @escaping (String) -> Void = { _ in }) async throws -> CritiqueReport {
         let jsonSuffix = """
 
 ---
@@ -113,12 +114,12 @@ Quellcode:
 \(input.fileContent.prefix(6000))
 """
         return try await callAgentJSON(systemPrompt: systemPrompt, message: message,
-                                       as: CritiqueReport.self)
+                                       as: CritiqueReport.self, onText: onText)
     }
 
     // MARK: - Designer call
 
-    private func callDesigner(input: RoundInput, critique: CritiqueReport) async throws -> DesignDecision {
+    private func callDesigner(input: RoundInput, critique: CritiqueReport, onText: @escaping (String) -> Void = { _ in }) async throws -> DesignDecision {
         let jsonSuffix = """
 
 ---
@@ -158,7 +159,7 @@ Aktueller Quellcode:
 \(input.fileContent.prefix(5000))
 """
         return try await callAgentJSON(systemPrompt: systemPrompt, message: message,
-                                       as: DesignDecision.self)
+                                       as: DesignDecision.self, onText: onText)
     }
 
     // MARK: - Implementor call
@@ -166,7 +167,8 @@ Aktueller Quellcode:
     private func callImplementor(
         input: RoundInput,
         critique: CritiqueReport,
-        decision: DesignDecision
+        decision: DesignDecision,
+        onText: @escaping (String) -> Void = { _ in }
     ) async throws -> (ImplementationResult, String) {
         let jsonSuffix = """
 
@@ -199,7 +201,7 @@ Aktueller Inhalt:
 \(input.fileContent)
 """
         let result = try await callAgentJSON(systemPrompt: systemPrompt, message: message,
-                                             as: ImplementationResult.self)
+                                             as: ImplementationResult.self, onText: onText)
 
         // Extract new file content if implementor provided it
         let newContent: String
@@ -217,17 +219,22 @@ Aktueller Inhalt:
     private func callAgentJSON<T: Decodable>(
         systemPrompt: String,
         message: String,
-        as type: T.Type
+        as type: T.Type,
+        onText: @escaping (String) -> Void = { _ in }
     ) async throws -> T {
         var raw = ""
         let stream = cli.send(message: message, systemPrompt: systemPrompt, model: "sonnet")
         for try await event in stream {
             if event.type == "assistant" {
                 if let contents = event.message?.content {
-                    for c in contents where c.type == "text" { raw += c.text ?? "" }
+                    for c in contents where c.type == "text" {
+                        raw += c.text ?? ""
+                        onText(raw)
+                    }
                 }
             } else if event.type == "result", let resultText = event.result, raw.isEmpty {
                 raw = resultText
+                onText(raw)
             }
         }
 

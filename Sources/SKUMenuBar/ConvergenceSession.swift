@@ -31,10 +31,18 @@ final class ConvergenceSession: ObservableObject {
     @Published var lastCritique: CritiqueReport? = nil
     @Published var lastDecision: DesignDecision? = nil
     @Published var awaitingNextRound: Bool = false    // step-mode: waiting for user tap
+    @Published var liveOutput: String = ""
+
+    // MARK: Computed name/config accessors
+
+    var criticName: String { config.critic.name }
+    var designerName: String { config.designer.name }
+    var implementorName: String { config.implementor.name }
+    var maxIterations: Int { config.maxIterations }
 
     // MARK: Private
 
-    private let config: Config
+    let config: Config
     private let runner: ConvergenceRunner
     private var runTask: Task<Void, Never>? = nil
 
@@ -97,7 +105,12 @@ final class ConvergenceSession: ObservableObject {
 
             do {
                 let output = try await runner.runRound(input: roundInput) { [weak self] p in
-                    Task { @MainActor [weak self] in self?.phase = p }
+                    Task { @MainActor [weak self] in
+                        self?.phase = p
+                        self?.liveOutput = ""
+                    }
+                } onText: { [weak self] text in
+                    self?.liveOutput = text
                 }
 
                 // Save snapshot
