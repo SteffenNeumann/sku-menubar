@@ -184,6 +184,9 @@ struct FileExplorerView: View {
     @State private var capturedWebView: WKWebView? = nil
     @State private var reviewError: String? = nil
 
+    // Co-Design Loop
+    @State private var showConvergenceLoop: Bool = false
+
     // Commit sheet
     @State private var showCommitSheet: Bool = false
     @State private var commitMessage: String = ""
@@ -262,6 +265,9 @@ struct FileExplorerView: View {
                             onExportConversation: { conversationText in
                                 exportConversationToChat(text: conversationText, node: node)
                             },
+                            onStartLoop: personaReviewResult != nil ? {
+                                showConvergenceLoop = true
+                            } : nil,
                             onClose: {
                                 withAnimation(.spring(duration: 0.3)) {
                                     showPersonaReview = false
@@ -337,6 +343,26 @@ struct FileExplorerView: View {
             }
         }
         .sheet(isPresented: $showCommitSheet) { commitSheetView }
+        .sheet(isPresented: $showConvergenceLoop) {
+            if let node = selectedNode,
+               let persona = selectedReviewPersona {
+                let workers = state.agentService.agents.filter { !$0.isPersona }
+                ConvergenceView(
+                    fileNode: node,
+                    initialContent: editText,
+                    critic: persona,
+                    allDesigners: workers,
+                    allImplementors: workers,
+                    onFileUpdated: { newContent in
+                        editText = newContent
+                        isDirty = true
+                    },
+                    onClose: { showConvergenceLoop = false }
+                )
+                .environmentObject(state)
+                .frame(width: 420, height: 600)
+            }
+        }
     }
 
     // MARK: - Headers
@@ -1776,6 +1802,7 @@ struct PersonaReviewOverlay: View {
     let onSendToChat: (String) -> Void
     let onStartConversation: () -> Void
     let onExportConversation: (String) -> Void
+    let onStartLoop: (() -> Void)?
     let onClose: () -> Void
 
     // Resize
@@ -2027,6 +2054,19 @@ struct PersonaReviewOverlay: View {
                                              title: "Gefällt nicht", items: r.disliked, sendable: false)
                                 reviewColumn(icon: "lightbulb.fill", color: accentColor,
                                              title: "Wünsche", items: r.wishes, sendable: true)
+                            }
+
+                            if let startLoop = onStartLoop {
+                                Button(action: startLoop) {
+                                    Label("Co-Design Loop starten", systemImage: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 7)
+                                        .background(accentColor.opacity(0.15))
+                                        .foregroundStyle(accentColor)
+                                        .cornerRadius(7)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 16)
