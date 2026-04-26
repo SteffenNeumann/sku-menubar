@@ -234,8 +234,8 @@ private struct SessionStatusView: View {
             progressHeader
             Divider().opacity(0.15)
             agentPipeline
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             if isRunning && !session.liveOutput.isEmpty {
                 liveOutputRow
                     .padding(.horizontal, 12)
@@ -325,7 +325,7 @@ private struct SessionStatusView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(phaseColor.opacity(0.06))
     }
 
@@ -367,32 +367,32 @@ private struct SessionStatusView: View {
         }()
         let isDone = pIdx > nodeIdx
 
-        return VStack(spacing: 6) {
+        return VStack(spacing: 4) {
             ZStack {
                 if isActive {
                     Circle()
                         .fill(color.opacity(0.22))
-                        .frame(width: 48, height: 48)
+                        .frame(width: 34, height: 34)
                         .scaleEffect(pulseScale)
                 }
                 Circle()
                     .fill(isActive ? color : (isDone ? color.opacity(0.18) : theme.cardSurface))
-                    .frame(width: 36, height: 36)
+                    .frame(width: 26, height: 26)
                     .overlay(
                         Circle().strokeBorder(
                             isActive ? color : color.opacity(isDone ? 0.45 : 0.18),
                             lineWidth: isActive ? 1.5 : 1
                         )
                     )
-                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 7)
+                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 5)
 
                 if isDone && !isActive {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(color.opacity(0.85))
                 } else {
                     Image(systemName: icon)
-                        .font(.system(size: 13))
+                        .font(.system(size: 11))
                         .foregroundStyle(isActive ? .white : color.opacity(isDone ? 0.6 : 0.3))
                 }
             }
@@ -416,8 +416,8 @@ private struct SessionStatusView: View {
                 .font(.system(size: 5))
                 .foregroundStyle(lit ? accentColor.opacity(0.5) : theme.secondaryText.opacity(0.12))
         }
-        .frame(width: 28)
-        .offset(y: -9)
+        .frame(width: 24)
+        .offset(y: -7)
     }
 
     private func firstName(_ name: String) -> String {
