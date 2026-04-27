@@ -366,6 +366,8 @@ private struct SessionStatusView: View {
         }()
         let isDone = pIdx > nodeIdx
 
+        let progress = nodeProgress(targetPhase: targetPhase)
+
         return VStack(spacing: 4) {
             ZStack {
                 if isActive {
@@ -401,6 +403,22 @@ private struct SessionStatusView: View {
                 .font(.system(size: 9, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
                 .lineLimit(1)
+
+            // Per-agent progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(color.opacity(0.12))
+                        .frame(height: 3)
+                    Capsule()
+                        .fill(color.opacity(isDone ? 0.5 : 0.85))
+                        .frame(width: geo.size.width * CGFloat(progress), height: 3)
+                        .animation(.linear(duration: 0.15), value: progress)
+                }
+            }
+            .frame(height: 3)
+            .padding(.horizontal, 4)
+            .opacity(isDone || isActive ? 1 : 0.25)
         }
         .frame(maxWidth: .infinity)
     }
@@ -437,6 +455,16 @@ private struct SessionStatusView: View {
             }
         }()
         return min((done + step) / Double(session.maxIterations), 1.0)
+    }
+
+    private func nodeProgress(targetPhase: ConvergencePhase) -> Double {
+        let nodeIdx: Int = { switch targetPhase {
+            case .critic: return 0; case .designer: return 1; case .implementor: return 2; default: return 0
+        }}()
+        if phaseIndex > nodeIdx { return 1.0 }
+        guard session.phase == targetPhase else { return 0.0 }
+        let typical: Double = targetPhase == .critic ? 900 : targetPhase == .designer ? 500 : 6000
+        return min(Double(session.phaseOutputLen) / typical, 0.95)
     }
 
     // MARK: Live output area

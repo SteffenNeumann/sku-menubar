@@ -32,6 +32,7 @@ final class ConvergenceSession: ObservableObject {
     @Published var lastDecision: DesignDecision? = nil
     @Published var awaitingNextRound: Bool = false    // step-mode: waiting for user tap
     @Published var liveOutput: String = ""
+    @Published var phaseOutputLen: Int = 0
 
     // MARK: Computed name/config accessors
 
@@ -108,9 +109,11 @@ final class ConvergenceSession: ObservableObject {
                     Task { @MainActor [weak self] in
                         self?.phase = p
                         self?.liveOutput = ""
+                        self?.phaseOutputLen = 0
                     }
                 } onText: { [weak self] text in
                     self?.liveOutput = text
+                    self?.phaseOutputLen = text.count
                 }
 
                 // Save snapshot
