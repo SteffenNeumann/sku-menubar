@@ -234,40 +234,33 @@ private struct SessionStatusView: View {
             progressHeader
             Divider().opacity(0.15)
 
-            HStack(alignment: .center, spacing: 16) {
-                // Agent pipeline — takes full width, centered vertically
-                agentPipeline
+            // Pipeline — full width, vertically centered
+            agentPipeline
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
 
-                // Right column: live output + actions
-                VStack(spacing: 10) {
-                    if isRunning && !session.liveOutput.isEmpty {
-                        liveOutputRow
-                            .transition(.opacity.combined(with: .move(edge: .trailing)))
-                    }
+            // Live conversation — always visible area
+            liveOutputArea
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
 
-                    if !session.snapshots.isEmpty {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Verlauf")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.secondaryText)
-                                ForEach(session.snapshots) { snap in
-                                    SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
-                                        session.restore(snapshot: snap)
-                                        onFileUpdated(snap.fileContent)
-                                    }
-                                }
+            if !session.snapshots.isEmpty {
+                Divider().opacity(0.15)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(session.snapshots) { snap in
+                            SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
+                                session.restore(snapshot: snap)
+                                onFileUpdated(snap.fileContent)
                             }
+                            .padding(.horizontal, 12)
                         }
-                        .frame(maxHeight: 80)
                     }
-
-                    Spacer(minLength: 0)
-                    actionButtons
+                    .padding(.vertical, 6)
                 }
-                .frame(width: 160)
+                .frame(maxHeight: 72)
             }
-            .padding(16)
 
             if let err = session.errorMessage {
                 Divider().opacity(0.15)
@@ -279,6 +272,9 @@ private struct SessionStatusView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.red.opacity(0.06))
             }
+
+            Divider().opacity(0.15)
+            actionButtons.padding(.horizontal, 16).padding(.vertical, 10)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
@@ -314,17 +310,17 @@ private struct SessionStatusView: View {
                 }
             }
             Spacer()
-            if session.maxIterations > 0 && session.iteration > 0 {
+            if session.maxIterations > 0 {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(theme.cardSurface).frame(height: 4)
                         Capsule()
                             .fill(accentColor)
-                            .frame(width: geo.size.width * CGFloat(min(session.iteration, session.maxIterations)) / CGFloat(session.maxIterations), height: 4)
-                            .animation(.spring(duration: 0.4), value: session.iteration)
+                            .frame(width: geo.size.width * CGFloat(phaseProgress), height: 4)
+                            .animation(.spring(duration: 0.4), value: phaseProgress)
                     }
                 }
-                .frame(width: 72, height: 4)
+                .frame(width: 80, height: 4)
             }
         }
         .padding(.horizontal, 14)
@@ -401,7 +397,7 @@ private struct SessionStatusView: View {
             }
             .animation(.spring(duration: 0.35), value: session.phase)
 
-            Text(firstName(name))
+            Text(shortName(name))
                 .font(.system(size: 9, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
                 .lineLimit(1)
@@ -423,33 +419,69 @@ private struct SessionStatusView: View {
         .offset(y: -9)
     }
 
-    private func firstName(_ name: String) -> String {
-        name.components(separatedBy: " ").first ?? name
+    private func shortName(_ name: String) -> String {
+        let s = name.components(separatedBy: CharacterSet(charactersIn: " -")).first ?? name
+        return s.count > 13 ? String(s.prefix(12)) + "…" : s
     }
 
-    // MARK: Live output
+    private var phaseProgress: Double {
+        guard session.maxIterations > 0 else { return 0 }
+        let done = Double(max(session.iteration - 1, 0))
+        let step: Double = {
+            switch session.phase {
+            case .critic:      return 0.33
+            case .designer:    return 0.67
+            case .implementor: return 0.99
+            case .converged, .escalation, .cancelled: return 1.0
+            default: return 0
+            }
+        }()
+        return min((done + step) / Double(session.maxIterations), 1.0)
+    }
 
-    private var liveOutputRow: some View {
+    // MARK: Live output area
+
+    private var liveOutputArea: some View {
         let raw = session.liveOutput
-        let display = (raw.count > 120 ? "…" + raw.suffix(120) : raw)
+        let hasOutput = !raw.isEmpty
+        let display = (raw.count > 200 ? "…" + raw.suffix(200) : raw)
             .replacingOccurrences(of: "\n", with: " ")
-        return HStack(alignment: .center, spacing: 8) {
-            Circle()
-                .fill(accentColor)
-                .frame(width: 4, height: 4)
-                .opacity(pulseOpacity)
-            Text(display)
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(theme.secondaryText.opacity(0.75))
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            .trimmingCharacters(in: .whitespaces)
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                if isRunning {
+                    Circle()
+                        .fill(phaseColor)
+                        .frame(width: 5, height: 5)
+                        .opacity(pulseOpacity)
+                }
+                Text(isRunning ? "Was gerade passiert" : (session.phase == .converged ? "Fertig" : "Warte…"))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            if hasOutput {
+                Text(display)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.primaryText.opacity(0.8))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: display)
+            } else {
+                Text("Waiting for agent response…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(theme.cardSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+        .background(theme.cardSurface.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(accentColor.opacity(0.15), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(phaseColor.opacity(isRunning ? 0.3 : 0.1), lineWidth: 0.5)
         )
     }
 
@@ -469,9 +501,9 @@ private struct SessionStatusView: View {
     private var phaseLabel: String {
         switch session.phase {
         case .idle:         return "Bereit"
-        case .critic:       return "\(firstName(session.criticName)) bewertet…"
-        case .designer:     return "\(firstName(session.designerName)) prüft…"
-        case .implementor:  return "\(firstName(session.implementorName)) setzt um…"
+        case .critic:       return "\(shortName(session.criticName)) bewertet…"
+        case .designer:     return "\(shortName(session.designerName)) prüft…"
+        case .implementor:  return "\(shortName(session.implementorName)) setzt um…"
         case .converged:    return "Konsens erreicht ✓"
         case .escalation:   return escalationLabel
         case .cancelled:    return "Abgebrochen"
