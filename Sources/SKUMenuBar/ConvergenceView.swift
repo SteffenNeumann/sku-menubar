@@ -233,36 +233,42 @@ private struct SessionStatusView: View {
         VStack(spacing: 0) {
             progressHeader
             Divider().opacity(0.15)
-            agentPipeline
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            if isRunning && !session.liveOutput.isEmpty {
-                liveOutputRow
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-            if !session.snapshots.isEmpty {
-                Divider().opacity(0.15)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Verlauf")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(theme.secondaryText)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 10)
-                        ForEach(session.snapshots) { snap in
-                            SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
-                                session.restore(snapshot: snap)
-                                onFileUpdated(snap.fileContent)
-                            }
-                            .padding(.horizontal, 8)
-                        }
-                        Spacer(minLength: 6)
+
+            HStack(alignment: .center, spacing: 16) {
+                // Agent pipeline — takes full width, centered vertically
+                agentPipeline
+
+                // Right column: live output + actions
+                VStack(spacing: 10) {
+                    if isRunning && !session.liveOutput.isEmpty {
+                        liveOutputRow
+                            .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
+
+                    if !session.snapshots.isEmpty {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Verlauf")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(theme.secondaryText)
+                                ForEach(session.snapshots) { snap in
+                                    SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
+                                        session.restore(snapshot: snap)
+                                        onFileUpdated(snap.fileContent)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 80)
+                    }
+
+                    Spacer(minLength: 0)
+                    actionButtons
                 }
-                .frame(maxHeight: 150)
+                .frame(width: 160)
             }
+            .padding(16)
+
             if let err = session.errorMessage {
                 Divider().opacity(0.15)
                 HStack(spacing: 6) {
@@ -272,10 +278,7 @@ private struct SessionStatusView: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.red.opacity(0.06))
-                .padding(.horizontal, 10).padding(.vertical, 4)
             }
-            Divider().opacity(0.15)
-            actionButtons.padding(12)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
@@ -372,27 +375,27 @@ private struct SessionStatusView: View {
                 if isActive {
                     Circle()
                         .fill(color.opacity(0.22))
-                        .frame(width: 34, height: 34)
+                        .frame(width: 46, height: 46)
                         .scaleEffect(pulseScale)
                 }
                 Circle()
                     .fill(isActive ? color : (isDone ? color.opacity(0.18) : theme.cardSurface))
-                    .frame(width: 26, height: 26)
+                    .frame(width: 36, height: 36)
                     .overlay(
                         Circle().strokeBorder(
                             isActive ? color : color.opacity(isDone ? 0.45 : 0.18),
                             lineWidth: isActive ? 1.5 : 1
                         )
                     )
-                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 5)
+                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 6)
 
                 if isDone && !isActive {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(color.opacity(0.85))
                 } else {
                     Image(systemName: icon)
-                        .font(.system(size: 11))
+                        .font(.system(size: 13))
                         .foregroundStyle(isActive ? .white : color.opacity(isDone ? 0.6 : 0.3))
                 }
             }
@@ -417,7 +420,7 @@ private struct SessionStatusView: View {
                 .foregroundStyle(lit ? accentColor.opacity(0.5) : theme.secondaryText.opacity(0.12))
         }
         .frame(width: 24)
-        .offset(y: -7)
+        .offset(y: -9)
     }
 
     private func firstName(_ name: String) -> String {

@@ -360,7 +360,7 @@ struct FileExplorerView: View {
                     onClose: { showConvergenceLoop = false }
                 )
                 .environmentObject(state)
-                .frame(width: 360, height: 440)
+                .frame(width: 500, height: 340)
             }
         }
     }
