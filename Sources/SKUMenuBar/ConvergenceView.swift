@@ -285,7 +285,9 @@ private struct SetupView: View {
                     .cornerRadius(8)
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(color.opacity(0.15), lineWidth: 0.5))
                 }
-                .menuStyle(.borderlessButton)
+                .menuStyle(.automatic)
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
