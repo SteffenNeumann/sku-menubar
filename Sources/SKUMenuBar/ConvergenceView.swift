@@ -117,95 +117,173 @@ private struct SetupView: View {
     let onStart: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Roles
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Critic (Persona)", systemImage: "theatermasks.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
-                Text(critic.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                // Roles section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("AGENTEN")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(theme.tertiaryText)
+                        .tracking(1.2)
 
-            agentPicker(label: "Designer", icon: "paintbrush.fill",
-                        agents: allDesigners, selection: $selectedDesigner)
+                    // Critic (read-only)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("Critic (Persona)", systemImage: "theatermasks.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.purple.opacity(0.85))
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Color.purple.opacity(0.15))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Text(String(critic.name.prefix(1)))
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.purple)
+                                )
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(critic.name)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(theme.primaryText)
+                                Text("Bewertet aus Nutzerperspektive")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.purple.opacity(0.05))
+                    .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.purple.opacity(0.15), lineWidth: 0.5))
 
-            agentPicker(label: "Implementor", icon: "hammer.fill",
-                        agents: allImplementors, selection: $selectedImplementor)
+                    agentPicker(label: "Designer", icon: "paintbrush.fill",
+                                color: accentColor,
+                                agents: allDesigners, selection: $selectedDesigner)
 
-            Divider().opacity(0.3)
-
-            // Config
-            HStack {
-                Text("Max. Runden")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.secondaryText)
-                Spacer()
-                Stepper("\(maxIterations)", value: $maxIterations, in: 1...12)
-                    .labelsHidden()
-                Text("\(maxIterations)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(theme.primaryText)
-                    .frame(width: 24)
-            }
-
-            Toggle("Autorun (ohne Pause)", isOn: $autorun)
-                .font(.system(size: 12))
-                .foregroundStyle(theme.secondaryText)
-                .toggleStyle(.switch)
-
-            Spacer()
-
-            Button(action: onStart) {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("Co-Design Loop starten")
-                        .font(.system(size: 13, weight: .semibold))
+                    agentPicker(label: "Implementor", icon: "hammer.fill",
+                                color: .orange,
+                                agents: allImplementors, selection: $selectedImplementor)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(accentColor)
-                .foregroundStyle(.white)
-                .cornerRadius(8)
+
+                Divider().opacity(0.3)
+
+                // Config section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("KONFIGURATION")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(theme.tertiaryText)
+                        .tracking(1.2)
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Max. Runden")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                            Text("Maximale Iterations-Anzahl")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Spacer()
+                        HStack(spacing: 8) {
+                            Stepper("", value: $maxIterations, in: 1...12)
+                                .labelsHidden()
+                            Text("\(maxIterations)")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                                .frame(width: 28, alignment: .center)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(theme.cardSurface)
+                                .cornerRadius(6)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Toggle(isOn: $autorun) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Autorun")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.primaryText)
+                                Text("Runden ohne Pause automatisch fortsetzen")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                        }
+                        .toggleStyle(.switch)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button(action: onStart) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 12))
+                        Text("Co-Design Loop starten")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(accentColor)
+                    .foregroundStyle(.white)
+                    .cornerRadius(9)
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedDesigner == nil || selectedImplementor == nil)
+                .opacity(selectedDesigner == nil || selectedImplementor == nil ? 0.5 : 1)
             }
-            .buttonStyle(.plain)
-            .disabled(selectedDesigner == nil || selectedImplementor == nil)
+            .padding(18)
         }
-        .padding(16)
     }
 
     @ViewBuilder
-    private func agentPicker(label: String, icon: String,
+    private func agentPicker(label: String, icon: String, color: Color,
                              agents: [AgentDefinition],
                              selection: Binding<AgentDefinition?>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             Label(label, systemImage: icon)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(theme.secondaryText)
+                .foregroundStyle(color.opacity(0.85))
             if agents.isEmpty {
                 Text("Kein passender Agent gefunden")
                     .font(.system(size: 12))
                     .foregroundStyle(theme.tertiaryText)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(theme.cardSurface)
+                    .cornerRadius(7)
             } else {
                 Menu {
                     ForEach(agents) { agent in
                         Button(agent.name) { selection.wrappedValue = agent }
                     }
                 } label: {
-                    HStack {
-                        Text(selection.wrappedValue?.name ?? "Wählen…")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.primaryText)
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(color.opacity(0.15))
+                            .frame(width: 28, height: 28)
+                            .overlay(
+                                Text(String((selection.wrappedValue?.name ?? "?").prefix(1)))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(color)
+                            )
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(selection.wrappedValue?.name ?? "Wählen…")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                            Text(label == "Designer" ? "Prüft Design-Machbarkeit" : "Setzt Änderungen um")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
                         Spacer()
-                        Image(systemName: "chevron.down")
+                        Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
                             .foregroundStyle(theme.tertiaryText)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(theme.cardSurface)
-                    .cornerRadius(6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(color.opacity(0.05))
+                    .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(color.opacity(0.15), lineWidth: 0.5))
                 }
                 .menuStyle(.borderlessButton)
             }
@@ -234,47 +312,55 @@ private struct SessionStatusView: View {
             progressHeader
             Divider().opacity(0.15)
 
-            // Pipeline — full width, vertically centered
+            // Pipeline
             agentPipeline
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
 
-            // Live conversation — always visible area
-            liveOutputArea
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+            Divider().opacity(0.10)
+
+            // Scrollable content area
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    liveOutputArea
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, 12)
+
+                    if session.iteration > 0, let critique = session.lastCritique {
+                        critiqueSummarySection(critique)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
 
             if !session.snapshots.isEmpty {
                 Divider().opacity(0.15)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(session.snapshots) { snap in
-                            SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
-                                session.restore(snapshot: snap)
-                                onFileUpdated(snap.fileContent)
-                            }
-                            .padding(.horizontal, 12)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                }
-                .frame(maxHeight: 72)
+                snapshotHistorySection
             }
 
             if let err = session.errorMessage {
                 Divider().opacity(0.15)
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                    Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.system(size: 12))
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
                 }
-                .padding(8)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.06))
+                .background(Color.red.opacity(0.07))
             }
 
             Divider().opacity(0.15)
-            actionButtons.padding(.horizontal, 16).padding(.vertical, 10)
+            actionButtons.padding(.horizontal, 16).padding(.vertical, 12)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
@@ -287,45 +373,51 @@ private struct SessionStatusView: View {
     // MARK: Progress header
 
     private var progressHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             ZStack {
                 Circle()
                     .fill(phaseColor.opacity(0.25))
-                    .frame(width: 22, height: 22)
+                    .frame(width: 28, height: 28)
                     .scaleEffect(isRunning ? pulseScale : 1)
                     .opacity(isRunning ? (pulseOpacity * 0.6) : 0)
                 Circle()
                     .fill(phaseColor)
-                    .frame(width: 10, height: 10)
+                    .frame(width: 12, height: 12)
             }
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(phaseLabel)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .animation(.default, value: session.phase)
-                if session.iteration > 0 {
-                    Text("Runde \(session.iteration) von \(session.maxIterations)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.secondaryText)
-                }
+                Text(session.iteration > 0
+                     ? "Runde \(session.iteration) von \(session.maxIterations)"
+                     : "Initialisierung…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText)
             }
             Spacer()
             if session.maxIterations > 0 {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(theme.cardSurface).frame(height: 4)
-                        Capsule()
-                            .fill(accentColor)
-                            .frame(width: geo.size.width * CGFloat(phaseProgress), height: 4)
-                            .animation(.spring(duration: 0.4), value: phaseProgress)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(Int(phaseProgress * 100))%")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(accentColor)
+                        .animation(.spring(duration: 0.4), value: phaseProgress)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(theme.cardSurface).frame(height: 5)
+                            Capsule()
+                                .fill(accentColor)
+                                .frame(width: geo.size.width * CGFloat(phaseProgress), height: 5)
+                                .animation(.spring(duration: 0.4), value: phaseProgress)
+                        }
                     }
+                    .frame(width: 110, height: 5)
                 }
-                .frame(width: 80, height: 4)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(phaseColor.opacity(0.06))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(phaseColor.opacity(0.07))
     }
 
     // MARK: Agent pipeline
@@ -368,39 +460,39 @@ private struct SessionStatusView: View {
 
         let progress = nodeProgress(targetPhase: targetPhase)
 
-        return VStack(spacing: 4) {
+        return VStack(spacing: 6) {
             ZStack {
                 if isActive {
                     Circle()
                         .fill(color.opacity(0.22))
-                        .frame(width: 46, height: 46)
+                        .frame(width: 56, height: 56)
                         .scaleEffect(pulseScale)
                 }
                 Circle()
                     .fill(isActive ? color : (isDone ? color.opacity(0.18) : theme.cardSurface))
-                    .frame(width: 36, height: 36)
+                    .frame(width: 42, height: 42)
                     .overlay(
                         Circle().strokeBorder(
                             isActive ? color : color.opacity(isDone ? 0.45 : 0.18),
                             lineWidth: isActive ? 1.5 : 1
                         )
                     )
-                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 6)
+                    .shadow(color: isActive ? color.opacity(0.45) : .clear, radius: 8)
 
                 if isDone && !isActive {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(color.opacity(0.85))
                 } else {
                     Image(systemName: icon)
-                        .font(.system(size: 13))
+                        .font(.system(size: 14))
                         .foregroundStyle(isActive ? .white : color.opacity(isDone ? 0.6 : 0.3))
                 }
             }
             .animation(.spring(duration: 0.35), value: session.phase)
 
             Text(shortName(name))
-                .font(.system(size: 9, weight: isActive ? .semibold : .regular))
+                .font(.system(size: 10, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
                 .lineLimit(1)
 
@@ -472,45 +564,194 @@ private struct SessionStatusView: View {
     private var liveOutputArea: some View {
         let raw = session.liveOutput
         let hasOutput = !raw.isEmpty
-        let display = (raw.count > 200 ? "…" + raw.suffix(200) : raw)
+        let display = (raw.count > 500 ? "…" + raw.suffix(500) : raw)
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespaces)
 
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 if isRunning {
                     Circle()
                         .fill(phaseColor)
-                        .frame(width: 5, height: 5)
+                        .frame(width: 6, height: 6)
                         .opacity(pulseOpacity)
                 }
-                Text(isRunning ? "Was gerade passiert" : (session.phase == .converged ? "Fertig" : "Warte…"))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(theme.secondaryText)
+                Text(isRunning ? "Agent arbeitet…" : (session.phase == .converged ? "✓ Abgeschlossen" : "Warte…"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isRunning ? phaseColor : theme.secondaryText)
+                Spacer()
+                if isRunning && session.phaseOutputLen > 0 {
+                    Text("\(session.phaseOutputLen) Zeichen")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.tertiaryText)
+                }
             }
             if hasOutput {
                 Text(display)
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.primaryText.opacity(0.8))
-                    .lineLimit(3)
+                    .foregroundStyle(theme.primaryText.opacity(0.85))
+                    .lineLimit(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.2), value: display)
             } else {
-                Text("Waiting for agent response…")
+                Text("Warte auf Agent-Antwort…")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
         .background(theme.cardSurface.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(phaseColor.opacity(isRunning ? 0.3 : 0.1), lineWidth: 0.5)
+                .strokeBorder(phaseColor.opacity(isRunning ? 0.35 : 0.12), lineWidth: 0.5)
         )
+    }
+
+    // MARK: Critique Summary
+
+    @ViewBuilder
+    private func critiqueSummarySection(_ critique: CritiqueReport) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.clipboard.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText)
+                Text("Letzte Bewertung")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+                verdictPill(critique.verdict)
+                Spacer()
+                Text(critiqueSeverityLabel(critique))
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+
+            if !critique.overallImpression.isEmpty {
+                Text(critique.overallImpression)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.primaryText.opacity(0.75))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !critique.issues.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(critique.issues.prefix(5)) { issue in
+                        HStack(alignment: .top, spacing: 8) {
+                            severityDot(issue.severity)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(issue.what)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.primaryText)
+                                    .lineLimit(2)
+                                HStack(spacing: 4) {
+                                    Text(issue.area.uppercased())
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(theme.tertiaryText)
+                                    Text("·")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(theme.tertiaryText)
+                                    Text(issue.severity.rawValue)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(severityColor(issue.severity).opacity(0.8))
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    if critique.issues.count > 5 {
+                        Text("+\(critique.issues.count - 5) weitere Issues")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                            .padding(.leading, 14)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(theme.cardSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(phaseColor.opacity(0.18), lineWidth: 0.5)
+        )
+    }
+
+    private func verdictPill(_ verdict: CritiqueVerdict) -> some View {
+        let (label, color): (String, Color) = {
+            switch verdict {
+            case .approve:     return ("✓ Approved", .green)
+            case .revise:      return ("↻ Überarbeiten", .orange)
+            case .rejectFinal: return ("✗ Abgelehnt", .red)
+            }
+        }()
+        return Text(label)
+            .font(.system(size: 9, weight: .semibold))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.14))
+            .foregroundStyle(color)
+            .cornerRadius(5)
+    }
+
+    @ViewBuilder
+    private func severityDot(_ severity: IssueSeverity) -> some View {
+        Circle()
+            .fill(severityColor(severity))
+            .frame(width: 7, height: 7)
+            .padding(.top, 3)
+    }
+
+    private func severityColor(_ severity: IssueSeverity) -> Color {
+        switch severity {
+        case .blocker: return .red
+        case .major:   return .orange
+        case .minor:   return Color(red: 0.9, green: 0.75, blue: 0.2)
+        }
+    }
+
+    private func critiqueSeverityLabel(_ critique: CritiqueReport) -> String {
+        let blockers = critique.issues.filter { $0.severity == .blocker }.count
+        let majors   = critique.issues.filter { $0.severity == .major }.count
+        let minors   = critique.issues.filter { $0.severity == .minor }.count
+        var parts: [String] = []
+        if blockers > 0 { parts.append("\(blockers) Blocker") }
+        if majors   > 0 { parts.append("\(majors) Major") }
+        if minors   > 0 { parts.append("\(minors) Minor") }
+        return parts.isEmpty ? "0 Issues" : parts.joined(separator: " · ")
+    }
+
+    // MARK: Snapshot History
+
+    private var snapshotHistorySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Verlauf — \(session.snapshots.count) Runden")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(session.snapshots.reversed()) { snap in
+                        SnapshotRow(snap: snap, accentColor: accentColor, theme: theme) {
+                            session.restore(snapshot: snap)
+                            onFileUpdated(snap.fileContent)
+                        }
+                        .padding(.horizontal, 12)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .frame(maxHeight: 140)
+        }
     }
 
     // MARK: Helpers
@@ -596,35 +837,59 @@ private struct SnapshotRow: View {
     let onRestore: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             // Verdict badge
             if let c = snap.critique {
                 verdictBadge(c.verdict)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Runde \(snap.iteration)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                if let c = snap.critique {
-                    Text(c.overallImpression.prefix(60))
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Runde \(snap.iteration)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                    if let c = snap.critique {
+                        let blockers = c.issues.filter { $0.severity == .blocker }.count
+                        let majors   = c.issues.filter { $0.severity == .major }.count
+                        if blockers > 0 {
+                            Text("\(blockers)B")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.red)
+                        }
+                        if majors > 0 {
+                            Text("\(majors)M")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer()
+                    if let impl = snap.implementation {
+                        let changed = impl.filesChanged.count
+                        if changed > 0 {
+                            Label("\(changed) Datei\(changed == 1 ? "" : "en")", systemImage: "doc.badge.plus")
+                                .font(.system(size: 9))
+                                .foregroundStyle(accentColor.opacity(0.8))
+                        }
+                    }
+                }
+                if let c = snap.critique, !c.overallImpression.isEmpty {
+                    Text(c.overallImpression.prefix(80))
                         .font(.system(size: 10))
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                 }
             }
 
-            Spacer()
-
-            Button("Wiederherstellen") { onRestore() }
-                .font(.system(size: 10))
+            Button("↩") { onRestore() }
+                .font(.system(size: 11))
                 .buttonStyle(.plain)
                 .foregroundStyle(accentColor)
+                .help("Auf diesen Stand zurücksetzen")
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
         .background(theme.cardSurface.opacity(0.5))
-        .cornerRadius(6)
+        .cornerRadius(7)
     }
 
     @ViewBuilder

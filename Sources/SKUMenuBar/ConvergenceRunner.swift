@@ -244,22 +244,74 @@ Aktueller Inhalt:
     // MARK: - JSON extraction helper
 
     private func parseJSON<T: Decodable>(_ raw: String, as type: T.Type) throws -> T {
-        // Extract first {...} block (handles markdown code fences and surrounding text)
-        let jsonStr: String
-        if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
-            jsonStr = String(raw[start.lowerBound..<end.upperBound])
-        } else {
-            jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = extractJSONCandidates(from: raw)
+        var lastError: Error?
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8) else { continue }
+            do {
+                return try JSONDecoder().decode(type, from: data)
+            } catch {
+                lastError = error
+            }
+        }
+        let errMsg = lastError?.localizedDescription ?? "No JSON found in response"
+        throw ConvergenceError.parseError("Could not decode \(T.self): \(errMsg)\nRaw: \(raw.prefix(400))")
+    }
+
+    /// Returns JSON candidates in priority order: fenced blocks first, then balanced extraction.
+    private func extractJSONCandidates(from raw: String) -> [String] {
+        var results: [String] = []
+
+        // 1. ```json ... ``` fenced block
+        if let r = raw.range(of: "```json"),
+           let end = raw.range(of: "```", range: r.upperBound..<raw.endIndex) {
+            let block = String(raw[r.upperBound..<end.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if block.hasPrefix("{") { results.append(block) }
         }
 
-        guard let data = jsonStr.data(using: .utf8) else {
-            throw ConvergenceError.parseError("Invalid UTF-8 in agent response")
+        // 2. ``` ... ``` fenced block (without language tag)
+        if let r = raw.range(of: "```"),
+           let end = raw.range(of: "```", range: r.upperBound..<raw.endIndex) {
+            let block = String(raw[r.upperBound..<end.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if block.hasPrefix("{") { results.append(block) }
         }
-        do {
-            return try JSONDecoder().decode(type, from: data)
-        } catch {
-            throw ConvergenceError.parseError("Could not decode \(T.self): \(error.localizedDescription)\nRaw: \(raw.prefix(300))")
+
+        // 3. Balanced JSON extraction — correctly handles strings and nested braces
+        if let balanced = extractBalancedJSON(from: raw) {
+            results.append(balanced)
         }
+
+        // 4. Raw trimmed fallback
+        results.append(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        return results
+    }
+
+    /// Extracts the first balanced `{...}` JSON object, correctly handling string literals.
+    private func extractBalancedJSON(from raw: String) -> String? {
+        let chars = Array(raw)
+        guard let startOffset = chars.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for i in startOffset..<chars.count {
+            let c = chars[i]
+            if escaped { escaped = false; continue }
+            if c == "\\" && inString { escaped = true; continue }
+            if c == "\"" { inString.toggle(); continue }
+            if inString { continue }
+            if c == "{" { depth += 1 }
+            else if c == "}" {
+                depth -= 1
+                if depth == 0 {
+                    let start = raw.index(raw.startIndex, offsetBy: startOffset)
+                    let end   = raw.index(raw.startIndex, offsetBy: i)
+                    return String(raw[start...end])
+                }
+            }
+        }
+        return nil
     }
 }
 
