@@ -346,19 +346,25 @@ private struct SessionStatusView: View {
 
             if let err = session.errorMessage {
                 Divider().opacity(0.15)
+                let isParseError = err.hasPrefix("Could not decode") || err.hasPrefix("Parse")
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                    Image(systemName: isParseError ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(isParseError ? .orange : .red)
                         .font(.system(size: 12))
-                    Text(err)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(isParseError ? "Agent-Antwort konnte nicht als JSON gelesen werden" : "Fehler")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(isParseError ? .orange : .red)
+                        Text(err.prefix(200))
+                            .font(.system(size: 10))
+                            .foregroundStyle(isParseError ? .orange.opacity(0.8) : .red.opacity(0.8))
+                            .lineLimit(3)
+                            .textSelection(.enabled)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.07))
+                .background((isParseError ? Color.orange : Color.red).opacity(0.07))
             }
 
             Divider().opacity(0.15)

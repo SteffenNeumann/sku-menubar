@@ -173,16 +173,11 @@ Aktueller Quellcode:
         let jsonSuffix = """
 
 ---
-Du bist Implementor. Setze NUR die accepted[]-Items aus der DesignDecision um. Berühre keine anderen Files.
-
-WICHTIG: Antworte AUSSCHLIESSLICH mit JSON:
-{
-  "files_changed": [
-    { "path": "<string>", "summary": "<was geändert wurde>", "new_content": "<vollständiger neuer Dateiinhalt>" }
-  ],
-  "notes": "<string>"
-}
-Liefere in new_content den kompletten, fertigen Dateiinhalt (nicht nur den Diff).
+⚠️ PFLICHT: Deine gesamte Antwort muss ein einziges JSON-Objekt sein. Kein Freitext, keine Erklärung, kein Markdown außer dem JSON selbst.
+Format:
+{"files_changed":[{"path":"DATEIPFAD","summary":"Was wurde geändert","new_content":"VOLLSTÄNDIGER DATEIINHALT"}],"notes":"Kurzzusammenfassung"}
+new_content = kompletter, fertiger Dateiinhalt (kein Diff, kein Auszug).
+Nur accepted[]-Items umsetzen.
 """
         let systemPrompt = input.implementor.promptBody + jsonSuffix
 
@@ -191,7 +186,7 @@ Liefere in new_content den kompletten, fertigen Dateiinhalt (nicht nur den Diff)
             .joined(separator: "\n")
 
         let message = """
-Setze folgende Design-Entscheidungen um:
+Setze folgende Design-Entscheidungen um und antworte NUR mit JSON:
 
 \(acceptedList)
 
@@ -199,19 +194,32 @@ Datei: \(input.filePath)
 
 Aktueller Inhalt:
 \(input.fileContent)
+
+ANTWORT = reines JSON-Objekt, beginnend mit { und endend mit }
 """
-        let result = try await callAgentJSON(systemPrompt: systemPrompt, message: message,
-                                             as: ImplementationResult.self, onText: onText)
 
-        // Extract new file content if implementor provided it
-        let newContent: String
-        if let changed = result.filesChanged.first(where: { $0.newContent != nil && !($0.newContent!.isEmpty) }) {
-            newContent = changed.newContent!
-        } else {
-            newContent = input.fileContent
+        // Graceful fallback: if the agent responds in prose instead of JSON,
+        // wrap the text as notes and keep current file content unchanged.
+        do {
+            let result = try await callAgentJSON(systemPrompt: systemPrompt, message: message,
+                                                 as: ImplementationResult.self, onText: onText)
+            let newContent: String
+            if let changed = result.filesChanged.first(where: { $0.newContent != nil && !($0.newContent!.isEmpty) }) {
+                newContent = changed.newContent!
+            } else {
+                newContent = input.fileContent
+            }
+            return (result, newContent)
+        } catch ConvergenceError.parseError(let msg) {
+            // Agent replied in prose — keep current content, store prose as notes
+            let raw = msg.components(separatedBy: "Raw: ").dropFirst().joined(separator: "Raw: ")
+            let prose = raw.isEmpty ? msg : raw
+            let fallback = ImplementationResult(
+                filesChanged: [],
+                notes: "[Prose-Antwort ohne JSON] " + String(prose.prefix(500))
+            )
+            return (fallback, input.fileContent)
         }
-
-        return (result, newContent)
     }
 
     // MARK: - Generic agent JSON call
