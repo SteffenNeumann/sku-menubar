@@ -625,22 +625,19 @@ struct FileExplorerView: View {
             return
         }
 
-        // Step 1: Get full-page height via JS, then capture full-page snapshot
-        wv.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight)") { heightResult, _ in
-            let fullHeight = (heightResult as? CGFloat) ?? wv.bounds.height
-            let pageWidth = max(wv.bounds.width, 1)
+        // Brief delay so SwiftUI layout finishes and WKWebView is fully composited
+        // before we request the snapshot (avoids nil/black returns).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        // Capture the visible viewport — nil config is the most reliable option on macOS.
+        // Custom full-page rect snapshots frequently return nil due to WKWebView compositing.
+        wv.takeSnapshot(with: nil) { img, snapshotError in
+            DispatchQueue.main.async {
+                var savedPath: String? = nil
 
-            // Expand snapshot rect to full content height (capped at 8000px to avoid memory issues)
-            let config = WKSnapshotConfiguration()
-            config.rect = CGRect(x: 0, y: 0, width: pageWidth, height: min(fullHeight, 8000))
-
-            wv.takeSnapshot(with: config) { img, _ in
-                DispatchQueue.main.async {
+                if let img, img.size.width > 1, img.size.height > 1 {
+                    // Snapshot succeeded — save to temp PNG
                     self.reviewScreenshot = img
-
-                    // Save snapshot to temp PNG for Claude --image
-                    var savedPath: String? = nil
-                    if let img, let tiff = img.tiffRepresentation,
+                    if let tiff = img.tiffRepresentation,
                        let rep = NSBitmapImageRep(data: tiff),
                        let pngData = rep.representation(using: .png, properties: [:]) {
                         let tempURL = FileManager.default.temporaryDirectory
@@ -648,21 +645,22 @@ struct FileExplorerView: View {
                         try? pngData.write(to: tempURL)
                         savedPath = tempURL.path
                     }
+                }
 
-                    // Step 2: Extract full text for additional context
-                    wv.evaluateJavaScript(
-                        "(function(){ var t = document.title ? document.title + '\\n\\n' : ''; return t + (document.body ? document.body.innerText : ''); })()"
-                    ) { textResult, _ in
-                        let visibleText = (textResult as? String) ?? ""
-                        self.doReview(
-                            node: node,
-                            persona: persona,
-                            livePreviewText: visibleText.isEmpty ? nil : visibleText,
-                            screenshotPath: savedPath
-                        )
-                    }
+                // Extract visible text for additional context
+                wv.evaluateJavaScript(
+                    "(function(){ var t = document.title ? document.title + '\\n\\n' : ''; return t + (document.body ? document.body.innerText : ''); })()"
+                ) { textResult, _ in
+                    let visibleText = (textResult as? String) ?? ""
+                    self.doReview(
+                        node: node,
+                        persona: persona,
+                        livePreviewText: visibleText.isEmpty ? nil : visibleText,
+                        screenshotPath: savedPath
+                    )
                 }
             }
+        }
         }
     }
 
