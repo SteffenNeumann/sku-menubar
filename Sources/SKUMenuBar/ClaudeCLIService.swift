@@ -60,8 +60,10 @@ final class ClaudeCLIService: ObservableObject {
                 for dir in addDirs where !dir.isEmpty {
                     args += ["--add-dir", dir]
                 }
-                for imgPath in imagePaths where !imgPath.isEmpty {
-                    args += ["--image", imgPath]
+                // When images are present, switch to stream-json input so we can
+                // send image content blocks as base64 (--image flag does not exist).
+                if !imagePaths.isEmpty {
+                    args += ["--input-format", "stream-json"]
                 }
                 guard !message.isEmpty else {
                     continuation.finish(throwing: NSError(domain: "ClaudeCLI", code: -1,
@@ -151,10 +153,44 @@ final class ClaudeCLIService: ObservableObject {
 
                 do {
                     try process.run()
-                    // Write message via stdin, then close to signal EOF
-                    if let data = message.data(using: .utf8) {
-                        try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
-                        try? stdinPipe.fileHandleForWriting.close()
+                    // Write message via stdin, then close to signal EOF.
+                    // When images are provided we send a stream-json message with
+                    // image content blocks (base64); otherwise plain text.
+                    if imagePaths.isEmpty {
+                        if let data = message.data(using: .utf8) {
+                            try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
+                            try? stdinPipe.fileHandleForWriting.close()
+                        }
+                    } else {
+                        var contentBlocks: [[String: Any]] = [
+                            ["type": "text", "text": message]
+                        ]
+                        for imgPath in imagePaths where !imgPath.isEmpty {
+                            if let imgData = FileManager.default.contents(atPath: imgPath) {
+                                let b64 = imgData.base64EncodedString()
+                                contentBlocks.append([
+                                    "type": "image",
+                                    "source": [
+                                        "type": "base64",
+                                        "media_type": "image/png",
+                                        "data": b64
+                                    ] as [String: Any]
+                                ])
+                            }
+                        }
+                        let userMsg: [String: Any] = [
+                            "type": "user",
+                            "message": [
+                                "role": "user",
+                                "content": contentBlocks
+                            ] as [String: Any]
+                        ]
+                        if let jsonData = try? JSONSerialization.data(withJSONObject: userMsg),
+                           let jsonLine = String(data: jsonData, encoding: .utf8) {
+                            let payload = (jsonLine + "\n").data(using: .utf8)!
+                            try? stdinPipe.fileHandleForWriting.write(contentsOf: payload)
+                            try? stdinPipe.fileHandleForWriting.close()
+                        }
                     }
                 } catch {
                     continuation.finish(throwing: error)

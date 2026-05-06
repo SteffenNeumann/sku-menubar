@@ -1008,14 +1008,18 @@ Zusätzlich der vollständige sichtbare Text der gerenderten Seite:
             screenshotSection = ""
         }
 
+        // When a screenshot is attached, omit the raw HTML source — the Persona
+        // should evaluate the visual result, not the code structure.
+        let sourceSection: String
+        if screenshotPath != nil {
+            sourceSection = ""
+        } else {
+            sourceSection = "\n\nDatei: \(fileName)\n\nQuellcode:\n\(fileContent.prefix(6000))"
+        }
+
         let prompt = """
 Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.\(screenshotSection)
-\(imageContext)\(livePreviewSection)
-
-Datei: \(fileName)
-
-Quellcode:
-\(fileContent.prefix(6000))
+\(imageContext)\(livePreviewSection)\(sourceSection)
 
 Antworte NUR als valides JSON in exakt diesem Format (auf Deutsch, aus deiner Ich-Perspektive):
 {
