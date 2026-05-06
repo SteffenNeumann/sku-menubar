@@ -1016,8 +1016,31 @@ Antworte AUSSCHLIESSLICH mit validem JSON, kein Markdown, kein erklärender Text
         guard index < subtasks.count else { return }
         subtasks[index].isStreaming = true
         let subtask = subtasks[index]
+
+        // Kontext: alle anderen Subtasks (ohne eigenen) damit der Agent den Gesamtzusammenhang kennt
+        let otherSubtasks = subtasks.enumerated()
+            .filter { $0.offset != index }
+            .map { _, s in "- **\(s.agentName):** \(s.task)" }
+            .joined(separator: "\n")
+
+        let contextBlock = """
+        Du arbeitest im Rahmen einer Multi-Agent-Orchestrierung.
+
+        **Gesamtaufgabe:** \(masterTask)
+
+        **Gesamtplan:** \(planDescription.isEmpty ? "(kein Plan vorhanden)" : planDescription)
+
+        **Parallel laufende Subtasks anderer Agents:**
+        \(otherSubtasks.isEmpty ? "(keine weiteren Agents)" : otherSubtasks)
+
+        ---
+
+        **Dein Subtask:**
+        \(subtask.task)
+        """
+
         let stream  = state.cliService.send(
-            message:   subtask.task,
+            message:   contextBlock,
             agentName: subtask.agentId.isEmpty ? nil : subtask.agentId,
             model:     "claude-sonnet-4-6"
         )
