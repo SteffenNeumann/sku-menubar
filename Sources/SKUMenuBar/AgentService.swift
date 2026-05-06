@@ -993,7 +993,7 @@ Antworte NUR als valides JSON in diesem exakten Format:
             livePreviewSection = """
 
 
-Zusätzlich der vollständige sichtbare Text der gerenderten Seite:
+Das siehst du gerade in der gerenderten Live-Vorschau (sichtbarer Text der Seite):
 \(visibleText.prefix(8000))
 """
         } else {
@@ -1003,23 +1003,24 @@ Zusätzlich der vollständige sichtbare Text der gerenderten Seite:
         // Screenshot section: tell Claude about the attached image
         let screenshotSection: String
         if screenshotPath != nil {
-            screenshotSection = "\n\nDas beigefügte Bild zeigt einen vollständigen Screenshot der gerenderten Live-Vorschau. Beziehe dich beim Bewerten direkt auf das, was du im Bild siehst."
+            screenshotSection = "\n\nDas beigefügte Bild zeigt einen Screenshot der gerenderten Live-Vorschau. Beziehe dich beim Bewerten ausschließlich auf das, was du im Bild siehst — NICHT auf HTML-Code."
         } else {
             screenshotSection = ""
         }
 
-        // When a screenshot is attached, omit the raw HTML source — the Persona
-        // should evaluate the visual result, not the code structure.
-        let sourceSection: String
-        if screenshotPath != nil {
-            sourceSection = ""
+        // Persona always evaluates the rendered result, never raw HTML source.
+        // Use visible text from the live preview as primary context.
+        // Only fall back to filename (no source code) when no preview text is available.
+        let contentHint: String
+        if livePreviewText == nil && screenshotPath == nil {
+            contentHint = "\n\nDatei: \(fileName)"
         } else {
-            sourceSection = "\n\nDatei: \(fileName)\n\nQuellcode:\n\(fileContent.prefix(6000))"
+            contentHint = ""
         }
 
         let prompt = """
 Du bist \(persona.name). Bewerte die folgende Webseite aus deiner persönlichen Perspektive als Nutzer.\(screenshotSection)
-\(imageContext)\(livePreviewSection)\(sourceSection)
+\(imageContext)\(livePreviewSection)\(contentHint)
 
 Antworte NUR als valides JSON in exakt diesem Format (auf Deutsch, aus deiner Ich-Perspektive):
 {
