@@ -2864,7 +2864,24 @@ struct SingleChatSessionView: View {
                         let contentText = messages.indices.contains(assistantIndex)
                             ? messages[assistantIndex].content : ""
                         let eventResult = event.result ?? ""
+                        let subtype = event.subtype ?? ""
                         let combined = (contentText + " " + eventResult).lowercased()
+
+                        // Non-critical status endings: max_turns or user-interrupted.
+                        // Content was already streamed → just finalize normally, no error bubble.
+                        let isStatusEnd = subtype == "error_max_turns" || subtype == "interrupted"
+                        if isStatusEnd {
+                            if !pendingContent.isEmpty, messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].content += pendingContent
+                                pendingContent = ""
+                                pendingTokenCount = 0
+                            }
+                            if messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].isStreaming = false
+                            }
+                            isStreaming = false
+                            return
+                        }
 
                         let isRateLimit = combined.contains("limit") || combined.contains("overloaded") ||
                             combined.contains("quota") || combined.contains("529") || combined.contains("429")
@@ -2894,13 +2911,13 @@ struct SingleChatSessionView: View {
                             }
                         }
 
-                        // Aussagekräftige Fehlermeldung: bevorzuge den tatsächlichen Fehlertext
+                        // Fehlermeldung: contentText ist bereits in der Nachrichtenblase sichtbar —
+                        // nicht doppelt als Error-Bubble anzeigen. Stattdessen eventResult
+                        // (CLI-seitige Fehlerbeschreibung) oder subtype verwenden.
                         let bestError: String
-                        if !contentText.isEmpty {
-                            bestError = contentText
-                        } else if !eventResult.isEmpty {
+                        if !eventResult.isEmpty && eventResult != contentText {
                             bestError = eventResult
-                        } else if let subtype = event.subtype, !subtype.isEmpty {
+                        } else if !subtype.isEmpty {
                             bestError = "Fehler: \(subtype)"
                         } else {
                             bestError = "Claude hat einen Fehler zurückgegeben (kein Fehlertext vom CLI erhalten)."
