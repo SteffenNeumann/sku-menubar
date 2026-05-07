@@ -640,7 +640,9 @@ struct SingleChatSessionView: View {
                 dropOverlay
             }
         }
-        .onDrop(of: [UTType.fileURL, UTType.image, UTType.png, UTType.jpeg], isTargeted: $isDragOver) { providers in
+        .onDrop(of: [UTType.fileURL, UTType.image, UTType.png, UTType.jpeg, UTType.tiff, UTType.heic,
+                     UTType("public.heif"), UTType("com.apple.icns")].compactMap { $0 },
+                isTargeted: $isDragOver) { providers in
             handleDrop(providers: providers)
         }
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
@@ -806,6 +808,7 @@ struct SingleChatSessionView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         var handled = false
         for provider in providers {
+            // 1. Prefer file URL — works for Finder drops and image files
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                     guard let data = item as? Data,
@@ -818,29 +821,55 @@ struct SingleChatSessionView: View {
                 }
                 handled = true
             } else {
-                // Handle raw image data (e.g. from Safari, Photos, screenshots)
-                let imageType: String
-                if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-                    imageType = UTType.png.identifier
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.jpeg.identifier) {
-                    imageType = UTType.jpeg.identifier
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                    imageType = UTType.image.identifier
-                } else {
-                    continue
-                }
-                provider.loadDataRepresentation(forTypeIdentifier: imageType) { data, _ in
-                    guard let data else { return }
-                    let ext = imageType == UTType.jpeg.identifier ? "jpg" : "png"
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent(UUID().uuidString)
-                        .appendingPathExtension(ext)
-                    try? data.write(to: tempURL)
-                    DispatchQueue.main.async {
-                        attachedFiles.append(AttachedFile(url: tempURL))
+                // 2. Raw image data — Photos app, Safari, screenshots, etc.
+                // Try specific formats first, then use NSImage as universal fallback.
+                let knownImageTypes: [String] = [
+                    UTType.png.identifier,
+                    UTType.jpeg.identifier,
+                    UTType.tiff.identifier,
+                    UTType.heic.identifier,
+                    "public.heif",
+                    UTType.image.identifier
+                ]
+                if let matchedType = knownImageTypes.first(where: { provider.hasItemConformingToTypeIdentifier($0) }) {
+                    provider.loadDataRepresentation(forTypeIdentifier: matchedType) { data, _ in
+                        guard let data else { return }
+                        // Always save as PNG for consistent handling
+                        let img = NSImage(data: data)
+                        let pngData: Data?
+                        if let img, let tiff = img.tiffRepresentation,
+                           let rep = NSBitmapImageRep(data: tiff) {
+                            pngData = rep.representation(using: .png, properties: [:])
+                        } else {
+                            pngData = data  // fallback: use raw data as-is
+                        }
+                        guard let finalData = pngData else { return }
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                            .appendingPathExtension("png")
+                        try? finalData.write(to: tempURL)
+                        DispatchQueue.main.async {
+                            attachedFiles.append(AttachedFile(url: tempURL))
+                        }
                     }
+                    handled = true
+                } else if provider.canLoadObject(ofClass: NSImage.self) {
+                    // 3. NSImage fallback — handles any remaining image types
+                    provider.loadObject(ofClass: NSImage.self) { obj, _ in
+                        guard let img = obj as? NSImage,
+                              let tiff = img.tiffRepresentation,
+                              let rep = NSBitmapImageRep(data: tiff),
+                              let pngData = rep.representation(using: .png, properties: [:]) else { return }
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                            .appendingPathExtension("png")
+                        try? pngData.write(to: tempURL)
+                        DispatchQueue.main.async {
+                            attachedFiles.append(AttachedFile(url: tempURL))
+                        }
+                    }
+                    handled = true
                 }
-                handled = true
             }
         }
         return handled
