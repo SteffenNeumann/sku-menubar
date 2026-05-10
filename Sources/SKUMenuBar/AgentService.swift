@@ -382,12 +382,12 @@ final class AgentService: ObservableObject {
             parts.append("## Your Persistent Memory\n\(mem.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
 
-        // Learning log — last 20 entries
+        // Learning log — last 20 entries, CHAT entries excluded
         if let logContent = readMemoryFile(named: "learning_log.txt", for: agent) {
             let lines = logContent
                 .components(separatedBy: "\n")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
+                .filter { !$0.isEmpty && !$0.contains("| CHAT |") }
             let recent = Array(lines.suffix(20))
             if !recent.isEmpty {
                 parts.append("## Your Learning Log (last \(recent.count) entries)\n" + recent.joined(separator: "\n"))
@@ -402,6 +402,10 @@ During or after your work in this session, update this file autonomously using y
 Track what worked well, what failed, and what to avoid next time.
 Keep it concise — short bullet points under `## What Worked` and `## What to Avoid`.
 Do not ask for confirmation. Just write the file silently as part of your work.
+
+At the very end of your final response, output exactly one line in this format:
+LEARNED: <one concise sentence summarising the most important insight from this session>
+Only include this line when you have a genuine technical or domain insight worth remembering — omit it for routine tasks.
 """
         parts.append(memInstruction)
 
@@ -409,9 +413,10 @@ Do not ask for confirmation. Just write the file silently as part of your work.
     }
 
     /// Records a completed chat session in the agent's learning log.
+    /// Only writes an entry when the output contains an explicit "LEARNED:" line.
     func recordChatSession(agentId: String, output: String) {
         guard let agent = agents.first(where: { $0.id == agentId }) else { return }
-        let learned = extractLearnedLine(from: output)
+        guard let learned = extractLearnedLine(from: output) else { return }
         let dir = writableMemoryDir(for: agent)
         let logURL = dir.appendingPathComponent("learning_log.txt")
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -422,7 +427,7 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 .joined(separator: " ")
                 .prefix(300)
         )
-        let line = "\(fmt.string(from: Date())) | CHAT | \(summary)\n"
+        let line = "\(fmt.string(from: Date())) | LEARN | \(summary)\n"
         guard let data = line.data(using: .utf8) else { return }
         if let handle = try? FileHandle(forWritingTo: logURL) {
             defer { try? handle.close() }
@@ -452,7 +457,9 @@ Do not ask for confirmation. Just write the file silently as part of your work.
     }
 
     /// Appends one timestamped entry to the agent's learning_log.txt.
-    private func appendLearningEntry(for agent: AgentDefinition, status: ScheduledTaskStatus, learned: String) {
+    /// No-op when learned is nil (no LEARNED marker found in output).
+    private func appendLearningEntry(for agent: AgentDefinition, status: ScheduledTaskStatus, learned: String?) {
+        guard let learned else { return }
         let dir = writableMemoryDir(for: agent)
         let logURL = dir.appendingPathComponent("learning_log.txt")
 
@@ -480,8 +487,9 @@ Do not ask for confirmation. Just write the file silently as part of your work.
         }
     }
 
-    /// Extracts the `LEARNED:` line from agent output, or falls back to a short snippet.
-    private func extractLearnedLine(from output: String) -> String {
+    /// Extracts the `LEARNED:` line from agent output.
+    /// Returns nil when no explicit LEARNED marker is present — no fallback.
+    private func extractLearnedLine(from output: String) -> String? {
         for line in output.components(separatedBy: "\n").reversed() {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.lowercased().hasPrefix("learned:") {
@@ -489,13 +497,7 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 if !value.isEmpty { return String(value) }
             }
         }
-        // Fallback: last meaningful line, capped at 200 chars
-        for line in output.components(separatedBy: "\n").reversed() {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.count > 10 { return String(t.prefix(200)) }
-        }
-        let preview = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return preview.isEmpty ? "No output" : String(preview.prefix(200))
+        return nil
     }
 
     // MARK: - Logbook
@@ -703,7 +705,7 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                                 entry.error  = ""
                                 await executeScheduledAgentViaCopilot(agent, entry: &entry)
                                 let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
-                                appendLearningEntry(for: agent, status: entry.status, learned: learnedR)
+                                if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
                                 liveOutput.removeValue(forKey: agent.id)
                                 runningAgents.remove(agent.id)
                                 updateEntry(entry)
@@ -747,7 +749,7 @@ Do not ask for confirmation. Just write the file silently as part of your work.
                 entry.error  = ""
                 await executeScheduledAgentViaCopilot(agent, entry: &entry)
                 let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
-                appendLearningEntry(for: agent, status: entry.status, learned: learnedR)
+                if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
                 liveOutput.removeValue(forKey: agent.id)
                 runningAgents.remove(agent.id)
                 updateEntry(entry)
@@ -763,9 +765,10 @@ Do not ask for confirmation. Just write the file silently as part of your work.
             entry.finishedAt = Date()
         }
 
-        // Write learning log entry regardless of success/failure
-        let learned = extractLearnedLine(from: outputText)
-        appendLearningEntry(for: agent, status: entry.status, learned: learned)
+        // Write learning log entry only when agent produced a LEARNED: marker
+        if let learned = extractLearnedLine(from: outputText) {
+            appendLearningEntry(for: agent, status: entry.status, learned: learned)
+        }
 
         liveOutput.removeValue(forKey: agent.id)
         runningAgents.remove(agent.id)
