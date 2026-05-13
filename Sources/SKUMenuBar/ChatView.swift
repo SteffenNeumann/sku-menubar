@@ -259,6 +259,12 @@ struct SingleChatSessionView: View {
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
     @State private var isCompacting: Bool = false
     @State private var compactedSummary: String? = nil
+    // Streaming timing (for Live-Plan-Panel)
+    @State private var streamingStartDate: Date? = nil
+    @State private var lastStreamDuration: TimeInterval? = nil
+    // Compact-Banner (user decides when to compact)
+    @State private var showCompactBanner: Bool = false
+    @State private var compactBannerSeenAt: Int = 0
     // Persona validation
     @State private var selectedPersonaId: String = ""
     @State private var showPersonaPicker = false
@@ -561,6 +567,11 @@ struct SingleChatSessionView: View {
                         .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
                     }
 
+                    // Compact-Bestätigungsbanner
+                    if showCompactBanner && !isCompacting {
+                        compactConfirmBanner
+                    }
+
                     // ⚡ Auto-Trigger-Badge — shown whenever trigger keywords are typed,
                     // even in empty sessions (independent of the token counter above).
                     // pendingTriggerAgentName is driven by onChange(of: inputText) below.
@@ -680,12 +691,27 @@ struct SingleChatSessionView: View {
         // parent re-renders on every streaming token (input lag fix)
         .onChange(of: messages) {
             if !isStreaming { tab.messages = messages }
+            // Compact-Banner anzeigen wenn Schwellwert überschritten (nur einmal pro Session)
+            let threshold = state.settings.autoCompactThreshold
+            let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
+            if threshold > 0 && totalIn >= threshold && !isCompacting && !isStreaming
+               && !showCompactBanner && compactBannerSeenAt < threshold {
+                showCompactBanner = true
+                compactBannerSeenAt = totalIn
+            }
         }
         .onChange(of: isStreaming) {
             // Sync streaming indicator to tab (shown in tab bar)
             tab.isStreaming = isStreaming
             // Flush final messages when streaming ends
             if !isStreaming { tab.messages = messages }
+            // Streaming-Zeitmessung für Live-Plan-Panel
+            if isStreaming {
+                streamingStartDate = Date()
+            } else if let start = streamingStartDate {
+                lastStreamDuration = Date().timeIntervalSince(start)
+                streamingStartDate = nil
+            }
             // Compact-Abschluss verarbeiten
             if !isStreaming && isCompacting { finishCompact() }
             // Post-Task Persona Validation
@@ -1140,6 +1166,45 @@ struct SingleChatSessionView: View {
         .shadow(color: .black.opacity(theme.isMedium ? 0.18 : 0.25), radius: 6, x: 0, y: -2)
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
+    }
+
+    // MARK: - Compact-Bestätigungsbanner
+
+    private var compactConfirmBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+            Text("Kontext-Limit fast erreicht — Zusammenfassung empfohlen.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.secondaryText)
+            Spacer()
+            Button {
+                showCompactBanner = false
+                compactSession()
+            } label: {
+                Text("Jetzt")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.orange, in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { showCompactBanner = false }
+            } label: {
+                Text("Später")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
+        .overlay(Rectangle().fill(Color.orange.opacity(0.25)).frame(height: 0.5), alignment: .top)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private var inputBar: some View {
@@ -2188,6 +2253,8 @@ struct SingleChatSessionView: View {
             attachedFiles = []
             sessionTitle = ""
             autoTriggeredAgentName = nil
+            showCompactBanner = false
+            compactBannerSeenAt = 0
         }
     }
 
@@ -3953,6 +4020,8 @@ struct MessageBubbleView: View {
     @State private var dot0Up: Bool = false
     @State private var dot1Up: Bool = false
     @State private var dot2Up: Bool = false
+    @State private var taskStartTime: Date? = nil
+    @State private var completedDuration: TimeInterval? = nil
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -4052,14 +4121,17 @@ struct MessageBubbleView: View {
 
             if !message.toolCalls.isEmpty {
                 if message.isStreaming {
-                    ResearchAnimationView(recentTool: message.toolCalls.last?.name ?? "")
+                    LivePlanView(
+                        toolCalls: message.toolCalls,
+                        startTime: taskStartTime ?? Date()
+                    )
                 } else {
-                    toolsSummaryView(message.toolCalls)
+                    toolsSummaryView(message.toolCalls, duration: completedDuration)
                 }
             }
 
             // Während aktiver Recherche (Tool-Calls laufen) keinen Zwischentext zeigen —
-            // nur die ResearchAnimationView. Erst nach Abschluss wird der finale Text eingeblendet.
+            // erst nach Abschluss wird der finale Text eingeblendet.
             let isResearching = message.isStreaming && !message.toolCalls.isEmpty
             if !message.content.isEmpty && !isResearching {
                 MarkdownTextView(text: message.content)
@@ -4077,6 +4149,21 @@ struct MessageBubbleView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
         .padding(.horizontal, 16)
+        .onAppear {
+            if message.isStreaming && !message.toolCalls.isEmpty && taskStartTime == nil {
+                taskStartTime = Date()
+            }
+        }
+        .onChange(of: message.toolCalls.count) {
+            if message.isStreaming && taskStartTime == nil {
+                taskStartTime = Date()
+            }
+        }
+        .onChange(of: message.isStreaming) {
+            if !message.isStreaming, let start = taskStartTime, !message.toolCalls.isEmpty {
+                completedDuration = Date().timeIntervalSince(start)
+            }
+        }
     }
 
     private func toolCallView(_ tool: ToolCall) -> some View {
@@ -4121,7 +4208,7 @@ struct MessageBubbleView: View {
         }
     }
 
-    private func toolsSummaryView(_ tools: [ToolCall]) -> some View {
+    private func toolsSummaryView(_ tools: [ToolCall], duration: TimeInterval? = nil) -> some View {
         // Compact summary header that toggles the expanded detail list
         var seen = Set<String>()
         var counts: [(name: String, count: Int)] = []
@@ -4136,7 +4223,6 @@ struct MessageBubbleView: View {
             }
         }
         let label = counts.map { $0.count > 1 ? "\($0.name) ×\($0.count)" : $0.name }.joined(separator: "  ·  ")
-        let hasResults = tools.contains { $0.result != nil }
 
         return VStack(alignment: .leading, spacing: 6) {
             // Tap to expand/collapse
@@ -4144,14 +4230,19 @@ struct MessageBubbleView: View {
                 withAnimation(.easeInOut(duration: 0.18)) { toolsExpanded.toggle() }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.system(size: 11)).foregroundStyle(.orange.opacity(0.55))
-                    Text(label)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.orange.opacity(0.5))
-                    if hasResults {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11)).foregroundStyle(.green.opacity(0.6))
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
+                    Text("\(tools.count) Schritte abgeschlossen")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.green.opacity(0.75))
+                    Text("· \(label)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText.opacity(0.45))
+                        .lineLimit(1)
+                    if let dur = duration {
+                        Text("· \(String(format: "%.1f", dur))s")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText.opacity(0.5))
                     }
                     Spacer()
                     Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down")
@@ -4159,7 +4250,7 @@ struct MessageBubbleView: View {
                         .foregroundStyle(theme.tertiaryText.opacity(0.5))
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
 
@@ -4333,6 +4424,87 @@ private struct ResearchAnimationView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(searchColor.opacity(bgOpacity), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Live Plan Panel (zeigt Tool-Calls während Streaming als nummerierte Schritte)
+
+private struct LivePlanView: View {
+    let toolCalls: [ToolCall]
+    let startTime: Date
+    @Environment(\.appTheme) var theme
+
+    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+    private var completedCount: Int { toolCalls.filter { $0.result != nil }.count }
+    private var progress: Double {
+        toolCalls.isEmpty ? 0 : Double(completedCount) / Double(toolCalls.count)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Header: Fortschrittsbalken + Elapsed
+            HStack(spacing: 8) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(accentColor.opacity(0.15))
+                            .frame(height: 4)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(accentColor.opacity(0.75))
+                            .frame(width: geo.size.width * progress, height: 4)
+                            .animation(.easeInOut(duration: 0.3), value: progress)
+                    }
+                }
+                .frame(height: 4)
+
+                TimelineView(.periodic(from: startTime, by: 0.5)) { tl in
+                    let elapsed = tl.date.timeIntervalSince(startTime)
+                    Text(String(format: "%.0fs", max(0, elapsed)))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(accentColor.opacity(0.6))
+                        .frame(width: 30, alignment: .trailing)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+
+            // Schritte-Liste
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(toolCalls.enumerated()), id: \.element.id) { idx, tool in
+                    let isDone = tool.result != nil
+                    let isCurrent = !isDone && (idx == completedCount)
+                    HStack(spacing: 6) {
+                        if isDone {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.green.opacity(0.7))
+                        } else if isCurrent {
+                            ProgressView().scaleEffect(0.4).frame(width: 10, height: 10)
+                        } else {
+                            Circle()
+                                .fill(accentColor.opacity(0.25))
+                                .frame(width: 6, height: 6)
+                        }
+                        Text(tool.name)
+                            .font(.system(size: 11, weight: isCurrent ? .semibold : .regular, design: .monospaced))
+                            .foregroundStyle(isDone ? theme.secondaryText.opacity(0.5)
+                                : isCurrent ? accentColor
+                                : theme.tertiaryText.opacity(0.5))
+                        if !tool.input.isEmpty {
+                            Text(tool.input)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText.opacity(0.35))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 6)
+        }
+        .background(accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentColor.opacity(0.15), lineWidth: 0.5))
     }
 }
 
