@@ -3531,8 +3531,10 @@ struct ChatFilePanel: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(theme.cardBorder.opacity(0.4))
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.8))
+            .padding(.horizontal, 8).padding(.vertical, 6)
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
@@ -3883,41 +3885,41 @@ struct FilePreviewPanel: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
 
-                // ── Search bar (text files only) ─────────────────────────
-                if previewText != nil {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.tertiaryText)
-                        TextField("Im Inhalt suchen…", text: $searchText)
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.primaryText)
-                            .textFieldStyle(.plain)
-                            .focused($searchFocused)
-                            .onSubmit { /* next match */ }
-                        if !searchText.isEmpty {
-                            if searchMatchCount > 0 {
-                                Text("\(searchMatchCount) Treffer")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(accentColor)
-                            } else {
-                                Text("Kein Treffer")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.red.opacity(0.7))
-                            }
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(theme.tertiaryText)
-                            }
-                            .buttonStyle(.plain)
+                // ── Search bar (always visible) ─────────────────────────
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                    TextField("Im Inhalt suchen…", text: $searchText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.primaryText)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+                        .onSubmit { /* next match */ }
+                    if !searchText.isEmpty {
+                        if searchMatchCount > 0 {
+                            Text("\(searchMatchCount) Treffer")
+                                .font(.system(size: 10))
+                                .foregroundStyle(accentColor)
+                        } else {
+                            Text("Kein Treffer")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.red.opacity(0.7))
                         }
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(theme.cardBorder.opacity(0.5))
                 }
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.8))
+                .padding(.horizontal, 8).padding(.vertical, 6)
             }
             .background(theme.windowBg)
             .overlay(alignment: .bottom) {
