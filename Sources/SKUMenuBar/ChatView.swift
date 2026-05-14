@@ -5050,8 +5050,8 @@ private struct PersonaValidationBanner: View {
 
 // MARK: - Inline expandable search bar (used by file preview headers)
 
-/// A magnifying-glass button that expands inline into a search field with
-/// match counter and ↑↓ navigation buttons. Esc collapses, ⌘F focuses.
+/// Always-visible inline search field with match counter and ↑↓ navigation.
+/// Used in file preview headers (Chat + Files section).
 struct InlineSearchBar: View {
     @Binding var query: String
     @Binding var currentMatch: Int
@@ -5060,7 +5060,6 @@ struct InlineSearchBar: View {
     var placeholder: String = "Suchen"
 
     @Environment(\.appTheme) var theme
-    @State private var expanded: Bool = false
     @FocusState private var focused: Bool
 
     private var accentColor: Color {
@@ -5068,90 +5067,64 @@ struct InlineSearchBar: View {
     }
 
     var body: some View {
-        Group {
-            if expanded {
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    TextField(placeholder, text: $query)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(nsColor: .labelColor))
-                        .focused($focused)
-                        .frame(width: width)
-                        .onSubmit { advance(+1) }
-                    if !query.isEmpty {
-                        Text(matchCount > 0 ? "\(currentMatch + 1)/\(matchCount)" : "0")
-                            .font(.system(size: 10, weight: .medium))
-                            .monospacedDigit()
-                            .foregroundStyle(matchCount > 0 ? accentColor : Color(nsColor: .systemRed))
-                        Button { advance(-1) } label: {
-                            Image(systemName: "chevron.up")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(matchCount == 0)
-                        .help("Vorheriger Treffer")
-                        .keyboardShortcut("g", modifiers: [.command, .shift])
-                        Button { advance(+1) } label: {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(matchCount == 0)
-                        .help("Nächster Treffer")
-                        .keyboardShortcut("g", modifiers: .command)
-                    }
-                    Button { collapse() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Suche schließen (Esc)")
-                    .keyboardShortcut(.escape, modifiers: [])
-                }
-                .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                )
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
-            } else {
-                Button {
-                    expand()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Suchen")
-                            .font(.system(size: 10))
-                    }
-                    .foregroundStyle(theme.secondaryText)
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            TextField(placeholder, text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color(nsColor: .labelColor))
+                .focused($focused)
+                .frame(width: width)
+                .onSubmit { advance(+1) }
+            if !query.isEmpty {
+                Text(matchCount > 0 ? "\(currentMatch + 1)/\(matchCount)" : "0")
+                    .font(.system(size: 10, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(matchCount > 0 ? accentColor : Color(nsColor: .systemRed))
+                Button { advance(-1) } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
                 }
                 .buttonStyle(.plain)
-                .help("In Datei suchen (⌘F)")
-                .keyboardShortcut("f", modifiers: .command)
+                .disabled(matchCount == 0)
+                .help("Vorheriger Treffer (⇧⌘G)")
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                Button { advance(+1) } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
+                }
+                .buttonStyle(.plain)
+                .disabled(matchCount == 0)
+                .help("Nächster Treffer (⌘G)")
+                .keyboardShortcut("g", modifiers: .command)
+                Button {
+                    query = ""
+                    currentMatch = 0
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
+                .buttonStyle(.plain)
+                .help("Suche zurücksetzen")
             }
         }
-        .animation(.easeOut(duration: 0.15), value: expanded)
-    }
-
-    private func expand() {
-        expanded = true
-        DispatchQueue.main.async { focused = true }
-    }
-
-    private func collapse() {
-        query = ""
-        currentMatch = 0
-        expanded = false
-        focused = false
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
+        .onKeyPress(.escape) {
+            query = ""
+            focused = false
+            return .handled
+        }
     }
 
     private func advance(_ delta: Int) {
