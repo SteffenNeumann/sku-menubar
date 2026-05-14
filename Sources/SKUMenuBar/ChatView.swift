@@ -3851,15 +3851,18 @@ struct FilePreviewPanel: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
-                Spacer()
+                    .truncationMode(.middle)
+                    .layoutPriority(-1)
+                Spacer(minLength: 4)
                 if node.isTextFile {
                     InlineSearchBar(
                         query: $searchText,
                         currentMatch: $currentMatchIndex,
                         matchCount: searchMatchCount,
-                        width: 140,
-                        placeholder: "In Datei suchen"
+                        width: 110,
+                        placeholder: "Suchen"
                     )
+                    .fixedSize()
                 }
                 Button { onInsertPath(node.url.path) } label: {
                     Label("Einfügen", systemImage: "text.badge.plus")
@@ -3868,6 +3871,7 @@ struct FilePreviewPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("Pfad in Chat einfügen")
+                .fixedSize()
                 Button { NSWorkspace.shared.open(node.url) } label: {
                     Image(systemName: "arrow.up.forward.square")
                         .font(.system(size: 12))
