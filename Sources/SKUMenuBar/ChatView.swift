@@ -3442,7 +3442,6 @@ struct ChatFilePanel: View {
     @State private var showHidden = false
     @State private var currentRoot: String = ""
     @State private var searchText: String = ""
-    @FocusState private var searchFocused: Bool
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3511,14 +3510,13 @@ struct ChatFilePanel: View {
             .background(theme.windowBg)
 
             // Search bar
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 TextField("Dateiname suchen…", text: $searchText)
                     .font(.system(size: 12))
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
+                    .textFieldStyle(.roundedBorder)
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -3528,9 +3526,6 @@ struct ChatFilePanel: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
             .padding(.horizontal, 8).padding(.vertical, 6)
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -3835,7 +3830,6 @@ struct FilePreviewPanel: View {
     @State private var isLoading = false
     @State private var searchText: String = ""
     @State private var searchMatchCount: Int = 0
-    @FocusState private var searchFocused: Bool
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3883,25 +3877,18 @@ struct FilePreviewPanel: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
 
                 // ── Search bar ─────────────────────────────────────────
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     TextField("Im Inhalt suchen…", text: $searchText)
                         .font(.system(size: 12))
-                        .textFieldStyle(.plain)
-                        .focused($searchFocused)
-                        .onSubmit { /* next match */ }
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { }
                     if !searchText.isEmpty {
-                        if searchMatchCount > 0 {
-                            Text("\(searchMatchCount)")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(accentColor)
-                        } else {
-                            Text("0")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.red.opacity(0.7))
-                        }
+                        Text(searchMatchCount > 0 ? "\(searchMatchCount)" : "0")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(searchMatchCount > 0 ? accentColor : .red.opacity(0.7))
                         Button { searchText = "" } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 11))
@@ -3910,9 +3897,6 @@ struct FilePreviewPanel: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
                 .padding(.horizontal, 8).padding(.bottom, 8)
             }
             .background(theme.windowBg)
