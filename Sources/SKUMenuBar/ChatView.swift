@@ -3514,26 +3514,23 @@ struct ChatFilePanel: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
+                    .foregroundStyle(.secondary)
                 TextField("Dateiname suchen…", text: $searchText)
                     .font(.system(size: 12))
-                    .foregroundStyle(theme.primaryText)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
                 if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
+                    Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(theme.tertiaryText)
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.8))
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
             .padding(.horizontal, 8).padding(.vertical, 6)
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -3885,41 +3882,38 @@ struct FilePreviewPanel: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
 
-                // ── Search bar (always visible) ─────────────────────────
+                // ── Search bar ─────────────────────────────────────────
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11))
-                        .foregroundStyle(theme.tertiaryText)
+                        .foregroundStyle(.secondary)
                     TextField("Im Inhalt suchen…", text: $searchText)
                         .font(.system(size: 12))
-                        .foregroundStyle(theme.primaryText)
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
                         .onSubmit { /* next match */ }
                     if !searchText.isEmpty {
                         if searchMatchCount > 0 {
-                            Text("\(searchMatchCount) Treffer")
-                                .font(.system(size: 10))
+                            Text("\(searchMatchCount)")
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(accentColor)
                         } else {
-                            Text("Kein Treffer")
+                            Text("0")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.red.opacity(0.7))
                         }
-                        Button {
-                            searchText = ""
-                        } label: {
+                        Button { searchText = "" } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 11))
-                                .foregroundStyle(theme.tertiaryText)
+                                .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.8))
                 .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+                .padding(.horizontal, 8).padding(.bottom, 8)
             }
             .background(theme.windowBg)
             .overlay(alignment: .bottom) {
