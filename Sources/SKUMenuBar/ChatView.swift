@@ -3842,63 +3842,55 @@ struct FilePreviewPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             // ── Header ───────────────────────────────────────────────────
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    Image(systemName: node.icon)
-                        .font(.system(size: 12))
-                        .foregroundStyle(node.iconColor)
-                    Text(node.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                        .lineLimit(1)
-                    Spacer()
-                    Button { onInsertPath(node.url.path) } label: {
-                        Label("Einfügen", systemImage: "text.badge.plus")
-                            .font(.system(size: 12))
-                            .foregroundStyle(accentColor)
+            HStack(spacing: 6) {
+                Image(systemName: node.icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(node.iconColor)
+                Text(node.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                    .fixedSize()
+                // ── Inline search ──────────────────────────────────────
+                TextField("Suchen…", text: $searchText)
+                    .font(.system(size: 12))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 60, maxWidth: 160)
+                if !searchText.isEmpty {
+                    Text("\(searchMatchCount)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(searchMatchCount > 0 ? accentColor : .red.opacity(0.7))
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Pfad in Chat einfügen")
-                    Button { NSWorkspace.shared.open(node.url) } label: {
-                        Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Im Finder öffnen")
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Vorschau schließen")
                 }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-
-                // ── Search bar ─────────────────────────────────────────
-                HStack(spacing: 5) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    TextField("Im Inhalt suchen…", text: $searchText)
+                Spacer(minLength: 4)
+                Button { onInsertPath(node.url.path) } label: {
+                    Label("Einfügen", systemImage: "text.badge.plus")
                         .font(.system(size: 12))
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { }
-                    if !searchText.isEmpty {
-                        Text(searchMatchCount > 0 ? "\(searchMatchCount)" : "0")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(searchMatchCount > 0 ? accentColor : .red.opacity(0.7))
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                        .foregroundStyle(accentColor)
                 }
-                .padding(.horizontal, 8).padding(.bottom, 8)
+                .buttonStyle(.plain)
+                .help("Pfad in Chat einfügen")
+                Button { NSWorkspace.shared.open(node.url) } label: {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Im Finder öffnen")
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Vorschau schließen")
             }
+            .padding(.horizontal, 10).padding(.vertical, 6)
             .background(theme.windowBg)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(theme.cardBorder).frame(height: 0.5)
