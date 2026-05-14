@@ -3130,18 +3130,6 @@ struct SingleChatSessionView: View {
         }
         isStreaming = false
 
-        // Auto-Compact: wenn Input-Tokens die Schwelle überschreiten, automatisch verdichten
-        if !isFallbackAttempt && !isCompacting {
-            let threshold = state.settings.autoCompactThreshold
-            if threshold > 0 {
-                let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
-                if totalIn >= threshold {
-                    compactSession()
-                    return
-                }
-            }
-        }
-
         // Record session learnings in agent memory log
         if let agentId = effectiveAgent,
            messages.indices.contains(assistantIndex) {
