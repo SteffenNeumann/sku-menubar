@@ -167,6 +167,11 @@ struct FileExplorerView: View {
     // Panel visibility (focus mode)
     @State private var showFileTree: Bool = true
 
+    // Content search in preview
+    @State private var contentSearchText: String = ""
+    @State private var contentSearchMatchCount: Int = 0
+    @State private var contentSearchCurrentIndex: Int = 0
+
     // Edit mode
     @State private var isEditing: Bool = false
     @State private var editText: String = ""
@@ -509,6 +514,15 @@ struct FileExplorerView: View {
                                 .font(.system(size: 10)).foregroundStyle(accentColor)
                         }
                         .buttonStyle(.plain)
+                    }
+                    if !node.isDirectory && node.isTextFile {
+                        InlineSearchBar(
+                            query: $contentSearchText,
+                            currentMatch: $contentSearchCurrentIndex,
+                            matchCount: contentSearchMatchCount,
+                            width: 160,
+                            placeholder: "In Datei suchen"
+                        )
                     }
                     Button {
                         NSPasteboard.general.clearContents()
@@ -889,6 +903,12 @@ struct FileExplorerView: View {
                                 onTextChange: { newText in
                                     editText = newText
                                     isDirty = true
+                                },
+                                searchText: contentSearchText,
+                                currentMatchIndex: contentSearchCurrentIndex,
+                                onMatchCountChange: { count in
+                                    if contentSearchMatchCount != count { contentSearchMatchCount = count }
+                                    if count > 0, contentSearchCurrentIndex >= count { contentSearchCurrentIndex = 0 }
                                 }
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -896,7 +916,13 @@ struct FileExplorerView: View {
                             HighlightedCodeView(
                                 code: text,
                                 fileURL: node.url,
-                                isDark: !theme.isLight
+                                isDark: !theme.isLight,
+                                searchText: contentSearchText,
+                                currentMatchIndex: contentSearchCurrentIndex,
+                                onMatchCountChange: { count in
+                                    if contentSearchMatchCount != count { contentSearchMatchCount = count }
+                                    if count > 0, contentSearchCurrentIndex >= count { contentSearchCurrentIndex = 0 }
+                                }
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
@@ -1381,6 +1407,9 @@ struct FileExplorerView: View {
         previewText = nil
         pdfDocument = nil
         nsImage = nil
+        contentSearchText = ""
+        contentSearchMatchCount = 0
+        contentSearchCurrentIndex = 0
 
         if node.isDirectory {
             if node.children == nil {

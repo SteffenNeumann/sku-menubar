@@ -50,6 +50,9 @@ final class CodeTextView: NSTextView {
     /// Line number highlighted by the live preview (orange tint).
     var hoveredLine: Int? { didSet { if hoveredLine != oldValue { needsDisplay = true } } }
 
+    /// Ranges where a search-highlight background is currently applied (so we can clear it).
+    var appliedSearchRanges: [NSRange] = []
+
     private var _lastHoveredLine: Int? = nil
 
     // Width of the line-number gutter (left of the text area).
@@ -280,6 +283,14 @@ struct HighlightedCodeView: NSViewRepresentable {
     /// Line to highlight (orange) — driven by live preview hover.
     var hoveredLine: Int? = nil
 
+    /// Search query — when non-empty, all case-insensitive matches are
+    /// background-highlighted (yellow) and the current match (orange).
+    var searchText: String = ""
+    /// Index of the active match (scrolled into view, drawn in orange).
+    var currentMatchIndex: Int = 0
+    /// Reports the total number of matches whenever the text / search changes.
+    var onMatchCountChange: ((Int) -> Void)? = nil
+
     private static let highlightr: Highlightr? = {
         let bundleInApp = Bundle.main.bundleURL
             .appendingPathComponent("Highlightr_Highlightr.bundle").path
@@ -359,6 +370,7 @@ struct HighlightedCodeView: NSViewRepresentable {
 
         if textView.string == code {
             textView.isEditable = isEditable
+            applySearchHighlights(in: textView)
             return
         }
 
@@ -403,5 +415,58 @@ struct HighlightedCodeView: NSViewRepresentable {
         scrollView.contentView.backgroundColor = bg
 
         textView.isEditable = isEditable
+
+        // Re-apply search highlights on top of the freshly highlighted text.
+        applySearchHighlights(in: textView)
+    }
+
+    /// Removes any prior search-highlight backgrounds and applies the current
+    /// `searchText` / `currentMatchIndex` to the given text view.
+    private func applySearchHighlights(in textView: CodeTextView) {
+        guard let storage = textView.textStorage else { return }
+        let total = storage.length
+
+        // Clear previously applied search backgrounds.
+        for r in textView.appliedSearchRanges {
+            let safe = NSRange(location: min(r.location, total),
+                               length: min(r.length, max(0, total - min(r.location, total))))
+            if safe.length > 0 { storage.removeAttribute(.backgroundColor, range: safe) }
+        }
+        textView.appliedSearchRanges = []
+
+        guard !searchText.isEmpty, total > 0 else {
+            let cb = onMatchCountChange
+            DispatchQueue.main.async { cb?(0) }
+            return
+        }
+
+        let ns = storage.string as NSString
+        var ranges: [NSRange] = []
+        var loc = 0
+        while loc < ns.length {
+            let r = ns.range(of: searchText,
+                             options: .caseInsensitive,
+                             range: NSRange(location: loc, length: ns.length - loc))
+            if r.location == NSNotFound { break }
+            ranges.append(r)
+            loc = r.location + max(1, r.length)
+        }
+
+        let yellow = NSColor.systemYellow.withAlphaComponent(0.45)
+        let orange = NSColor.systemOrange.withAlphaComponent(0.85)
+        for r in ranges {
+            storage.addAttribute(.backgroundColor, value: yellow, range: r)
+        }
+        if !ranges.isEmpty {
+            let idx = min(max(0, currentMatchIndex), ranges.count - 1)
+            let cur = ranges[idx]
+            storage.addAttribute(.backgroundColor, value: orange, range: cur)
+            textView.scrollRangeToVisible(cur)
+        }
+        textView.appliedSearchRanges = ranges
+
+        let count = ranges.count
+        let cb = onMatchCountChange
+        DispatchQueue.main.async { cb?(count) }
     }
 }

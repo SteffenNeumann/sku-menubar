@@ -3830,6 +3830,7 @@ struct FilePreviewPanel: View {
     @State private var isLoading = false
     @State private var searchText: String = ""
     @State private var searchMatchCount: Int = 0
+    @State private var currentMatchIndex: Int = 0
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3850,24 +3851,16 @@ struct FilePreviewPanel: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
-                    .fixedSize()
-                // ── Inline search ──────────────────────────────────────
-                TextField("Suchen…", text: $searchText)
-                    .font(.system(size: 12))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 60, maxWidth: 160)
-                if !searchText.isEmpty {
-                    Text("\(searchMatchCount)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(searchMatchCount > 0 ? accentColor : .red.opacity(0.7))
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
+                Spacer()
+                if node.isTextFile {
+                    InlineSearchBar(
+                        query: $searchText,
+                        currentMatch: $currentMatchIndex,
+                        matchCount: searchMatchCount,
+                        width: 140,
+                        placeholder: "In Datei suchen"
+                    )
                 }
-                Spacer(minLength: 4)
                 Button { onInsertPath(node.url.path) } label: {
                     Label("Einfügen", systemImage: "text.badge.plus")
                         .font(.system(size: 12))
@@ -3913,32 +3906,18 @@ struct FilePreviewPanel: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let text = previewText {
-                ScrollView {
-                    Group {
-                        if searchText.isEmpty {
-                            if let hl = highlightedText {
-                                Text(hl)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            } else {
-                                Text(text)
-                                    .font(.system(size: 13, design: .monospaced))
-                                    .foregroundStyle(theme.primaryText)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
-                            }
-                        } else {
-                            Text(buildSearchHighlightedText(text))
-                                .font(.system(size: 13, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        }
+                HighlightedCodeView(
+                    code: text,
+                    fileURL: node.url,
+                    isDark: !theme.isLight,
+                    searchText: searchText,
+                    currentMatchIndex: currentMatchIndex,
+                    onMatchCountChange: { count in
+                        if searchMatchCount != count { searchMatchCount = count }
+                        if count > 0, currentMatchIndex >= count { currentMatchIndex = 0 }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                }
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: searchText) { updateMatchCount(in: text) }
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: node.icon)
@@ -3969,6 +3948,7 @@ struct FilePreviewPanel: View {
         isLoading = false
         searchText = ""
         searchMatchCount = 0
+        currentMatchIndex = 0
         if node.isPDF {
             pdfDocument = PDFDocument(url: node.url)
         } else if isImageFile {
@@ -5067,3 +5047,111 @@ private struct PersonaValidationBanner: View {
 // MARK: - Markdown Text Renderer
 
 // MarkdownTextView is defined in MarkdownTextView.swift
+
+// MARK: - Inline expandable search bar (used by file preview headers)
+
+/// A magnifying-glass button that expands inline into a search field with
+/// match counter and ↑↓ navigation buttons. Esc collapses, ⌘F focuses.
+struct InlineSearchBar: View {
+    @Binding var query: String
+    @Binding var currentMatch: Int
+    let matchCount: Int
+    var width: CGFloat = 160
+    var placeholder: String = "Suchen"
+
+    @Environment(\.appTheme) var theme
+    @State private var expanded: Bool = false
+    @FocusState private var focused: Bool
+
+    private var accentColor: Color {
+        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    var body: some View {
+        Group {
+            if expanded {
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    TextField(placeholder, text: $query)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(nsColor: .labelColor))
+                        .focused($focused)
+                        .frame(width: width)
+                        .onSubmit { advance(+1) }
+                    if !query.isEmpty {
+                        Text(matchCount > 0 ? "\(currentMatch + 1)/\(matchCount)" : "0")
+                            .font(.system(size: 10, weight: .medium))
+                            .monospacedDigit()
+                            .foregroundStyle(matchCount > 0 ? accentColor : Color(nsColor: .systemRed))
+                        Button { advance(-1) } label: {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(matchCount == 0)
+                        .help("Vorheriger Treffer")
+                        .keyboardShortcut("g", modifiers: [.command, .shift])
+                        Button { advance(+1) } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(matchCount == 0)
+                        .help("Nächster Treffer")
+                        .keyboardShortcut("g", modifiers: .command)
+                    }
+                    Button { collapse() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Suche schließen (Esc)")
+                    .keyboardShortcut(.escape, modifiers: [])
+                }
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else {
+                Button {
+                    expand()
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("In Datei suchen (⌘F)")
+                .keyboardShortcut("f", modifiers: .command)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: expanded)
+    }
+
+    private func expand() {
+        expanded = true
+        DispatchQueue.main.async { focused = true }
+    }
+
+    private func collapse() {
+        query = ""
+        currentMatch = 0
+        expanded = false
+        focused = false
+    }
+
+    private func advance(_ delta: Int) {
+        guard matchCount > 0 else { return }
+        currentMatch = ((currentMatch + delta) % matchCount + matchCount) % matchCount
+    }
+}
