@@ -5126,9 +5126,13 @@ struct InlineSearchBar: View {
                 Button {
                     expand()
                 } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.tertiaryText)
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Suchen")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.plain)
                 .help("In Datei suchen (⌘F)")
