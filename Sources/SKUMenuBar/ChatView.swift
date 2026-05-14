@@ -1239,10 +1239,15 @@ struct SingleChatSessionView: View {
                         .font(.system(size: 12.5, design: .monospaced))
                         .foregroundStyle(theme.primaryText)
                         .tint(accentColor)
-                        .frame(minHeight: 16, maxHeight: 60)
+                        .frame(minHeight: 120, maxHeight: 120)
                         .scrollContentBackground(.hidden)
                         .background(.clear)
                         .focused($inputFocused)
+                        .onDrop(of: [UTType.fileURL, UTType.image, UTType.png, UTType.jpeg,
+                                     UTType.tiff, UTType.heic, UTType("public.heif")].compactMap { $0 },
+                                isTargeted: $isDragOver) { providers in
+                            handleDrop(providers: providers)
+                        }
                         .onChange(of: inputText) {
                             let startsWithSlash = inputText.hasPrefix("/")
                             let hasSpace = inputText.contains(" ")
@@ -3436,9 +3441,29 @@ struct ChatFilePanel: View {
     @State private var selectedNode: ExplorerNode?
     @State private var showHidden = false
     @State private var currentRoot: String = ""
+    @State private var searchText: String = ""
+    @FocusState private var searchFocused: Bool
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    private var filteredChildren: [ExplorerNode] {
+        guard !searchText.isEmpty, let root = rootNode else { return rootNode?.children ?? [] }
+        return flatSearch(in: root.children ?? [], query: searchText.lowercased())
+    }
+
+    private func flatSearch(in nodes: [ExplorerNode], query: String) -> [ExplorerNode] {
+        var result: [ExplorerNode] = []
+        for node in nodes {
+            if node.name.lowercased().contains(query) {
+                result.append(node)
+            }
+            if node.isDirectory, let children = node.children {
+                result.append(contentsOf: flatSearch(in: children, query: query))
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -3485,24 +3510,70 @@ struct ChatFilePanel: View {
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(theme.windowBg)
 
+            // Search bar
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+                TextField("Dateiname suchen…", text: $searchText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.primaryText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(theme.cardBorder.opacity(0.4))
+
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
-            // Tree only — preview is shown in the right panel
+            // Tree / search results
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let root = rootNode {
-                        ForEach(root.children ?? []) { node in
-                            ChatFilePanelRow(
-                                node: node,
-                                selectedId: selectedNode?.id,
-                                showHidden: showHidden,
-                                depth: 0,
-                                onSelect: selectNode,
-                                onInsert: { onInsertPath($0.url.path) }
-                            )
+                    if rootNode == nil {
+                        ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
+                    } else if searchText.isEmpty {
+                        if let root = rootNode {
+                            ForEach(root.children ?? []) { node in
+                                ChatFilePanelRow(
+                                    node: node,
+                                    selectedId: selectedNode?.id,
+                                    showHidden: showHidden,
+                                    depth: 0,
+                                    onSelect: selectNode,
+                                    onInsert: { onInsertPath($0.url.path) }
+                                )
+                            }
                         }
                     } else {
-                        ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
+                        let results = filteredChildren
+                        if results.isEmpty {
+                            Text("Keine Treffer")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 20)
+                        } else {
+                            ForEach(results) { node in
+                                ChatFilePanelRow(
+                                    node: node,
+                                    selectedId: selectedNode?.id,
+                                    showHidden: true,
+                                    depth: 0,
+                                    onSelect: selectNode,
+                                    onInsert: { onInsertPath($0.url.path) }
+                                )
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 4)
@@ -3763,6 +3834,9 @@ struct FilePreviewPanel: View {
     @State private var pdfDocument: PDFDocument? = nil
     @State private var nsImage: NSImage? = nil
     @State private var isLoading = false
+    @State private var searchText: String = ""
+    @State private var searchMatchCount: Int = 0
+    @FocusState private var searchFocused: Bool
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3775,38 +3849,76 @@ struct FilePreviewPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             // ── Header ───────────────────────────────────────────────────
-            HStack(spacing: 6) {
-                Image(systemName: node.icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(node.iconColor)
-                Text(node.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                    .lineLimit(1)
-                Spacer()
-                Button { onInsertPath(node.url.path) } label: {
-                    Label("Einfügen", systemImage: "text.badge.plus")
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: node.icon)
                         .font(.system(size: 12))
-                        .foregroundStyle(accentColor)
+                        .foregroundStyle(node.iconColor)
+                    Text(node.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                    Spacer()
+                    Button { onInsertPath(node.url.path) } label: {
+                        Label("Einfügen", systemImage: "text.badge.plus")
+                            .font(.system(size: 12))
+                            .foregroundStyle(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Pfad in Chat einfügen")
+                    Button { NSWorkspace.shared.open(node.url) } label: {
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Im Finder öffnen")
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Vorschau schließen")
                 }
-                .buttonStyle(.plain)
-                .help("Pfad in Chat einfügen")
-                Button { NSWorkspace.shared.open(node.url) } label: {
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.tertiaryText)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+
+                // ── Search bar (text files only) ─────────────────────────
+                if previewText != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                        TextField("Im Inhalt suchen…", text: $searchText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                            .onSubmit { /* next match */ }
+                        if !searchText.isEmpty {
+                            if searchMatchCount > 0 {
+                                Text("\(searchMatchCount) Treffer")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(accentColor)
+                            } else {
+                                Text("Kein Treffer")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.red.opacity(0.7))
+                            }
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(theme.cardBorder.opacity(0.5))
                 }
-                .buttonStyle(.plain)
-                .help("Im Finder öffnen")
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-                .buttonStyle(.plain)
-                .help("Vorschau schließen")
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
             .background(theme.windowBg)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(theme.cardBorder).frame(height: 0.5)
@@ -3831,14 +3943,21 @@ struct FilePreviewPanel: View {
             } else if let text = previewText {
                 ScrollView {
                     Group {
-                        if let hl = highlightedText {
-                            Text(hl)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
+                        if searchText.isEmpty {
+                            if let hl = highlightedText {
+                                Text(hl)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            } else {
+                                Text(text)
+                                    .font(.system(size: 13, design: .monospaced))
+                                    .foregroundStyle(theme.primaryText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
                         } else {
-                            Text(text)
+                            Text(buildSearchHighlightedText(text))
                                 .font(.system(size: 13, design: .monospaced))
-                                .foregroundStyle(theme.primaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                         }
@@ -3847,6 +3966,7 @@ struct FilePreviewPanel: View {
                     .padding(.vertical, 12)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: searchText) { updateMatchCount(in: text) }
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: node.icon)
@@ -3875,6 +3995,8 @@ struct FilePreviewPanel: View {
         pdfDocument = nil
         nsImage = nil
         isLoading = false
+        searchText = ""
+        searchMatchCount = 0
         if node.isPDF {
             pdfDocument = PDFDocument(url: node.url)
         } else if isImageFile {
@@ -3903,6 +4025,39 @@ struct FilePreviewPanel: View {
                 }
             }
         }
+    }
+
+    private func updateMatchCount(in text: String) {
+        guard !searchText.isEmpty else { searchMatchCount = 0; return }
+        let lower = text.lowercased()
+        let query = searchText.lowercased()
+        var count = 0
+        var idx = lower.startIndex
+        while let range = lower.range(of: query, range: idx..<lower.endIndex) {
+            count += 1
+            idx = range.upperBound
+        }
+        searchMatchCount = count
+    }
+
+    private func buildSearchHighlightedText(_ text: String) -> AttributedString {
+        var result = AttributedString(text)
+        result.font = .system(size: 13).monospaced()
+        result.foregroundColor = theme.primaryText
+
+        guard !searchText.isEmpty else { return result }
+        let query = searchText.lowercased()
+        let lower = text.lowercased()
+        var idx = lower.startIndex
+        while let range = lower.range(of: query, range: idx..<lower.endIndex) {
+            if let lo = AttributedString.Index(range.lowerBound, within: result),
+               let hi = AttributedString.Index(range.upperBound, within: result) {
+                result[lo..<hi].backgroundColor = .yellow.opacity(0.45)
+                result[lo..<hi].foregroundColor = .black
+            }
+            idx = range.upperBound
+        }
+        return result
     }
 }
 
