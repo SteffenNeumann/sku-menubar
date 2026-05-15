@@ -416,6 +416,11 @@ struct HighlightedCodeView: NSViewRepresentable {
 
         textView.isEditable = isEditable
 
+        // Without this, NSTextView inside NSViewRepresentable often stays blank
+        // until the user clicks (mouseDown triggers a redraw but updateNSView doesn't).
+        textView.needsDisplay = true
+        scrollView.needsDisplay = true
+
         // Re-apply search highlights on top of the freshly highlighted text.
         applySearchHighlights(in: textView)
     }
