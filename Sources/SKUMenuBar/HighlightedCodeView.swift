@@ -416,13 +416,19 @@ struct HighlightedCodeView: NSViewRepresentable {
 
         textView.isEditable = isEditable
 
-        // Without this, NSTextView inside NSViewRepresentable often stays blank
-        // until the user clicks (mouseDown triggers a redraw but updateNSView doesn't).
-        textView.needsDisplay = true
-        scrollView.needsDisplay = true
-
         // Re-apply search highlights on top of the freshly highlighted text.
         applySearchHighlights(in: textView)
+
+        // Defer one run-loop turn so SwiftUI commits the final frame before we
+        // force a display. Without this the NSTextView draws into a zero-size
+        // rect during updateNSView and stays blank until the user clicks.
+        let tv = textView
+        let sv = scrollView
+        DispatchQueue.main.async {
+            tv.layoutManager?.ensureLayout(for: tv.textContainer ?? NSTextContainer())
+            tv.needsDisplay = true
+            sv.needsDisplay = true
+        }
     }
 
     /// Removes any prior search-highlight backgrounds and applies the current
