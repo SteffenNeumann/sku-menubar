@@ -88,7 +88,19 @@ final class CodeTextView: NSTextView {
         }
     }
 
-    // MARK: Plain-text paste
+    // MARK: Plain-text copy/paste
+
+    override func copy(_ sender: Any?) {
+        let sel = selectedRange()
+        let text: String
+        if sel.length > 0, let s = textStorage?.string {
+            text = (s as NSString).substring(with: sel)
+        } else {
+            text = string
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 
     override func paste(_ sender: Any?) {
         let pb = NSPasteboard.general

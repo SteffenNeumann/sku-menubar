@@ -3824,6 +3824,7 @@ struct FilePreviewPanel: View {
 
     @Environment(\.appTheme) var theme
     @State private var previewText: String? = nil
+    @State private var fullText: String? = nil
     @State private var highlightedText: AttributedString? = nil
     @State private var pdfDocument: PDFDocument? = nil
     @State private var nsImage: NSImage? = nil
@@ -3832,7 +3833,6 @@ struct FilePreviewPanel: View {
     @State private var searchMatchCount: Int = 0
     @State private var currentMatchIndex: Int = 0
     @State private var fileWatcher: DispatchSourceFileSystemObject? = nil
-    @State private var fileChangedIndicator: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3857,21 +3857,18 @@ struct FilePreviewPanel: View {
                     .layoutPriority(-1)
                 Spacer(minLength: 4)
                 if node.isTextFile {
-                    if fileChangedIndicator {
-                        Button {
-                            fileChangedIndicator = false
-                            loadContent()
-                        } label: {
-                            Label("Aktualisiert", systemImage: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(Color.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 5))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Datei wurde geändert — neu laden")
-                        .fixedSize()
+                    Button {
+                        let content = fullText ?? previewText ?? ""
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(content, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
                     }
+                    .buttonStyle(.plain)
+                    .help("Datei-Inhalt kopieren")
+                    .fixedSize()
                     InlineSearchBar(
                         query: $searchText,
                         currentMatch: $currentMatchIndex,
@@ -3963,7 +3960,7 @@ struct FilePreviewPanel: View {
     }
 
     private func startFileWatcher() {
-        guard node.isTextFile else { return }
+        guard node.isTextFile || node.isPDF || isImageFile else { return }
         stopFileWatcher()
         let fd = open(node.url.path, O_EVTONLY)
         guard fd >= 0 else { return }
@@ -3972,8 +3969,18 @@ struct FilePreviewPanel: View {
             eventMask: [.write, .rename, .delete],
             queue: .main
         )
-        source.setEventHandler {
-            fileChangedIndicator = true
+        source.setEventHandler { [self] in
+            let events = source.data
+            if events.contains(.rename) || events.contains(.delete) {
+                // Atomic write (editor renamed temp→target). Restart watcher after rename settles.
+                stopFileWatcher()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    loadContent()
+                    startFileWatcher()
+                }
+            } else {
+                loadContent()
+            }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
@@ -3987,6 +3994,7 @@ struct FilePreviewPanel: View {
 
     private func loadContent() {
         previewText = nil
+        fullText = nil
         highlightedText = nil
         pdfDocument = nil
         nsImage = nil
@@ -4016,6 +4024,7 @@ struct FilePreviewPanel: View {
                 }
                 let highlighted = preview.map { SyntaxHighlighter.highlight($0, fileExtension: ext, isDark: isDark) }
                 await MainActor.run {
+                    fullText = text
                     previewText = preview
                     highlightedText = highlighted
                     isLoading = false
