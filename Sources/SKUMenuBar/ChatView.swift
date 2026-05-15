@@ -952,10 +952,11 @@ struct SingleChatSessionView: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(messages) { msg in
-                        MessageBubbleView(message: msg) { diff in
-                            // Immer neuesten Diff merken; Panel nur öffnen wenn nicht vom User geschlossen
+                        MessageBubbleView(message: msg, onDiffTap: { diff in
                             activeDiff = diff
-                        }
+                        }, onAskForResult: msg.role == .assistant && !msg.toolCalls.isEmpty && !msg.isStreaming ? {
+                            sendMessage(text: "Bitte teile dein abschließendes Ergebnis und deine konkreten Empfehlungen mit.")
+                        } : nil)
                         .id(msg.id)
                     }
                     if let err = errorMessage {
@@ -2704,6 +2705,11 @@ struct SingleChatSessionView: View {
         }
     }
 
+    private func sendMessage(text: String) {
+        inputText = text
+        sendMessage()
+    }
+
     private func sendMessage() {
         if orchestratorMode && !selectedOrchestrators.isEmpty {
             sendOrchestrator()
@@ -4177,6 +4183,7 @@ struct ChatFilePanelRow: View {
 struct MessageBubbleView: View {
     let message: ChatMessage
     var onDiffTap: ((String) -> Void)?
+    var onAskForResult: (() -> Void)?
     @Environment(\.appTheme) var theme
     @State private var toolsExpanded: Bool = false
     @State private var dot0Up: Bool = false
@@ -4388,33 +4395,51 @@ struct MessageBubbleView: View {
 
         return VStack(alignment: .leading, spacing: 6) {
             // Tap to expand/collapse
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) { toolsExpanded.toggle() }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
-                    Text("\(tools.count) Schritte abgeschlossen")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.green.opacity(0.75))
-                    Text("· \(label)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(theme.secondaryText.opacity(0.45))
-                        .lineLimit(1)
-                    if let dur = duration {
-                        Text("· \(String(format: "%.1f", dur))s")
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { toolsExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
+                        Text("\(tools.count) Schritte abgeschlossen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.green.opacity(0.75))
+                        Text("· \(label)")
                             .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(theme.secondaryText.opacity(0.45))
+                            .lineLimit(1)
+                        if let dur = duration {
+                            Text("· \(String(format: "%.1f", dur))s")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                        }
+                        Spacer()
+                        Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(theme.tertiaryText.opacity(0.5))
                     }
-                    Spacer()
-                    Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
                 }
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                .buttonStyle(.plain)
+
+                if message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let ask = onAskForResult {
+                    Button {
+                        ask()
+                    } label: {
+                        Label("Ergebnis", systemImage: "arrow.right.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(.green.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Claude nach dem Ergebnis fragen")
+                    .fixedSize()
+                }
             }
-            .buttonStyle(.plain)
 
             // Expanded per-tool detail
             if toolsExpanded {
