@@ -254,6 +254,7 @@ struct SingleChatSessionView: View {
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
     @State private var filePreviewNode: ExplorerNode? = nil
+    @State private var changedFilePaths: Set<String> = []
     @State private var filePreviewPanelWidth: CGFloat = 380
     @State private var inputBarHeight: CGFloat = 56
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
@@ -387,6 +388,7 @@ struct SingleChatSessionView: View {
                 if showFilePanel {
                     ChatFilePanel(
                         rootPath: workingDirectory ?? NSHomeDirectory(),
+                        changedPaths: changedFilePaths,
                         onInsertPath: { path in
                             if inputText.isEmpty { inputText = path }
                             else { inputText += " \(path)" }
@@ -394,6 +396,7 @@ struct SingleChatSessionView: View {
                         },
                         onSelectNode: { node in
                             withAnimation(.spring(response: 0.3)) { filePreviewNode = node }
+                            if let n = node { changedFilePaths.remove(n.url.path) }
                         },
                         onClose: {
                             withAnimation(.spring(response: 0.3)) { showFilePanel = false }
@@ -691,6 +694,15 @@ struct SingleChatSessionView: View {
         // parent re-renders on every streaming token (input lag fix)
         .onChange(of: messages) {
             if !isStreaming { tab.messages = messages }
+            // Dateipfade aus gitDiff in changedFilePaths sammeln (für File-Tree-Badge)
+            if let cwd = workingDirectory {
+                for msg in messages {
+                    guard let diff = msg.gitDiff else { continue }
+                    for file in parseDiffFiles(diff) {
+                        changedFilePaths.insert(cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name)
+                    }
+                }
+            }
             // Compact-Banner anzeigen wenn Schwellwert überschritten (nur einmal pro Session)
             let threshold = state.settings.autoCompactThreshold
             let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
@@ -3451,6 +3463,7 @@ class ResizeDragNSView: NSView {
 
 struct ChatFilePanel: View {
     let rootPath: String
+    var changedPaths: Set<String> = []
     let onInsertPath: (String) -> Void
     let onSelectNode: (ExplorerNode?) -> Void
     let onClose: () -> Void
@@ -3562,6 +3575,7 @@ struct ChatFilePanel: View {
                                     selectedId: selectedNode?.id,
                                     showHidden: showHidden,
                                     depth: 0,
+                                    changedPaths: changedPaths,
                                     onSelect: selectNode,
                                     onInsert: { onInsertPath($0.url.path) }
                                 )
@@ -3582,6 +3596,7 @@ struct ChatFilePanel: View {
                                     selectedId: selectedNode?.id,
                                     showHidden: true,
                                     depth: 0,
+                                    changedPaths: changedPaths,
                                     onSelect: selectNode,
                                     onInsert: { onInsertPath($0.url.path) }
                                 )
@@ -4104,6 +4119,7 @@ struct ChatFilePanelRow: View {
     let selectedId: UUID?
     let showHidden: Bool
     let depth: Int
+    var changedPaths: Set<String> = []
     let onSelect: (ExplorerNode) -> Void
     let onInsert: (ExplorerNode) -> Void
 
@@ -4125,6 +4141,7 @@ struct ChatFilePanelRow: View {
                         selectedId: selectedId,
                         showHidden: showHidden,
                         depth: depth + 1,
+                        changedPaths: changedPaths,
                         onSelect: onSelect,
                         onInsert: onInsert
                     )
@@ -4132,6 +4149,8 @@ struct ChatFilePanelRow: View {
             }
         }
     }
+
+    private var isChanged: Bool { !node.isDirectory && changedPaths.contains(node.url.path) }
 
     private var row: some View {
         HStack(spacing: 8) {
@@ -4151,10 +4170,17 @@ struct ChatFilePanelRow: View {
                 Image(systemName: node.icon)
                     .font(.system(size: 13))
                     .foregroundStyle(isSelected ? accentColor : node.iconColor)
+                // Orange badge dot if file was changed by agent
+                if isChanged {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 7, height: 7)
+                        .offset(x: 9, y: -9)
+                }
             }
             Text(node.name)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
+                .font(.system(size: 14, weight: isChanged ? .semibold : .medium))
+                .foregroundStyle(isChanged ? Color.orange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
