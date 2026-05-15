@@ -3852,6 +3852,8 @@ struct FilePreviewPanel: View {
     @State private var searchMatchCount: Int = 0
     @State private var currentMatchIndex: Int = 0
     @State private var fileWatcher: DispatchSourceFileSystemObject? = nil
+    @State private var reloadTrigger: Int = 0
+    @State private var watcherNeedsRestart: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3976,6 +3978,18 @@ struct FilePreviewPanel: View {
         .onAppear { loadContent(); startFileWatcher() }
         .onDisappear { stopFileWatcher() }
         .onChange(of: node.id) { stopFileWatcher(); loadContent(); startFileWatcher() }
+        .onChange(of: reloadTrigger) {
+            if watcherNeedsRestart {
+                watcherNeedsRestart = false
+                stopFileWatcher()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    loadContent()
+                    startFileWatcher()
+                }
+            } else {
+                loadContent()
+            }
+        }
     }
 
     private func startFileWatcher() {
@@ -3988,18 +4002,15 @@ struct FilePreviewPanel: View {
             eventMask: [.write, .rename, .delete],
             queue: .main
         )
+        // Only set simple flags — never call SwiftUI methods from a GCD closure
+        // (value-type [self] capture doesn't reliably write through @State storage).
+        // .onChange(of: reloadTrigger) in the view body handles the actual reload.
         source.setEventHandler { [self] in
             let events = source.data
             if events.contains(.rename) || events.contains(.delete) {
-                // Atomic write (editor renamed temp→target). Restart watcher after rename settles.
-                stopFileWatcher()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    loadContent()
-                    startFileWatcher()
-                }
-            } else {
-                loadContent()
+                watcherNeedsRestart = true
             }
+            reloadTrigger += 1
         }
         source.setCancelHandler { close(fd) }
         source.resume()
