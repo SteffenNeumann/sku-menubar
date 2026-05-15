@@ -2336,8 +2336,9 @@ struct SingleChatSessionView: View {
                 )
                 do {
                     for try await event in stream {
-                        if event.type == "assistant",
-                           let content = event.message?.content {
+                        switch event.type {
+                        case "assistant":
+                            guard let content = event.message?.content else { break }
                             for block in content {
                                 switch block.type {
                                 case "text":
@@ -2361,6 +2362,18 @@ struct SingleChatSessionView: View {
                                 default: break
                                 }
                             }
+                        case "user":
+                            // Tool results — mark the matching tool call as done
+                            guard let content = event.message?.content else { break }
+                            for block in content where block.type == "tool_result" {
+                                guard let toolId = block.toolUseId,
+                                      let resultText = block.toolResultText,
+                                      !resultText.isEmpty else { continue }
+                                if let ri = messages[idx].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
+                                    messages[idx].toolCalls[ri].result = String(resultText.prefix(4000))
+                                }
+                            }
+                        default: break
                         }
                     }
                 } catch {
