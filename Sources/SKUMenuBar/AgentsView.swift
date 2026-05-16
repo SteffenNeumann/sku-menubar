@@ -2551,6 +2551,80 @@ private struct AgentEditorSheet: View {
                             .strokeBorder(theme.cardBorder, lineWidth: 0.5)
                     )
 
+                    // Associated Projects section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder.badge.person.crop")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                            Text("Zugehörige Projekte")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                        }
+
+                        Text("Dieser Agent wird automatisch vorausgewählt, wenn du eines dieser Projekte öffnest.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.secondaryText)
+
+                        if !draft.associatedProjects.isEmpty {
+                            FlowLayout(spacing: 6) {
+                                ForEach(Array(draft.associatedProjects.enumerated()), id: \.offset) { idx, path in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                                        Text(URL(fileURLWithPath: path).lastPathComponent)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(theme.primaryText)
+                                            .lineLimit(1)
+                                        Button {
+                                            draft.associatedProjects.remove(at: idx)
+                                        } label: {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundStyle(theme.secondaryText)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(
+                                        Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255).opacity(0.08),
+                                        in: RoundedRectangle(cornerRadius: 6)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .strokeBorder(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255).opacity(0.2), lineWidth: 0.5)
+                                    )
+                                    .help(path)
+                                }
+                            }
+                        }
+
+                        Button {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.allowsMultipleSelection = false
+                            panel.prompt = "Hinzufügen"
+                            if panel.runModal() == .OK, let url = panel.url {
+                                if !draft.associatedProjects.contains(url.path) {
+                                    draft.associatedProjects.append(url.path)
+                                }
+                            }
+                        } label: {
+                            Label("Projekt hinzufügen", systemImage: "folder.badge.plus")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(16)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                    )
+
                     // Portrait section
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {

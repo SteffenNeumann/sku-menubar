@@ -2266,12 +2266,14 @@ struct SingleChatSessionView: View {
     // MARK: - Actions
 
     /// Returns the best matching agent ID for a project directory.
-    /// Priority 1: agent with exact projectDirectory match.
+    /// Priority 1: agent whose projectDirectory or associatedProjects contains the path.
     /// Priority 2: file-extension scan for known project types.
     private func detectAgentForProject(_ path: String) -> String? {
         let agents = state.agentService.agents.filter { !$0.isPersona }
 
-        if let exact = agents.first(where: { $0.projectDirectory == path }) {
+        if let exact = agents.first(where: {
+            $0.projectDirectory == path || $0.associatedProjects.contains(path)
+        }) {
             return exact.id
         }
 
