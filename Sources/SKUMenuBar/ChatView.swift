@@ -755,6 +755,9 @@ struct SingleChatSessionView: View {
             workingDirectory = path
             tab.title = URL(fileURLWithPath: path).lastPathComponent
             withAnimation(.spring(response: 0.3)) { showFilePanel = true }
+            if let agentId = detectAgentForProject(path) {
+                selectedAgent = agentId
+            }
         }
         .onChange(of: state.pendingChatMessage) {
             guard let msg = state.pendingChatMessage else { return }
@@ -2261,6 +2264,34 @@ struct SingleChatSessionView: View {
     }
 
     // MARK: - Actions
+
+    /// Returns the best matching agent ID for a project directory.
+    /// Priority 1: agent with exact projectDirectory match.
+    /// Priority 2: file-extension scan for known project types.
+    private func detectAgentForProject(_ path: String) -> String? {
+        let agents = state.agentService.agents.filter { !$0.isPersona }
+
+        if let exact = agents.first(where: { $0.projectDirectory == path }) {
+            return exact.id
+        }
+
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: path) else { return nil }
+        let exts  = Set(files.map { URL(fileURLWithPath: $0).pathExtension.lowercased() })
+        let names = files.map { $0.lowercased() }
+
+        let excelExts: Set<String> = ["xlsm", "xlsb", "bas", "xls", "xlsx"]
+        if !exts.isDisjoint(with: excelExts) {
+            return agents.first { $0.id.contains("excel") || $0.id.contains("vba") }?.id
+        }
+
+        let makeMarkers = ["make.json", "blueprint"]
+        if names.contains(where: { n in makeMarkers.contains(where: { n.contains($0) }) }) {
+            return agents.first { $0.id.contains("workflow") || $0.id.contains("make") }?.id
+        }
+
+        return nil
+    }
 
     private func newSession() {
         withAnimation(.spring(response: 0.3)) {
