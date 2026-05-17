@@ -157,12 +157,14 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - TMetric
-    @Published var tmetricProjects:    [TMetricProjectSummary] = []
-    @Published var tmetricIsLoading:   Bool    = false
-    @Published var tmetricError:       String? = nil
-    @Published var tmetricLastUpdated: Date?   = nil
-    @Published var tmetricDebugRaw:    String  = ""
-    @Published var tmetricPeriod:      TMetricPeriod = .today {
+    @Published var tmetricProjects:      [TMetricProjectSummary] = []
+    @Published var tmetricIsLoading:     Bool    = false
+    @Published var tmetricError:         String? = nil
+    @Published var tmetricLastUpdated:   Date?   = nil
+    @Published var tmetricCustomFrom:    Date    = Calendar.current.startOfDay(for: Date())
+    @Published var tmetricCustomTo:      Date    = Date()
+    @Published var tmetricIsCustomRange: Bool    = false
+    @Published var tmetricPeriod:        TMetricPeriod = .today {
         didSet {
             guard oldValue != tmetricPeriod else { return }
             tmetricLastUpdated = nil
@@ -688,9 +690,11 @@ final class AppState: ObservableObject {
         tmetricError     = nil
 
         do {
-            let result = try await TMetricService.fetchSummary(token: token, period: tmetricPeriod)
+            let (from, to) = tmetricIsCustomRange
+                ? (tmetricCustomFrom, tmetricCustomTo)
+                : tmetricPeriod.dateRange()
+            let result = try await TMetricService.fetchSummary(token: token, from: from, to: to)
             tmetricProjects    = result.summaries
-            tmetricDebugRaw    = result.debugRaw
             tmetricLastUpdated = Date()
         } catch {
             tmetricError = error.localizedDescription

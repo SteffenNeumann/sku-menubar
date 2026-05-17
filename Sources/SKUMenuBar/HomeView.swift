@@ -14,7 +14,10 @@ struct HomeView: View {
     @Environment(\.appTheme) var theme
     @Binding var selectedSection: AppSection
 
-    @State private var showingCustomize = false
+    @State private var showingCustomize         = false
+    @State private var showTMetricDatePicker    = false
+    @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
+    @State private var tmetricDraftTo:   Date   = Date()
 
     private var accentColor: Color { theme.accentText }
 
@@ -566,14 +569,59 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    // Period picker
-                    Picker("Zeitraum", selection: $state.tmetricPeriod) {
-                        ForEach(TMetricPeriod.allCases, id: \.self) { period in
-                            Text(period.label).tag(period)
+                    // Period chips + date range button
+                    HStack(spacing: 4) {
+                        ForEach(TMetricPeriod.allCases, id: \.self) { p in
+                            let active = !state.tmetricIsCustomRange && state.tmetricPeriod == p
+                            Text(p.label)
+                                .font(.system(size: 12, weight: active ? .semibold : .regular))
+                                .foregroundStyle(active ? Color.indigo : theme.secondaryText)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
+                                .background(active ? Color.indigo.opacity(0.13) : Color.clear,
+                                            in: Capsule())
+                                .contentShape(Capsule())
+                                .onTapGesture {
+                                    state.tmetricIsCustomRange = false
+                                    state.tmetricPeriod = p
+                                }
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            tmetricDraftFrom = state.tmetricIsCustomRange
+                                ? state.tmetricCustomFrom
+                                : Calendar.current.startOfDay(for: Date())
+                            tmetricDraftTo = state.tmetricIsCustomRange
+                                ? state.tmetricCustomTo
+                                : Date()
+                            showTMetricDatePicker = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 11, weight: .medium))
+                                if state.tmetricIsCustomRange {
+                                    Text(tmetricCustomRangeLabel)
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                            }
+                            .foregroundStyle(state.tmetricIsCustomRange ? Color.indigo : theme.tertiaryText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(state.tmetricIsCustomRange ? Color.indigo.opacity(0.13) : Color.clear,
+                                        in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showTMetricDatePicker, arrowEdge: .bottom) {
+                            TMetricDateRangePopover(from: $tmetricDraftFrom, to: $tmetricDraftTo) {
+                                state.tmetricCustomFrom    = tmetricDraftFrom
+                                state.tmetricCustomTo      = tmetricDraftTo
+                                state.tmetricIsCustomRange = true
+                                showTMetricDatePicker      = false
+                                state.tmetricLastUpdated   = nil
+                                Task { await state.refreshTMetric(force: true) }
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .controlSize(.small)
                     .padding(.bottom, 10)
 
                     if state.tmetricIsLoading && state.tmetricProjects.isEmpty {
@@ -582,89 +630,84 @@ struct HomeView: View {
                     } else if let err = state.tmetricError {
                         emptyState(icon: "exclamationmark.triangle", text: err)
                     } else if state.tmetricProjects.isEmpty {
-                        emptyState(icon: "timer", text: state.tmetricPeriod.emptyText)
-                        if !state.tmetricDebugRaw.isEmpty {
-                            ScrollView(.vertical) {
-                                Text(state.tmetricDebugRaw)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(theme.tertiaryText)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(8)
-                            }
-                            .frame(maxHeight: 100)
-                            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
-                        }
+                        emptyState(icon: "timer", text: state.tmetricIsCustomRange
+                            ? "Keine Zeit in diesem Zeitraum."
+                            : state.tmetricPeriod.emptyText)
                     } else {
-                    VStack(spacing: 6) {
-                        ForEach(state.tmetricProjects.prefix(5)) { project in
-                            HStack(spacing: 10) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .fill(Color.indigo.opacity(0.12))
-                                        .frame(width: 30, height: 30)
-                                    Image(systemName: "clock.fill")
+                        VStack(spacing: 6) {
+                            ForEach(state.tmetricProjects.prefix(8)) { project in
+                                HStack(spacing: 10) {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .fill(Color.indigo.opacity(0.12))
+                                            .frame(width: 28, height: 28)
+                                        Image(systemName: "clock.fill")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(.indigo)
+                                    }
+                                    Text(project.name)
                                         .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(theme.primaryText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    Text(project.formattedDuration)
+                                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
                                         .foregroundStyle(.indigo)
                                 }
-                                Text(project.name)
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(theme.primaryText)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Text(project.formattedDuration)
-                                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                                    .foregroundStyle(.indigo)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
                         }
+
+                        Spacer(minLength: 0)
+
+                        HStack {
+                            if let updated = state.tmetricLastUpdated {
+                                let fmt = RelativeDateTimeFormatter()
+                                Text("Aktualisiert \(fmt.localizedString(for: updated, relativeTo: Date()))")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            Spacer()
+                            Button {
+                                Task { await state.refreshTMetric(force: true) }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .rotationEffect(.degrees(state.tmetricIsLoading ? 360 : 0))
+                                    .animation(
+                                        state.tmetricIsLoading
+                                            ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                            : .default,
+                                        value: state.tmetricIsLoading)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Zeitdaten neu laden")
+
+                            Button {
+                                NSWorkspace.shared.open(URL(string: "https://app.tmetric.com/#/tracker/276655/")!)
+                            } label: {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                            .help("In TMetric öffnen")
+                        }
+                        .padding(.top, 8)
                     }
-
-                    Spacer(minLength: 0)
-
-                    HStack {
-                        if let updated = state.tmetricLastUpdated {
-                            let fmt = RelativeDateTimeFormatter()
-                            Text("Aktualisiert \(fmt.localizedString(for: updated, relativeTo: Date()))")
-                                .font(.system(size: 11))
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                        Spacer()
-                        Button {
-                            Task { await state.refreshTMetric(force: true) }
-                        } label: {
-                            Image(systemName: state.tmetricIsLoading ? "arrow.clockwise" : "arrow.clockwise")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.tertiaryText)
-                                .rotationEffect(.degrees(state.tmetricIsLoading ? 360 : 0))
-                                .animation(
-                                    state.tmetricIsLoading
-                                        ? .linear(duration: 1).repeatForever(autoreverses: false)
-                                        : .default,
-                                    value: state.tmetricIsLoading
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help("Zeitdaten neu laden")
-
-                        Button {
-                            NSWorkspace.shared.open(URL(string: "https://app.tmetric.com/#/tracker/276655/")!)
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                        .buttonStyle(.plain)
-                        .help("In TMetric öffnen")
-                    }
-                    .padding(.top, 8)
-                    }   // end inner else (project list)
                 }       // end outer else (token not empty)
             }
         }
+    }
+
+    private var tmetricCustomRangeLabel: String {
+        let df = DateFormatter()
+        df.dateFormat = "d.M."
+        return "\(df.string(from: state.tmetricCustomFrom))–\(df.string(from: state.tmetricCustomTo))"
     }
 
     // MARK: - Helpers
@@ -849,5 +892,104 @@ private struct HomeTileCustomizeSheet: View {
         }
         .frame(width: 360, height: 420)
         .background(theme.cardSurface)
+    }
+}
+
+// MARK: - TMetric Date Range Popover
+
+private struct TMetricDateRangePopover: View {
+    @Binding var from: Date
+    @Binding var to:   Date
+    let onApply: () -> Void
+
+    private var cal: Calendar {
+        var c = Calendar(identifier: .iso8601)
+        c.timeZone = TimeZone.current
+        return c
+    }
+    private var gcal: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone.current
+        return c
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+
+            Text("Zeitraum")
+                .font(.system(size: 13, weight: .semibold))
+
+            // Von / Bis
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    Text("Von")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .leading)
+                    DatePicker("", selection: $from, in: ...to, displayedComponents: .date)
+                        .datePickerStyle(.compact).labelsHidden()
+                }
+                HStack(spacing: 10) {
+                    Text("Bis")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .leading)
+                    DatePicker("", selection: $to, in: from..., displayedComponents: .date)
+                        .datePickerStyle(.compact).labelsHidden()
+                }
+            }
+
+            Divider()
+
+            // Quick select
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Schnellauswahl")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+
+                HStack(spacing: 5) {
+                    quickChip("Diese Woche") {
+                        let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
+                        from = cal.date(from: comps) ?? cal.startOfDay(for: Date())
+                        to   = Date()
+                    }
+                    quickChip("Letzte Woche") {
+                        let now     = Date()
+                        let comps   = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+                        let thisW   = cal.date(from: comps) ?? cal.startOfDay(for: now)
+                        from = cal.date(byAdding: .weekOfYear, value: -1, to: thisW) ?? thisW
+                        to   = cal.date(byAdding: .second, value: -1, to: thisW) ?? now
+                    }
+                }
+                HStack(spacing: 5) {
+                    quickChip("Dieser Monat") {
+                        from = gcal.date(from: gcal.dateComponents([.year, .month], from: Date())) ?? Date()
+                        to   = Date()
+                    }
+                    quickChip("Letzter Monat") {
+                        let now      = Date()
+                        let thisM    = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? now
+                        from = gcal.date(byAdding: .month, value: -1, to: thisM) ?? thisM
+                        to   = gcal.date(byAdding: .second, value: -1, to: thisM) ?? now
+                    }
+                }
+            }
+
+            Button("Anwenden", action: onApply)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.indigo)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(16)
+        .frame(width: 248)
+    }
+
+    private func quickChip(_ label: String, action: @escaping () -> Void) -> some View {
+        Text(label)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.indigo)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Color.indigo.opacity(0.10), in: Capsule())
+            .contentShape(Capsule())
+            .onTapGesture(perform: action)
     }
 }

@@ -56,29 +56,15 @@ enum TMetricPeriod: String, CaseIterable, Codable {
 
 // MARK: - TMetric API Models
 
-// Time entry: TMetric returns only projectId (number), NOT the project name
+// Actual structure returned by TMetric v3 timeentries endpoint
 private struct TMetricTimeEntry: Codable {
     let id: Int?
     let startTime: String?
     let endTime: String?
-    let duration: Int?      // seconds; -1 or nil = running timer
-    let projectId: Int?     // root-level — this is the actual field TMetric sends
-    // Fallback nested shapes (other API versions)
-    let details: TMetricDetails?
+    let project: TMetricEntryProject?   // nested directly in entry
 }
 
-private struct TMetricDetails: Codable {
-    let projectId: Int?
-    let project: TMetricProject?
-}
-
-private struct TMetricProject: Codable {
-    let id: Int?
-    let name: String?
-}
-
-// Project list entry
-private struct TMetricProjectInfo: Codable {
+private struct TMetricEntryProject: Codable {
     let id: Int?
     let name: String?
 }
@@ -128,7 +114,9 @@ enum TMetricService {
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json",  forHTTPHeaderField: "Accept")
-        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        print("[TMetric GET] \(path) → HTTP \(status) (\(data.count)B): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
@@ -140,27 +128,12 @@ enum TMetricService {
         return me?.id
     }
 
-    // MARK: Fetch project name map  { projectId → name }
-
-    private static func fetchProjectMap(token: String) async -> [Int: String] {
-        let projects: [TMetricProjectInfo]? = await get("accounts/\(accountId)/projects", token: token)
-        guard let projects else { return [:] }
-        print("[TMetric] \(projects.count) Projekte geladen")
-        return Dictionary(uniqueKeysWithValues: projects.compactMap { p in
-            guard let id = p.id, let name = p.name else { return nil }
-            return (id, name)
-        })
-    }
-
     // MARK: Main fetch
 
-    static func fetchSummary(token: String, period: TMetricPeriod) async throws -> TMetricFetchResult {
+    static func fetchSummary(token: String, from: Date, to: Date) async throws -> TMetricFetchResult {
         let now = Date()
-        let (from, to) = period.dateRange()
 
-        async let userIdTask  = fetchUserId(token: token)
-        async let projectsTask = fetchProjectMap(token: token)
-        let (userId, projectMap) = await (userIdTask, projectsTask)
+        let userId = await fetchUserId(token: token)
 
         var items: [URLQueryItem] = [
             URLQueryItem(name: "startTime", value: localFmt.string(from: from)),
@@ -203,30 +176,20 @@ enum TMetricService {
         }
         print("[TMetric] After client filter [\(localFmt.string(from: from))…\(localFmt.string(from: to))]: \(filtered.count) entries")
 
-        // Debug raw: first entry + project map sample
+        // Debug: show decoded project names
         let firstRaw: String
-        if let first = allEntries.first,
-           let d = try? JSONEncoder().encode(first),
-           let s = String(data: d, encoding: .utf8) {
-            let mapSample = projectMap.prefix(3).map { "\($0.key)=\($0.value)" }.joined(separator: ", ")
-            firstRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nProjects:\(projectMap.count) [\(mapSample)]\nErster Eintrag: \(s)"
-        } else {
-            firstRaw = "0 Einträge"
-        }
+        let projectNames = Set(allEntries.compactMap { $0.project?.name }).sorted().prefix(5).joined(separator: ", ")
+        firstRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nProjekte: [\(projectNames)]"
 
         return TMetricFetchResult(
-            summaries: aggregate(entries: filtered, projectMap: projectMap, now: now),
+            summaries: aggregate(entries: filtered, now: now),
             debugRaw:  firstRaw
         )
     }
 
     // MARK: Aggregate by project
 
-    private static func aggregate(
-        entries: [TMetricTimeEntry],
-        projectMap: [Int: String],
-        now: Date
-    ) -> [TMetricProjectSummary] {
+    private static func aggregate(entries: [TMetricTimeEntry], now: Date) -> [TMetricProjectSummary] {
         func parse(_ s: String?) -> Date? {
             guard let s else { return nil }
             return localFmt.date(from: s) ?? ISO8601DateFormatter().date(from: s)
@@ -235,24 +198,14 @@ enum TMetricService {
         var totals: [Int: (name: String, seconds: Int)] = [:]
 
         for entry in entries {
-            // Resolve project ID: root-level first, then nested details
-            let projectId: Int = entry.projectId
-                              ?? entry.details?.project?.id
-                              ?? entry.details?.projectId
-                              ?? 0
+            let projectId   = entry.project?.id   ?? 0
+            let projectName = entry.project?.name ?? (projectId == 0 ? "Ohne Projekt" : "Projekt \(projectId)")
 
-            // Look up project name from projects endpoint
-            let projectName: String = projectMap[projectId]
-                                   ?? entry.details?.project?.name
-                                   ?? (projectId == 0 ? "Ohne Projekt" : "Projekt \(projectId)")
-
-            let dur = entry.duration ?? -1
             let seconds: Int
-            if dur > 0 {
-                seconds = dur
-            } else if let s = parse(entry.startTime), let e = parse(entry.endTime) {
+            if let s = parse(entry.startTime), let e = parse(entry.endTime) {
                 seconds = max(0, Int(e.timeIntervalSince(s)))
             } else if let s = parse(entry.startTime), entry.endTime == nil {
+                // Running timer
                 seconds = max(0, Int(now.timeIntervalSince(s)))
             } else {
                 continue
