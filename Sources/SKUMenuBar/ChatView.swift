@@ -633,15 +633,11 @@ struct SingleChatSessionView: View {
         }
         if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
         applyFallbackModelIfNeeded()
-        state.tmetricSelectedProjectId   = tab.tmetricProjectId
-        state.tmetricSelectedProjectName = tab.tmetricProjectName
         tryAutoMatchTMetricProject()
     }
 
     private func handleDisappear() {
-        tab.inputText           = inputText
-        tab.tmetricProjectId    = state.tmetricSelectedProjectId
-        tab.tmetricProjectName  = state.tmetricSelectedProjectName
+        tab.inputText = inputText
         Task { await state.stopTMetricTimer() }
     }
 
@@ -706,16 +702,10 @@ struct SingleChatSessionView: View {
 
     private func syncOnActiveChange() {
         if isActive {
-            // Restore this tab's TMetric project into global state
-            state.tmetricSelectedProjectId   = tab.tmetricProjectId
-            state.tmetricSelectedProjectName = tab.tmetricProjectName
             tryAutoMatchTMetricProject()
         } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }
-            // Save TMetric project back to tab before losing focus
-            tab.tmetricProjectId   = state.tmetricSelectedProjectId
-            tab.tmetricProjectName = state.tmetricSelectedProjectName
         }
     }
 
@@ -729,8 +719,6 @@ struct SingleChatSessionView: View {
         guard tab.tmetricProjectId == nil, let wd = tab.workingDirectory else { return }
         let folder = URL(fileURLWithPath: wd).lastPathComponent
         guard let match = state.autoMatchTMetricProject(folderName: folder) else { return }
-        state.tmetricSelectedProjectId   = match.id
-        state.tmetricSelectedProjectName = match.name
         tab.tmetricProjectId   = match.id
         tab.tmetricProjectName = match.name
     }
@@ -871,19 +859,15 @@ struct SingleChatSessionView: View {
 
     private var tmetricTimerChip: some View {
         HStack(spacing: 4) {
-            // Project picker
+            // Project picker — reads/writes tab-local project only
             Menu {
                 Button("Kein Projekt") {
-                    state.tmetricSelectedProjectId   = nil
-                    state.tmetricSelectedProjectName = ""
                     tab.tmetricProjectId   = nil
                     tab.tmetricProjectName = ""
                 }
                 Divider()
                 ForEach(state.tmetricKnownProjects) { p in
                     Button(p.name) {
-                        state.tmetricSelectedProjectId   = p.id
-                        state.tmetricSelectedProjectName = p.name
                         tab.tmetricProjectId   = p.id
                         tab.tmetricProjectName = p.name
                     }
@@ -901,7 +885,7 @@ struct SingleChatSessionView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(state.tmetricTimerError != nil ? .red : theme.tertiaryText)
                     }
-                    Text(state.tmetricSelectedProjectName.isEmpty ? "Projekt wählen" : state.tmetricSelectedProjectName)
+                    Text(tab.tmetricProjectName.isEmpty ? "Projekt wählen" : tab.tmetricProjectName)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(state.tmetricIsTimerRunning ? .green : (state.tmetricTimerError != nil ? .red : theme.secondaryText))
                         .lineLimit(1)
@@ -930,8 +914,13 @@ struct SingleChatSessionView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Timer stoppen")
-            } else if state.tmetricSelectedProjectId != nil {
-                Button { Task { await state.startTMetricTimer() } } label: {
+            } else if tab.tmetricProjectId != nil {
+                Button {
+                    // Sync tab project into global state right before starting timer
+                    state.tmetricSelectedProjectId   = tab.tmetricProjectId
+                    state.tmetricSelectedProjectName = tab.tmetricProjectName
+                    Task { await state.startTMetricTimer() }
+                } label: {
                     Image(systemName: "play.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.indigo)
@@ -2905,7 +2894,9 @@ struct SingleChatSessionView: View {
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
         state.tmetricActivity()
-        if state.tmetricSelectedProjectId != nil && !state.tmetricIsTimerRunning {
+        if tab.tmetricProjectId != nil && !state.tmetricIsTimerRunning {
+            state.tmetricSelectedProjectId   = tab.tmetricProjectId
+            state.tmetricSelectedProjectName = tab.tmetricProjectName
             state.tmetricTimerError = nil
             Task { await state.startTMetricTimer() }
         }
