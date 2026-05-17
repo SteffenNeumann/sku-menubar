@@ -552,14 +552,25 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                } else if state.tmetricIsLoading && state.tmetricProjects.isEmpty {
-                    HStack { Spacer(); ProgressView().controlSize(.regular); Spacer() }
-                        .padding(.top, 20)
-                } else if let err = state.tmetricError {
-                    emptyState(icon: "exclamationmark.triangle", text: err)
-                } else if state.tmetricProjects.isEmpty {
-                    emptyState(icon: "timer", text: "Heute noch keine Zeit gebucht.")
                 } else {
+                    // Period picker
+                    Picker("Zeitraum", selection: $state.tmetricPeriod) {
+                        ForEach(TMetricPeriod.allCases, id: \.self) { period in
+                            Text(period.label).tag(period)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .padding(.bottom, 10)
+
+                    if state.tmetricIsLoading && state.tmetricProjects.isEmpty {
+                        HStack { Spacer(); ProgressView().controlSize(.regular); Spacer() }
+                            .padding(.top, 12)
+                    } else if let err = state.tmetricError {
+                        emptyState(icon: "exclamationmark.triangle", text: err)
+                    } else if state.tmetricProjects.isEmpty {
+                        emptyState(icon: "timer", text: state.tmetricPeriod.emptyText)
+                    } else {
                     VStack(spacing: 6) {
                         ForEach(state.tmetricProjects.prefix(5)) { project in
                             HStack(spacing: 10) {
@@ -625,7 +636,8 @@ struct HomeView: View {
                         .help("In TMetric öffnen")
                     }
                     .padding(.top, 8)
-                }
+                    }   // end inner else (project list)
+                }       // end outer else (token not empty)
             }
         }
     }

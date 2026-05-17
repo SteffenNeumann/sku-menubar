@@ -1,5 +1,54 @@
 import Foundation
 
+// MARK: - Time Period
+
+enum TMetricPeriod: String, CaseIterable, Codable {
+    case today     = "today"
+    case thisWeek  = "thisWeek"
+    case thisMonth = "thisMonth"
+    case lastMonth = "lastMonth"
+
+    var label: String {
+        switch self {
+        case .today:     return "Heute"
+        case .thisWeek:  return "Woche"
+        case .thisMonth: return "Monat"
+        case .lastMonth: return "Vormonat"
+        }
+    }
+
+    var emptyText: String {
+        switch self {
+        case .today:     return "Heute noch keine Zeit gebucht."
+        case .thisWeek:  return "Diese Woche noch keine Zeit gebucht."
+        case .thisMonth: return "Diesen Monat noch keine Zeit gebucht."
+        case .lastMonth: return "Im Vormonat keine Zeit gefunden."
+        }
+    }
+
+    func dateRange() -> (from: Date, to: Date) {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone.current
+        let now = Date()
+        switch self {
+        case .today:
+            return (cal.startOfDay(for: now), now)
+        case .thisWeek:
+            let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+            let startOfWeek = cal.date(from: comps) ?? cal.startOfDay(for: now)
+            return (startOfWeek, now)
+        case .thisMonth:
+            let startOfMonth = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? cal.startOfDay(for: now)
+            return (startOfMonth, now)
+        case .lastMonth:
+            let thisMonthStart = cal.date(from: cal.dateComponents([.year, .month], from: now)) ?? cal.startOfDay(for: now)
+            let lastMonthStart = cal.date(byAdding: .month, value: -1, to: thisMonthStart) ?? thisMonthStart
+            let lastMonthEnd   = cal.date(byAdding: .second, value: -1, to: thisMonthStart) ?? now
+            return (lastMonthStart, lastMonthEnd)
+        }
+    }
+}
+
 // MARK: - TMetric API Models
 
 private struct TMetricTimeEntry: Codable {
@@ -44,22 +93,17 @@ struct TMetricProjectSummary: Identifiable {
 enum TMetricService {
     static let accountId = 276655
 
-    static func fetchTodaySummary(token: String) async throws -> [TMetricProjectSummary] {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone.current
+    static func fetchSummary(token: String, period: TMetricPeriod) async throws -> [TMetricProjectSummary] {
         let now = Date()
-        let startOfDay = cal.startOfDay(for: now)
+        let (from, to) = period.dateRange()
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
 
-        let startStr = formatter.string(from: startOfDay)
-        let endStr   = formatter.string(from: now)
-
         var components = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
         components.queryItems = [
-            URLQueryItem(name: "startTime", value: startStr),
-            URLQueryItem(name: "endTime",   value: endStr)
+            URLQueryItem(name: "startTime", value: formatter.string(from: from)),
+            URLQueryItem(name: "endTime",   value: formatter.string(from: to))
         ]
 
         guard let url = components.url else { throw TMetricError.badURL }

@@ -158,9 +158,16 @@ final class AppState: ObservableObject {
 
     // MARK: - TMetric
     @Published var tmetricProjects:    [TMetricProjectSummary] = []
-    @Published var tmetricIsLoading:   Bool    = false
-    @Published var tmetricError:       String? = nil
-    @Published var tmetricLastUpdated: Date?   = nil
+    @Published var tmetricIsLoading:   Bool         = false
+    @Published var tmetricError:       String?       = nil
+    @Published var tmetricLastUpdated: Date?         = nil
+    @Published var tmetricPeriod:      TMetricPeriod = .today {
+        didSet {
+            guard oldValue != tmetricPeriod else { return }
+            tmetricLastUpdated = nil
+            Task { await refreshTMetric(force: true) }
+        }
+    }
 
     // MARK: - Private
     private let service = GitHubService()
@@ -680,7 +687,7 @@ final class AppState: ObservableObject {
         tmetricError     = nil
 
         do {
-            let summaries = try await TMetricService.fetchTodaySummary(token: token)
+            let summaries = try await TMetricService.fetchSummary(token: token, period: tmetricPeriod)
             tmetricProjects    = summaries
             tmetricLastUpdated = Date()
         } catch {
