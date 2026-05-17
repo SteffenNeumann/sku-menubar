@@ -49,20 +49,16 @@ enum TMetricPeriod: String, CaseIterable, Codable {
     }
 }
 
-// MARK: - TMetric API Models
+// MARK: - TMetric API Models (flexible — handles multiple response shapes)
 
-private struct TMetricMe: Codable {
-    let id: Int?
-    let defaultWorkspaceId: Int?
-}
-
+// We use AnyCodable-style decoding via a custom init so unknown keys don't break parsing
 private struct TMetricTimeEntry: Codable {
     let id: Int?
     let startTime: String?
     let endTime: String?
-    let duration: Int?      // seconds; -1 or nil when timer is still running
+    let duration: Int?
     let details: TMetricDetails?
-    // flat fallbacks (alternative API shapes)
+    // flat fallbacks
     let projectId: Int?
     let projectName: String?
 }
@@ -78,7 +74,16 @@ private struct TMetricProject: Codable {
     let name: String?
 }
 
-// MARK: - Public Output Model
+private struct TMetricMe: Codable {
+    let id: Int?
+}
+
+// MARK: - Public Output
+
+struct TMetricFetchResult {
+    let summaries: [TMetricProjectSummary]
+    let debugRaw:  String   // first raw entry for diagnosis
+}
 
 struct TMetricProjectSummary: Identifiable {
     let id: Int
@@ -98,7 +103,7 @@ struct TMetricProjectSummary: Identifiable {
 enum TMetricService {
     static let accountId = 276655
 
-    // TMetric stores times in LOCAL time without timezone offset
+    // TMetric stores timestamps as local time without timezone
     private static let localFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
@@ -107,7 +112,7 @@ enum TMetricService {
         return f
     }()
 
-    // MARK: Fetch current user's ID
+    // MARK: Fetch userId
 
     private static func fetchUserId(token: String) async -> Int? {
         guard let url = URL(string: "https://app.tmetric.com/api/v3/users/me") else { return nil }
@@ -115,19 +120,20 @@ enum TMetricService {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json",  forHTTPHeaderField: "Accept")
         guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
-        return (try? JSONDecoder().decode(TMetricMe.self, from: data))?.id
+        let uid = (try? JSONDecoder().decode(TMetricMe.self, from: data))?.id
+        print("[TMetric] /users/me → id=\(String(describing: uid))")
+        return uid
     }
 
     // MARK: Main fetch
 
-    static func fetchSummary(token: String, period: TMetricPeriod) async throws -> [TMetricProjectSummary] {
+    static func fetchSummary(token: String, period: TMetricPeriod) async throws -> TMetricFetchResult {
         let now = Date()
         let (from, to) = period.dateRange()
 
-        // Get userId so we only see our own entries (not the whole workspace)
         let userId = await fetchUserId(token: token)
-        print("[TMetric] userId=\(String(describing: userId))  range: \(localFmt.string(from: from)) – \(localFmt.string(from: to))")
 
+        // Send both the server-side filter params AND filter client-side as fallback
         var items: [URLQueryItem] = [
             URLQueryItem(name: "startTime", value: localFmt.string(from: from)),
             URLQueryItem(name: "endTime",   value: localFmt.string(from: to))
@@ -144,6 +150,8 @@ enum TMetricService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
+        print("[TMetric] GET \(url.absoluteString)")
+
         let (data, response) = try await URLSession.shared.data(for: request)
 
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
@@ -151,21 +159,40 @@ enum TMetricService {
             throw TMetricError.http(http.statusCode)
         }
 
-        print("[TMetric] Raw (\(data.count)B): \(String(data: data.prefix(400), encoding: .utf8) ?? "<binary>")")
+        let rawPreview = String(data: data.prefix(800), encoding: .utf8) ?? "<binary>"
+        print("[TMetric] Raw (\(data.count)B): \(rawPreview)")
 
         let decoder = JSONDecoder()
-        let entries: [TMetricTimeEntry]
+        let allEntries: [TMetricTimeEntry]
         if let arr = try? decoder.decode([TMetricTimeEntry].self, from: data) {
-            entries = arr
-        } else if let obj = try? decoder.decode([String: [TMetricTimeEntry]].self, from: data),
-                  let first = obj.values.first {
-            entries = first
+            allEntries = arr
         } else {
-            entries = try decoder.decode([TMetricTimeEntry].self, from: data)
+            allEntries = try decoder.decode([TMetricTimeEntry].self, from: data)
         }
 
-        print("[TMetric] \(entries.count) Einträge nach Decode")
-        return aggregate(entries: entries, now: now)
+        print("[TMetric] Total decoded: \(allEntries.count) — now filtering client-side to [\(localFmt.string(from: from)), \(localFmt.string(from: to))]")
+
+        // Client-side date filter: keep only entries whose startTime falls within the period
+        let filtered = allEntries.filter { entry in
+            guard let s = entry.startTime, let entryStart = localFmt.date(from: s) ?? ISO8601DateFormatter().date(from: s) else {
+                return true // keep if we can't parse (fail-open)
+            }
+            return entryStart >= from && entryStart <= to
+        }
+
+        print("[TMetric] After client filter: \(filtered.count) entries")
+
+        // Build debug string from first raw entry
+        let debugRaw: String
+        if let first = allEntries.first,
+           let d = try? JSONEncoder().encode(first),
+           let s = String(data: d, encoding: .utf8) {
+            debugRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nErster Eintrag: \(s)"
+        } else {
+            debugRaw = "0 Einträge vom Server"
+        }
+
+        return TMetricFetchResult(summaries: aggregate(entries: filtered, now: now), debugRaw: debugRaw)
     }
 
     // MARK: Aggregate by project
@@ -173,8 +200,7 @@ enum TMetricService {
     private static func aggregate(entries: [TMetricTimeEntry], now: Date) -> [TMetricProjectSummary] {
         func parse(_ s: String?) -> Date? {
             guard let s else { return nil }
-            return localFmt.date(from: s)
-                ?? ISO8601DateFormatter().date(from: s)
+            return localFmt.date(from: s) ?? ISO8601DateFormatter().date(from: s)
         }
 
         var totals: [Int: (name: String, seconds: Int)] = [:]
@@ -189,17 +215,13 @@ enum TMetricService {
                                    ?? entry.projectName
                                    ?? "Ohne Projekt"
 
-            let seconds: Int
             let dur = entry.duration ?? -1
-
+            let seconds: Int
             if dur > 0 {
-                // Completed entry — TMetric gives duration in seconds
                 seconds = dur
             } else if let s = parse(entry.startTime), let e = parse(entry.endTime) {
-                // Completed entry where duration field is absent/zero — compute from timestamps
                 seconds = max(0, Int(e.timeIntervalSince(s)))
             } else if let s = parse(entry.startTime), entry.endTime == nil {
-                // Running timer — compute from now
                 seconds = max(0, Int(now.timeIntervalSince(s)))
             } else {
                 continue

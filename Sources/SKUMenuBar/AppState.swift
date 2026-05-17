@@ -161,6 +161,7 @@ final class AppState: ObservableObject {
     @Published var tmetricIsLoading:   Bool         = false
     @Published var tmetricError:       String?       = nil
     @Published var tmetricLastUpdated: Date?         = nil
+    @Published var tmetricDebugRaw:    String        = ""
     @Published var tmetricPeriod:      TMetricPeriod = .today {
         didSet {
             guard oldValue != tmetricPeriod else { return }
@@ -687,8 +688,9 @@ final class AppState: ObservableObject {
         tmetricError     = nil
 
         do {
-            let summaries = try await TMetricService.fetchSummary(token: token, period: tmetricPeriod)
-            tmetricProjects    = summaries
+            let result = try await TMetricService.fetchSummary(token: token, period: tmetricPeriod)
+            tmetricProjects    = result.summaries
+            tmetricDebugRaw    = result.debugRaw
             tmetricLastUpdated = Date()
         } catch {
             tmetricError = error.localizedDescription

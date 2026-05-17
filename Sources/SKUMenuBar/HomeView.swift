@@ -583,6 +583,18 @@ struct HomeView: View {
                         emptyState(icon: "exclamationmark.triangle", text: err)
                     } else if state.tmetricProjects.isEmpty {
                         emptyState(icon: "timer", text: state.tmetricPeriod.emptyText)
+                        if !state.tmetricDebugRaw.isEmpty {
+                            ScrollView(.vertical) {
+                                Text(state.tmetricDebugRaw)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(8)
+                            }
+                            .frame(maxHeight: 100)
+                            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
+                        }
                     } else {
                     VStack(spacing: 6) {
                         ForEach(state.tmetricProjects.prefix(5)) { project in
