@@ -898,98 +898,121 @@ private struct HomeTileCustomizeSheet: View {
 // MARK: - TMetric Date Range Popover
 
 private struct TMetricDateRangePopover: View {
+    @Environment(\.appTheme) var theme
     @Binding var from: Date
     @Binding var to:   Date
     let onApply: () -> Void
 
-    private var cal: Calendar {
-        var c = Calendar(identifier: .iso8601)
-        c.timeZone = TimeZone.current
-        return c
+    private var iso: Calendar {
+        var c = Calendar(identifier: .iso8601); c.timeZone = TimeZone.current; return c
     }
-    private var gcal: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone.current
-        return c
+    private var greg: Calendar {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone.current; return c
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 20) {
 
-            Text("Zeitraum")
-                .font(.system(size: 13, weight: .semibold))
+            // Header
+            Text("Zeitraum wählen")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
 
-            // Von / Bis
-            VStack(spacing: 8) {
-                HStack(spacing: 10) {
-                    Text("Von")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                        .frame(width: 24, alignment: .leading)
-                    DatePicker("", selection: $from, in: ...to, displayedComponents: .date)
+            // Von / Bis card
+            VStack(spacing: 0) {
+                dateRow(label: "Von") {
+                    DatePicker("", selection: $from, displayedComponents: .date)
                         .datePickerStyle(.compact).labelsHidden()
                 }
-                HStack(spacing: 10) {
-                    Text("Bis")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                        .frame(width: 24, alignment: .leading)
-                    DatePicker("", selection: $to, in: from..., displayedComponents: .date)
+                Divider().padding(.leading, 44)
+                dateRow(label: "Bis") {
+                    DatePicker("", selection: $to, displayedComponents: .date)
                         .datePickerStyle(.compact).labelsHidden()
                 }
             }
+            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
 
-            Divider()
-
-            // Quick select
-            VStack(alignment: .leading, spacing: 6) {
+            // Schnellauswahl
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Schnellauswahl")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.tertiaryText)
 
-                HStack(spacing: 5) {
-                    quickChip("Diese Woche") {
-                        let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-                        from = cal.date(from: comps) ?? cal.startOfDay(for: Date())
-                        to   = Date()
+                Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                    GridRow {
+                        quickChip("Diese Woche") {
+                            let c = iso.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
+                            from = iso.date(from: c) ?? iso.startOfDay(for: Date())
+                            to   = Date()
+                        }
+                        quickChip("Letzte Woche") {
+                            let now  = Date()
+                            let c    = iso.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+                            let w0   = iso.date(from: c) ?? iso.startOfDay(for: now)
+                            from = iso.date(byAdding: .weekOfYear, value: -1, to: w0) ?? w0
+                            to   = iso.date(byAdding: .second, value: -1, to: w0) ?? now
+                        }
                     }
-                    quickChip("Letzte Woche") {
-                        let now     = Date()
-                        let comps   = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-                        let thisW   = cal.date(from: comps) ?? cal.startOfDay(for: now)
-                        from = cal.date(byAdding: .weekOfYear, value: -1, to: thisW) ?? thisW
-                        to   = cal.date(byAdding: .second, value: -1, to: thisW) ?? now
-                    }
-                }
-                HStack(spacing: 5) {
-                    quickChip("Dieser Monat") {
-                        from = gcal.date(from: gcal.dateComponents([.year, .month], from: Date())) ?? Date()
-                        to   = Date()
-                    }
-                    quickChip("Letzter Monat") {
-                        let now      = Date()
-                        let thisM    = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? now
-                        from = gcal.date(byAdding: .month, value: -1, to: thisM) ?? thisM
-                        to   = gcal.date(byAdding: .second, value: -1, to: thisM) ?? now
+                    GridRow {
+                        quickChip("Dieser Monat") {
+                            from = greg.date(from: greg.dateComponents([.year, .month], from: Date())) ?? Date()
+                            to   = Date()
+                        }
+                        quickChip("Letzter Monat") {
+                            let now  = Date()
+                            let m0   = greg.date(from: greg.dateComponents([.year, .month], from: now)) ?? now
+                            from = greg.date(byAdding: .month, value: -1, to: m0) ?? m0
+                            to   = greg.date(byAdding: .second, value: -1, to: m0) ?? now
+                        }
                     }
                 }
             }
 
-            Button("Anwenden", action: onApply)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(.indigo)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            // Apply
+            Button(action: onApply) {
+                Text("Anwenden")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.indigo, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
         }
-        .padding(16)
-        .frame(width: 248)
+        .padding(20)
+        .frame(width: 300)
+        .background(theme.cardSurface.ignoresSafeArea())
+    }
+
+    private func dateRow<C: View>(label: String, @ViewBuilder content: () -> C) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.indigo.opacity(0.13))
+                    .frame(width: 30, height: 30)
+                Image(systemName: label == "Von" ? "calendar.badge.clock" : "calendar.badge.checkmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.indigo)
+            }
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(theme.primaryText)
+            Spacer()
+            content()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private func quickChip(_ label: String, action: @escaping () -> Void) -> some View {
         Text(label)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.indigo)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(Color.indigo.opacity(0.10), in: Capsule())
-            .contentShape(Capsule())
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
             .onTapGesture(perform: action)
     }
 }
