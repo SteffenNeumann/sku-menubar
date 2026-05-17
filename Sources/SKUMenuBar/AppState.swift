@@ -157,13 +157,23 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - TMetric
-    @Published var tmetricProjects:      [TMetricProjectSummary] = []
-    @Published var tmetricIsLoading:     Bool    = false
-    @Published var tmetricError:         String? = nil
-    @Published var tmetricLastUpdated:   Date?   = nil
-    @Published var tmetricCustomFrom:    Date    = Calendar.current.startOfDay(for: Date())
-    @Published var tmetricCustomTo:      Date    = Date()
-    @Published var tmetricIsCustomRange: Bool    = false
+    @Published var tmetricProjects:         [TMetricProjectSummary] = []
+    @Published var tmetricKnownProjects:    [TMetricProjectSummary] = []
+    @Published var tmetricIsLoading:        Bool    = false
+    @Published var tmetricError:            String? = nil
+    @Published var tmetricLastUpdated:      Date?   = nil
+    @Published var tmetricCustomFrom:       Date    = Calendar.current.startOfDay(for: Date())
+    @Published var tmetricCustomTo:         Date    = Date()
+    @Published var tmetricIsCustomRange:    Bool    = false
+    // Timer
+    @Published var tmetricSelectedProjectId:   Int?    = nil
+    @Published var tmetricSelectedProjectName: String  = ""
+    @Published var tmetricIsTimerRunning:      Bool    = false
+    @Published var tmetricTimerStart:          Date?   = nil
+    @Published var tmetricTimerError:          String? = nil
+    private var tmetricCachedUserId:       Int?   = nil
+    private var tmetricInactivityTimer:    Timer? = nil
+    private var tmetricLastActivity:       Date   = Date()
     @Published var tmetricPeriod:        TMetricPeriod = .today {
         didSet {
             guard oldValue != tmetricPeriod else { return }
@@ -210,7 +220,10 @@ final class AppState: ObservableObject {
             Task { await refreshClaude() }
         }
         if !settings.tmetricApiToken.isEmpty {
-            Task { await refreshTMetric() }
+            Task {
+                await refreshTMetric()
+                await fetchKnownTMetricProjects()
+            }
         }
         loadNotes()
         loadHomeTiles()
@@ -701,6 +714,83 @@ final class AppState: ObservableObject {
         }
 
         tmetricIsLoading = false
+        // Merge into known projects (accumulate across period changes)
+        let newIds = Set(tmetricProjects.map(\.id))
+        let existing = tmetricKnownProjects.filter { !newIds.contains($0.id) }
+        tmetricKnownProjects = (existing + tmetricProjects).filter { $0.id != 0 }.sorted { $0.name < $1.name }
+    }
+
+    // Fetch last 90 days to seed the known-projects picker
+    @MainActor
+    func fetchKnownTMetricProjects() async {
+        let token = settings.tmetricApiToken
+        guard !token.isEmpty else { return }
+        var gcal = Calendar(identifier: .gregorian); gcal.timeZone = TimeZone.current
+        let now = Date()
+        let from = gcal.date(byAdding: .day, value: -90, to: now) ?? now
+        if let result = try? await TMetricService.fetchSummary(token: token, from: from, to: now) {
+            let newIds = Set(tmetricKnownProjects.map(\.id))
+            let fresh  = result.summaries.filter { $0.id != 0 && !newIds.contains($0.id) }
+            tmetricKnownProjects = (tmetricKnownProjects + fresh).sorted { $0.name < $1.name }
+        }
+    }
+
+    // MARK: - TMetric Timer
+
+    @MainActor
+    func startTMetricTimer() async {
+        guard !settings.tmetricApiToken.isEmpty,
+              let projectId = tmetricSelectedProjectId else { return }
+        tmetricTimerError = nil
+        if tmetricCachedUserId == nil {
+            tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
+        }
+        guard let userId = tmetricCachedUserId else { return }
+        do {
+            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: userId)
+            tmetricIsTimerRunning = true
+            tmetricTimerStart     = Date()
+            tmetricLastActivity   = Date()
+            startTMetricInactivityTimer()
+        } catch {
+            tmetricTimerError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    func stopTMetricTimer() async {
+        guard tmetricIsTimerRunning else { return }
+        stopTMetricInactivityTimer()
+        tmetricIsTimerRunning = false
+        tmetricTimerStart     = nil
+        do {
+            try await TMetricService.stopTimer(token: settings.tmetricApiToken)
+        } catch {
+            tmetricTimerError = error.localizedDescription
+        }
+        Task { await refreshTMetric(force: true) }
+    }
+
+    func tmetricActivity() {
+        tmetricLastActivity = Date()
+    }
+
+    private func startTMetricInactivityTimer() {
+        tmetricInactivityTimer?.invalidate()
+        tmetricInactivityTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.tmetricIsTimerRunning else { return }
+                if Date().timeIntervalSince(self.tmetricLastActivity) > 600 {
+                    await self.stopTMetricTimer()
+                }
+            }
+        }
+    }
+
+    private func stopTMetricInactivityTimer() {
+        tmetricInactivityTimer?.invalidate()
+        tmetricInactivityTimer = nil
     }
 }
 

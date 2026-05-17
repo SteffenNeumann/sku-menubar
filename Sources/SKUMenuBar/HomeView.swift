@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var showTMetricDatePicker    = false
     @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
     @State private var tmetricDraftTo:   Date   = Date()
+    @State private var timerTick:        Date   = Date()
 
     private var accentColor: Color { theme.accentText }
 
@@ -551,6 +552,7 @@ struct HomeView: View {
     private var zeiterfassungCard: some View {
         HomeTile(title: "Zeiterfassung", icon: "timer", iconColor: .indigo, theme: theme) {
             VStack(alignment: .leading, spacing: 0) {
+                let _ = timerTick  // ensures body re-evaluates each tick
                 if state.settings.tmetricApiToken.isEmpty {
                     VStack(spacing: 10) {
                         emptyState(icon: "timer", text: "TMetric API-Token in den Einstellungen hinterlegen.")
@@ -569,7 +571,110 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    // Period chips + date range button
+                    // ── Timer badge ──────────────────────────────────────
+                    if state.tmetricIsTimerRunning, let start = state.tmetricTimerStart {
+                        HStack(spacing: 10) {
+                            ZStack {
+                                Circle().fill(Color.green.opacity(0.18)).frame(width: 32, height: 32)
+                                Circle().fill(Color.green).frame(width: 8, height: 8)
+                                    .scaleEffect(timerTick.timeIntervalSince1970.truncatingRemainder(dividingBy: 2) < 1 ? 1.2 : 0.8)
+                                    .animation(.easeInOut(duration: 0.5), value: timerTick)
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(state.tmetricSelectedProjectName)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(theme.primaryText)
+                                    .lineLimit(1)
+                                Text("läuft")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                            Spacer()
+                            Text(formatElapsed(from: start, to: timerTick))
+                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(.green)
+                            Button {
+                                Task { await state.stopTMetricTimer() }
+                            } label: {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 26, height: 26)
+                                    .background(Color.red.opacity(0.85), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Timer stoppen")
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.green.opacity(0.2), lineWidth: 1))
+                        .padding(.bottom, 10)
+                    } else {
+                        // Project picker + Start
+                        HStack(spacing: 8) {
+                            Menu {
+                                if state.tmetricKnownProjects.isEmpty {
+                                    Text("Noch keine Projekte").foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(state.tmetricKnownProjects) { p in
+                                        Button(p.name) {
+                                            state.tmetricSelectedProjectId   = p.id
+                                            state.tmetricSelectedProjectName = p.name
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(state.tmetricSelectedProjectId != nil ? .indigo : theme.tertiaryText)
+                                    Text(state.tmetricSelectedProjectName.isEmpty ? "Projekt wählen …" : state.tmetricSelectedProjectName)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(state.tmetricSelectedProjectId != nil ? theme.primaryText : theme.tertiaryText)
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                Task { await state.startTMetricTimer() }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "play.fill").font(.system(size: 10))
+                                    Text("Start").font(.system(size: 12, weight: .semibold))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 7)
+                                .background(
+                                    state.tmetricSelectedProjectId != nil ? Color.indigo : Color.gray.opacity(0.35),
+                                    in: RoundedRectangle(cornerRadius: 9)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(state.tmetricSelectedProjectId == nil)
+                        }
+                        .padding(.bottom, 10)
+
+                        if let err = state.tmetricTimerError {
+                            Text(err)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red)
+                                .padding(.bottom, 6)
+                        }
+                    }
+
+                    // ── Period chips + date range button ─────────────────
                     HStack(spacing: 4) {
                         ForEach(TMetricPeriod.allCases, id: \.self) { p in
                             let active = !state.tmetricIsCustomRange && state.tmetricPeriod == p
@@ -701,7 +806,16 @@ struct HomeView: View {
                     }
                 }       // end outer else (token not empty)
             }
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
+                timerTick = date
+            }
         }
+    }
+
+    private func formatElapsed(from start: Date, to now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(start)))
+        let h = s / 3600; let m = (s % 3600) / 60; let sec = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
     }
 
     private var tmetricCustomRangeLabel: String {

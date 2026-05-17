@@ -122,10 +122,41 @@ enum TMetricService {
 
     // MARK: Fetch current user ID
 
-    private static func fetchUserId(token: String) async -> Int? {
+    static func fetchUserId(token: String) async -> Int? {
         let me: TMetricMe? = await get("users/me", token: token)
         print("[TMetric] userId=\(String(describing: me?.id))")
         return me?.id
+    }
+
+    // MARK: Timer control
+
+    static func startTimer(token: String, projectId: Int, userId: Int) async throws {
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
+            throw TMetricError.badURL
+        }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["projectId": projectId, "userId": userId])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            print("[TMetric] startTimer HTTP \(http.statusCode): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
+            throw TMetricError.http(http.statusCode)
+        }
+    }
+
+    static func stopTimer(token: String) async throws {
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
+            throw TMetricError.badURL
+        }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        req.httpMethod = "DELETE"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw TMetricError.http(http.statusCode)
+        }
     }
 
     // MARK: Main fetch

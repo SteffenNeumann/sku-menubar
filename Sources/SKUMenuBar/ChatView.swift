@@ -783,7 +783,10 @@ struct SingleChatSessionView: View {
             // Clear pending trigger when user manually picks an agent (or clears one)
             pendingTriggerAgentName = nil
         }
-        .onDisappear { tab.inputText = inputText }
+        .onDisappear {
+            tab.inputText = inputText
+            Task { await state.stopTMetricTimer() }
+        }
     }
 
     private func resumeSession(_ sessionId: String) {
@@ -2768,6 +2771,10 @@ struct SingleChatSessionView: View {
             if handleSlashCommand(text) { return }
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
+        state.tmetricActivity()
+        if state.tmetricSelectedProjectId != nil && !state.tmetricIsTimerRunning {
+            Task { await state.startTMetricTimer() }
+        }
 
         // Prompt for working directory before first message of a new session
         if currentSessionId == nil, workingDirectory == nil {
@@ -3198,6 +3205,7 @@ struct SingleChatSessionView: View {
             if it > 0 || ot > 0 { state.addCopilotUsage(inputTokens: it, outputTokens: ot) }
         }
         isStreaming = false
+        state.tmetricActivity()
 
         // Record session learnings in agent memory log
         if let agentId = effectiveAgent,
