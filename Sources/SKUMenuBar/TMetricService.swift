@@ -51,20 +51,20 @@ enum TMetricPeriod: String, CaseIterable, Codable {
 
 // MARK: - TMetric API Models
 
+private struct TMetricMe: Codable {
+    let id: Int?
+    let defaultWorkspaceId: Int?
+}
+
 private struct TMetricTimeEntry: Codable {
     let id: Int?
     let startTime: String?
     let endTime: String?
-    let duration: Int?          // seconds; -1 when timer is running
-    // TMetric returns project info in different places depending on endpoint/version
+    let duration: Int?      // seconds; -1 or nil when timer is still running
     let details: TMetricDetails?
-    // Flat fields (alternative response shape)
+    // flat fallbacks (alternative API shapes)
     let projectId: Int?
     let projectName: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, startTime, endTime, duration, details, projectId, projectName
-    }
 }
 
 private struct TMetricDetails: Codable {
@@ -76,11 +76,6 @@ private struct TMetricDetails: Codable {
 private struct TMetricProject: Codable {
     let id: Int?
     let name: String?
-}
-
-// Response wrapper (some TMetric endpoints wrap array in {"data":[...]})
-private struct TMetricWrapper: Codable {
-    let data: [TMetricTimeEntry]?
 }
 
 // MARK: - Public Output Model
@@ -103,24 +98,46 @@ struct TMetricProjectSummary: Identifiable {
 enum TMetricService {
     static let accountId = 276655
 
-    // TMetric expects LOCAL time without timezone: "2026-05-14T08:00:00"
-    private static let dateFmt: DateFormatter = {
+    // TMetric stores times in LOCAL time without timezone offset
+    private static let localFmt: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        f.locale = Locale(identifier: "en_US_POSIX")
+        f.locale     = Locale(identifier: "en_US_POSIX")
+        f.timeZone   = TimeZone.current
         return f
     }()
+
+    // MARK: Fetch current user's ID
+
+    private static func fetchUserId(token: String) async -> Int? {
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/users/me") else { return nil }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json",  forHTTPHeaderField: "Accept")
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
+        return (try? JSONDecoder().decode(TMetricMe.self, from: data))?.id
+    }
+
+    // MARK: Main fetch
 
     static func fetchSummary(token: String, period: TMetricPeriod) async throws -> [TMetricProjectSummary] {
         let now = Date()
         let (from, to) = period.dateRange()
 
-        var components = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
-        components.queryItems = [
-            URLQueryItem(name: "startTime", value: dateFmt.string(from: from)),
-            URLQueryItem(name: "endTime",   value: dateFmt.string(from: to))
-        ]
+        // Get userId so we only see our own entries (not the whole workspace)
+        let userId = await fetchUserId(token: token)
+        print("[TMetric] userId=\(String(describing: userId))  range: \(localFmt.string(from: from)) – \(localFmt.string(from: to))")
 
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "startTime", value: localFmt.string(from: from)),
+            URLQueryItem(name: "endTime",   value: localFmt.string(from: to))
+        ]
+        if let uid = userId {
+            items.append(URLQueryItem(name: "userIds", value: "\(uid)"))
+        }
+
+        var components = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
+        components.queryItems = items
         guard let url = components.url else { throw TMetricError.badURL }
 
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
@@ -130,62 +147,60 @@ enum TMetricService {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
-            print("[TMetric] HTTP \(http.statusCode): \(body)")
+            print("[TMetric] HTTP \(http.statusCode): \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
             throw TMetricError.http(http.statusCode)
         }
 
-        // Log raw response for diagnosis
-        print("[TMetric] Raw (\(data.count) bytes): \(String(data: data.prefix(600), encoding: .utf8) ?? "<binary>")")
+        print("[TMetric] Raw (\(data.count)B): \(String(data: data.prefix(400), encoding: .utf8) ?? "<binary>")")
 
-        // TMetric may return a plain array OR {"data":[...]} wrapper
-        let entries: [TMetricTimeEntry]
         let decoder = JSONDecoder()
+        let entries: [TMetricTimeEntry]
         if let arr = try? decoder.decode([TMetricTimeEntry].self, from: data) {
             entries = arr
-        } else if let wrapper = try? decoder.decode(TMetricWrapper.self, from: data) {
-            entries = wrapper.data ?? []
+        } else if let obj = try? decoder.decode([String: [TMetricTimeEntry]].self, from: data),
+                  let first = obj.values.first {
+            entries = first
         } else {
-            // Last resort: show decode error
-            do { entries = try decoder.decode([TMetricTimeEntry].self, from: data) }
-            catch {
-                print("[TMetric] Decode-Fehler: \(error)")
-                throw error
-            }
+            entries = try decoder.decode([TMetricTimeEntry].self, from: data)
         }
 
-        print("[TMetric] \(entries.count) Einträge dekodiert (Zeitraum: \(dateFmt.string(from: from)) – \(dateFmt.string(from: to)))")
+        print("[TMetric] \(entries.count) Einträge nach Decode")
         return aggregate(entries: entries, now: now)
     }
 
+    // MARK: Aggregate by project
+
     private static func aggregate(entries: [TMetricTimeEntry], now: Date) -> [TMetricProjectSummary] {
-        // TMetric returns local time strings without timezone
-        func parseDate(_ s: String?) -> Date? {
+        func parse(_ s: String?) -> Date? {
             guard let s else { return nil }
-            // Try local format first ("2026-05-14T08:35:00"), then with timezone
-            return dateFmt.date(from: s)
+            return localFmt.date(from: s)
                 ?? ISO8601DateFormatter().date(from: s)
         }
 
         var totals: [Int: (name: String, seconds: Int)] = [:]
 
         for entry in entries {
-            // Resolve project ID + name from all known response shapes
-            let projectId: Int   = entry.details?.project?.id
-                                ?? entry.details?.projectId
-                                ?? entry.projectId
-                                ?? 0
+            let projectId: Int = entry.details?.project?.id
+                              ?? entry.details?.projectId
+                              ?? entry.projectId
+                              ?? 0
             let projectName: String = entry.details?.project?.name
                                    ?? entry.details?.projectName
                                    ?? entry.projectName
                                    ?? "Ohne Projekt"
 
             let seconds: Int
-            if let d = entry.duration, d >= 0 {
-                seconds = d
-            } else if let startStr = entry.startTime, let start = parseDate(startStr) {
-                // Running timer — calculate live duration
-                seconds = max(0, Int(now.timeIntervalSince(start)))
+            let dur = entry.duration ?? -1
+
+            if dur > 0 {
+                // Completed entry — TMetric gives duration in seconds
+                seconds = dur
+            } else if let s = parse(entry.startTime), let e = parse(entry.endTime) {
+                // Completed entry where duration field is absent/zero — compute from timestamps
+                seconds = max(0, Int(e.timeIntervalSince(s)))
+            } else if let s = parse(entry.startTime), entry.endTime == nil {
+                // Running timer — compute from now
+                seconds = max(0, Int(now.timeIntervalSince(s)))
             } else {
                 continue
             }
