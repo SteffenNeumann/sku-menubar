@@ -107,6 +107,7 @@ struct HomeView: View {
         case .activeSessions: activeSessionsCard
         case .agents:         agentsCard
         case .tokenUsage:     tokenUsageCard
+        case .zeiterfassung:  zeiterfassungCard
         }
     }
 
@@ -525,6 +526,106 @@ struct HomeView: View {
                         .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // MARK: - Zeiterfassung Card
+
+    private var zeiterfassungCard: some View {
+        HomeTile(title: "Zeiterfassung", icon: "timer", iconColor: .indigo, theme: theme) {
+            VStack(alignment: .leading, spacing: 0) {
+                if state.settings.tmetricApiToken.isEmpty {
+                    VStack(spacing: 10) {
+                        emptyState(icon: "timer", text: "TMetric API-Token in den Einstellungen hinterlegen.")
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                selectedSection = .settings
+                            }
+                        } label: {
+                            Text("Einstellungen öffnen")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.indigo)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else if state.tmetricIsLoading && state.tmetricProjects.isEmpty {
+                    HStack { Spacer(); ProgressView().controlSize(.regular); Spacer() }
+                        .padding(.top, 20)
+                } else if let err = state.tmetricError {
+                    emptyState(icon: "exclamationmark.triangle", text: err)
+                } else if state.tmetricProjects.isEmpty {
+                    emptyState(icon: "timer", text: "Heute noch keine Zeit gebucht.")
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(state.tmetricProjects.prefix(5)) { project in
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(Color.indigo.opacity(0.12))
+                                        .frame(width: 30, height: 30)
+                                    Image(systemName: "clock.fill")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.indigo)
+                                }
+                                Text(project.name)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(theme.primaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(project.formattedDuration)
+                                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                                    .foregroundStyle(.indigo)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    HStack {
+                        if let updated = state.tmetricLastUpdated {
+                            let fmt = RelativeDateTimeFormatter()
+                            Text("Aktualisiert \(fmt.localizedString(for: updated, relativeTo: Date()))")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Spacer()
+                        Button {
+                            Task { await state.refreshTMetric(force: true) }
+                        } label: {
+                            Image(systemName: state.tmetricIsLoading ? "arrow.clockwise" : "arrow.clockwise")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                                .rotationEffect(.degrees(state.tmetricIsLoading ? 360 : 0))
+                                .animation(
+                                    state.tmetricIsLoading
+                                        ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                        : .default,
+                                    value: state.tmetricIsLoading
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Zeitdaten neu laden")
+
+                        Button {
+                            NSWorkspace.shared.open(URL(string: "https://app.tmetric.com/#/tracker/276655/")!)
+                        } label: {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("In TMetric öffnen")
+                    }
+                    .padding(.top, 8)
+                }
             }
         }
     }

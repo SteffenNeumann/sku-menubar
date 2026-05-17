@@ -156,6 +156,12 @@ final class AppState: ObservableObject {
         didSet { persistHomeTiles() }
     }
 
+    // MARK: - TMetric
+    @Published var tmetricProjects:    [TMetricProjectSummary] = []
+    @Published var tmetricIsLoading:   Bool    = false
+    @Published var tmetricError:       String? = nil
+    @Published var tmetricLastUpdated: Date?   = nil
+
     // MARK: - Private
     private let service = GitHubService()
     // Use named suite so settings persist across binary vs .app bundle changes
@@ -192,6 +198,9 @@ final class AppState: ObservableObject {
         }
         if !settings.anthropicAdminKey.isEmpty {
             Task { await refreshClaude() }
+        }
+        if !settings.tmetricApiToken.isEmpty {
+            Task { await refreshTMetric() }
         }
         loadNotes()
         loadHomeTiles()
@@ -654,6 +663,31 @@ final class AppState: ObservableObject {
 
         claudeLastUpdate = Date()
         claudeIsLoading = false
+    }
+
+    // MARK: - TMetric Refresh
+
+    @MainActor
+    func refreshTMetric(force: Bool = false) async {
+        let token = settings.tmetricApiToken
+        guard !token.isEmpty else { return }
+
+        if let last = tmetricLastUpdated, Date().timeIntervalSince(last) < 1800, !force {
+            return
+        }
+
+        tmetricIsLoading = true
+        tmetricError     = nil
+
+        do {
+            let summaries = try await TMetricService.fetchTodaySummary(token: token)
+            tmetricProjects    = summaries
+            tmetricLastUpdated = Date()
+        } catch {
+            tmetricError = error.localizedDescription
+        }
+
+        tmetricIsLoading = false
     }
 }
 

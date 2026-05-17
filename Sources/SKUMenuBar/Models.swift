@@ -27,6 +27,8 @@ struct GitHubSettings: Codable {
     var historyWindowSize: Int = 8   // Anzahl Turns (= Nachrichten-Paare) die im GitHub-Models-Verlauf mitgesendet werden
     var maxTurns: Int = 10           // --max-turns für Claude CLI (0 = deaktiviert)
     var autoCompactThreshold: Int = 100000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
+    // TMetric time tracking
+    var tmetricApiToken: String = ""
 
     init() {}
 
@@ -57,6 +59,7 @@ struct GitHubSettings: Codable {
         maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 10
         let savedThreshold = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold)) ?? 100000
         autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
+        tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
     }
 }
 

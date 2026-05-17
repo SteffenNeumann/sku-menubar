@@ -889,6 +889,7 @@ enum HomeTileID: String, CaseIterable, Codable {
     case activeSessions  = "activeSessions"
     case agents          = "agents"
     case tokenUsage      = "tokenUsage"
+    case zeiterfassung   = "zeiterfassung"
 
     var displayName: String {
         switch self {
@@ -898,6 +899,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .activeSessions: return "Aktive Sessions"
         case .agents:         return "Agents"
         case .tokenUsage:     return "Token-Verbrauch"
+        case .zeiterfassung:  return "Zeiterfassung"
         }
     }
 
@@ -909,6 +911,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .activeSessions: return "terminal.fill"
         case .agents:         return "cpu.fill"
         case .tokenUsage:     return "chart.bar.fill"
+        case .zeiterfassung:  return "timer"
         }
     }
 }

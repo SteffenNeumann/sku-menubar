@@ -231,6 +231,28 @@ struct SettingsFormView: View {
                             }
                         } // end GridRow 2
 
+                        // Row 2b: TMetric — full grid width
+                        GridRow(alignment: .top) {
+                            configSection(title: "TMetric Zeiterfassung", icon: "timer",
+                                          hint: "API-Token aus deinem TMetric-Profil · Zeitdaten werden in der Home-Kachel angezeigt") {
+                                configCard {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            fieldLabel("API Token")
+                                            SecureField("Dein TMetric API Token…", text: $draft.tmetricApiToken)
+                                                .textFieldStyle(.plain)
+                                                .styledInput(theme: theme)
+                                        }
+                                        Text("Token holen: TMetric -> Profil -> 'Get new API token' - Account-ID 276655 wird automatisch verwendet.")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(theme.tertiaryText)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .gridCellColumns(2)
+                        }
+
                         // Row 3: Copilot Fallback — full grid width
                         GridRow(alignment: .top) {
                             configSection(title: "Copilot Fallback", icon: "arrow.triangle.2.circlepath",
@@ -445,6 +467,12 @@ struct SettingsFormView: View {
         .onChange(of: draft.claudeSessionTokenLimit)  { state.settings.claudeSessionTokenLimit  = $0 }
         .onChange(of: draft.claudeMonthlySpendLimit)  { state.settings.claudeMonthlySpendLimit  = $0 }
         .onChange(of: draft.claudeWeeklyTokenLimit)    { state.settings.claudeWeeklyTokenLimit    = $0 }
+        .onChange(of: draft.tmetricApiToken) { newToken in
+            state.settings.tmetricApiToken = newToken
+            if !newToken.isEmpty {
+                Task { await state.refreshTMetric(force: true) }
+            }
+        }
     }
 
     // MARK: - File Access Check
