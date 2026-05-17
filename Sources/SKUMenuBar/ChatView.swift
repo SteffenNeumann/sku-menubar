@@ -273,6 +273,9 @@ struct SingleChatSessionView: View {
     @State private var validationResult: PersonaValidationResult? = nil
     @State private var isValidating: Bool = false
 
+    // TMetric: auto-match darf nur einmal laufen (nicht bei jedem Tab-Wechsel)
+    @State private var didAutoMatchTMetric: Bool = false
+
     // MCP per-session selection
     @State private var availableMCPs: [MCPServer] = []
     @State private var activeMCPIds: Set<String> = ["__none__"]   // leer = alle aktiv, __none__ = alle deaktiviert
@@ -701,9 +704,7 @@ struct SingleChatSessionView: View {
     }
 
     private func syncOnActiveChange() {
-        if isActive {
-            tryAutoMatchTMetricProject()
-        } else {
+        if !isActive {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }
         }
@@ -716,9 +717,12 @@ struct SingleChatSessionView: View {
     }
 
     private func tryAutoMatchTMetricProject() {
-        guard tab.tmetricProjectId == nil, let wd = tab.workingDirectory else { return }
+        guard !didAutoMatchTMetric else { return }          // nur einmal pro Tab-Instanz
+        guard tab.tmetricProjectId == nil else { return }   // nicht wenn schon gesetzt
+        guard let wd = tab.workingDirectory else { return }
         let folder = URL(fileURLWithPath: wd).lastPathComponent
         guard let match = state.autoMatchTMetricProject(folderName: folder) else { return }
+        didAutoMatchTMetric = true
         tab.tmetricProjectId   = match.id
         tab.tmetricProjectName = match.name
     }
