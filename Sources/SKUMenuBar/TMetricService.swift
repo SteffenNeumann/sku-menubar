@@ -78,6 +78,11 @@ private struct TMetricProject: Codable {
     let name: String?
 }
 
+// Response wrapper (some TMetric endpoints wrap array in {"data":[...]})
+private struct TMetricWrapper: Codable {
+    let data: [TMetricTimeEntry]?
+}
+
 // MARK: - Public Output Model
 
 struct TMetricProjectSummary: Identifiable {
@@ -98,17 +103,22 @@ struct TMetricProjectSummary: Identifiable {
 enum TMetricService {
     static let accountId = 276655
 
+    // TMetric expects LOCAL time without timezone: "2026-05-14T08:00:00"
+    private static let dateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     static func fetchSummary(token: String, period: TMetricPeriod) async throws -> [TMetricProjectSummary] {
         let now = Date()
         let (from, to) = period.dateRange()
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-
         var components = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
         components.queryItems = [
-            URLQueryItem(name: "startTime", value: formatter.string(from: from)),
-            URLQueryItem(name: "endTime",   value: formatter.string(from: to))
+            URLQueryItem(name: "startTime", value: dateFmt.string(from: from)),
+            URLQueryItem(name: "endTime",   value: dateFmt.string(from: to))
         ]
 
         guard let url = components.url else { throw TMetricError.badURL }
@@ -120,35 +130,41 @@ enum TMetricService {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
+            print("[TMetric] HTTP \(http.statusCode): \(body)")
             throw TMetricError.http(http.statusCode)
         }
 
+        // Log raw response for diagnosis
+        print("[TMetric] Raw (\(data.count) bytes): \(String(data: data.prefix(600), encoding: .utf8) ?? "<binary>")")
+
+        // TMetric may return a plain array OR {"data":[...]} wrapper
         let entries: [TMetricTimeEntry]
-        do {
-            entries = try JSONDecoder().decode([TMetricTimeEntry].self, from: data)
-        } catch {
-            let preview = String(data: data.prefix(500), encoding: .utf8) ?? "<binary>"
-            print("[TMetric] Decode-Fehler: \(error)\nAntwort-Preview: \(preview)")
-            throw error
-        }
-        // Debug: log first entry structure to console if entries exist
-        if let first = entries.first {
-            print("[TMetric] \(entries.count) Einträge. Erster: id=\(first.id ?? -1) projectId=\(String(describing: first.projectId)) details.projectId=\(String(describing: first.details?.projectId)) details.project.id=\(String(describing: first.details?.project?.id)) duration=\(String(describing: first.duration))")
+        let decoder = JSONDecoder()
+        if let arr = try? decoder.decode([TMetricTimeEntry].self, from: data) {
+            entries = arr
+        } else if let wrapper = try? decoder.decode(TMetricWrapper.self, from: data) {
+            entries = wrapper.data ?? []
         } else {
-            print("[TMetric] Antwort enthält 0 Einträge für Zeitraum \(formatter.string(from: from))–\(formatter.string(from: to))")
+            // Last resort: show decode error
+            do { entries = try decoder.decode([TMetricTimeEntry].self, from: data) }
+            catch {
+                print("[TMetric] Decode-Fehler: \(error)")
+                throw error
+            }
         }
+
+        print("[TMetric] \(entries.count) Einträge dekodiert (Zeitraum: \(dateFmt.string(from: from)) – \(dateFmt.string(from: to)))")
         return aggregate(entries: entries, now: now)
     }
 
     private static func aggregate(entries: [TMetricTimeEntry], now: Date) -> [TMetricProjectSummary] {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoBasic = ISO8601DateFormatter()
-        isoBasic.formatOptions = [.withInternetDateTime]
-
+        // TMetric returns local time strings without timezone
         func parseDate(_ s: String?) -> Date? {
             guard let s else { return nil }
-            return iso.date(from: s) ?? isoBasic.date(from: s)
+            // Try local format first ("2026-05-14T08:35:00"), then with timezone
+            return dateFmt.date(from: s)
+                ?? ISO8601DateFormatter().date(from: s)
         }
 
         var totals: [Int: (name: String, seconds: Int)] = [:]
