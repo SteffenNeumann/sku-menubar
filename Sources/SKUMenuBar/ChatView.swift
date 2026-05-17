@@ -705,9 +705,17 @@ struct SingleChatSessionView: View {
     }
 
     private func syncOnActiveChange() {
-        if !isActive {
+        if isActive {
+            // Restore this tab's TMetric project into global state
+            state.tmetricSelectedProjectId   = tab.tmetricProjectId
+            state.tmetricSelectedProjectName = tab.tmetricProjectName
+            tryAutoMatchTMetricProject()
+        } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }
+            // Save TMetric project back to tab before losing focus
+            tab.tmetricProjectId   = state.tmetricSelectedProjectId
+            tab.tmetricProjectName = state.tmetricSelectedProjectName
         }
     }
 
