@@ -158,10 +158,10 @@ final class AppState: ObservableObject {
 
     // MARK: - TMetric
     @Published var tmetricProjects:    [TMetricProjectSummary] = []
-    @Published var tmetricIsLoading:   Bool         = false
-    @Published var tmetricError:       String?       = nil
-    @Published var tmetricLastUpdated: Date?         = nil
-    @Published var tmetricDebugRaw:    String        = ""
+    @Published var tmetricIsLoading:   Bool    = false
+    @Published var tmetricError:       String? = nil
+    @Published var tmetricLastUpdated: Date?   = nil
+    @Published var tmetricDebugRaw:    String  = ""
     @Published var tmetricPeriod:      TMetricPeriod = .today {
         didSet {
             guard oldValue != tmetricPeriod else { return }
