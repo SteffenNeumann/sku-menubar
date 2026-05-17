@@ -225,6 +225,7 @@ struct SingleChatSessionView: View {
     @State private var inputText: String = ""
     @State private var currentSessionId: String?
     @State private var isStreaming: Bool = false
+    @State private var chatTimerTick: Date = Date()
     @State private var selectedModel: String = "claude-sonnet-4-6"
     @State private var selectedAgent: String = ""
     @State private var scrollProxy: ScrollViewProxy?
@@ -434,6 +435,11 @@ struct SingleChatSessionView: View {
                 VStack(spacing: 0) {
                     // Header strip with panel toggles (right-aligned)
                     HStack(spacing: 2) {
+                        // TMetric timer chip
+                        if !state.tmetricSelectedProjectName.isEmpty {
+                            tmetricTimerChip
+                                .padding(.leading, 6)
+                        }
                         Spacer()
                         Button {
                             withAnimation { state.hideSidebar.toggle() }
@@ -920,6 +926,72 @@ struct SingleChatSessionView: View {
     }
 
     // MARK: - Subtle control strip (inside input card, bottom row)
+
+    // MARK: - TMetric Timer Chip
+
+    private var tmetricTimerChip: some View {
+        HStack(spacing: 5) {
+            if state.tmetricIsTimerRunning, let start = state.tmetricTimerStart {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(chatTimerTick.timeIntervalSince1970.truncatingRemainder(dividingBy: 2) < 1 ? 1.0 : 0.7)
+                    .animation(.easeInOut(duration: 0.5), value: chatTimerTick)
+                Text(tmetricElapsed(from: start))
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.green)
+                Text(state.tmetricSelectedProjectName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 140)
+                Button {
+                    Task { await state.stopTMetricTimer() }
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Timer stoppen")
+            } else {
+                Image(systemName: "clock")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+                Text(state.tmetricSelectedProjectName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 140)
+                Button {
+                    Task { await state.startTMetricTimer() }
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.indigo)
+                }
+                .buttonStyle(.plain)
+                .help("Timer starten")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            state.tmetricIsTimerRunning ? Color.green.opacity(0.08) : theme.rowBg,
+            in: Capsule()
+        )
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
+            chatTimerTick = date
+        }
+    }
+
+    private func tmetricElapsed(from start: Date) -> String {
+        let s = max(0, Int(chatTimerTick.timeIntervalSince(start)))
+        let h = s / 3600; let m = (s % 3600) / 60; let sec = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+    }
 
     // MARK: - Empty state
 
