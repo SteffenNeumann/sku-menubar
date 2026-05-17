@@ -688,6 +688,7 @@ struct SingleChatSessionView: View {
     }
 
     private func handlePendingNewProject() {
+        guard isActive else { return }
         guard let path = state.pendingChatNewProject else { return }
         state.pendingChatNewProject = nil
         newSession()
@@ -698,13 +699,16 @@ struct SingleChatSessionView: View {
     }
 
     private func handlePendingMessage() {
+        guard isActive else { return }
         guard let msg = state.pendingChatMessage else { return }
         state.pendingChatMessage = nil
         inputText = msg
     }
 
     private func syncOnActiveChange() {
-        if !isActive {
+        if isActive {
+            tryAutoMatchTMetricProject()
+        } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }
         }
@@ -717,6 +721,7 @@ struct SingleChatSessionView: View {
     }
 
     private func tryAutoMatchTMetricProject() {
+        guard isActive else { return }                       // nur für aktiven Tab
         guard !didAutoMatchTMetric else { return }          // nur einmal pro Tab-Instanz
         guard tab.tmetricProjectId == nil else { return }   // nicht wenn schon gesetzt
         guard let wd = tab.workingDirectory else { return }
@@ -920,10 +925,7 @@ struct SingleChatSessionView: View {
                 .help("Timer stoppen")
             } else if tab.tmetricProjectId != nil {
                 Button {
-                    // Sync tab project into global state right before starting timer
-                    state.tmetricSelectedProjectId   = tab.tmetricProjectId
-                    state.tmetricSelectedProjectName = tab.tmetricProjectName
-                    Task { await state.startTMetricTimer() }
+                    Task { await state.startTMetricTimer(projectId: tab.tmetricProjectId) }
                 } label: {
                     Image(systemName: "play.fill")
                         .font(.system(size: 9))
@@ -2898,11 +2900,9 @@ struct SingleChatSessionView: View {
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
         state.tmetricActivity()
-        if tab.tmetricProjectId != nil && !state.tmetricIsTimerRunning {
-            state.tmetricSelectedProjectId   = tab.tmetricProjectId
-            state.tmetricSelectedProjectName = tab.tmetricProjectName
+        if let pid = tab.tmetricProjectId, !state.tmetricIsTimerRunning {
             state.tmetricTimerError = nil
-            Task { await state.startTMetricTimer() }
+            Task { await state.startTMetricTimer(projectId: pid) }
         }
 
         // Prompt for working directory before first message of a new session

@@ -735,12 +735,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - TMetric Project Auto-Detect
+
+    func autoMatchTMetricProject(folderName: String) -> TMetricProjectSummary? {
+        guard !folderName.isEmpty, !tmetricKnownProjects.isEmpty else { return nil }
+        let query = folderName
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        // Direct: folder contained in project name or vice-versa
+        if let hit = tmetricKnownProjects.first(where: {
+            let p = $0.name.lowercased()
+            return p.contains(query) || query.contains(p)
+        }) { return hit }
+        // Word-level: any significant word (>2 chars) from folder matches a project word
+        let qWords = query.split(separator: " ").map(String.init).filter { $0.count > 2 }
+        return tmetricKnownProjects.first { project in
+            let pWords = project.name.lowercased().split(separator: " ").map(String.init).filter { $0.count > 2 }
+            return qWords.contains { qw in pWords.contains { pw in pw.contains(qw) || qw.contains(pw) } }
+        }
+    }
+
     // MARK: - TMetric Timer
 
     @MainActor
-    func startTMetricTimer() async {
-        guard !settings.tmetricApiToken.isEmpty,
-              let projectId = tmetricSelectedProjectId else { return }
+    func startTMetricTimer(projectId explicitProjectId: Int? = nil) async {
+        guard !settings.tmetricApiToken.isEmpty else { return }
+        let projectId = explicitProjectId ?? tmetricSelectedProjectId
+        guard let projectId else { return }
         tmetricTimerError = nil
         if tmetricCachedUserId == nil {
             tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
