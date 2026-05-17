@@ -80,7 +80,7 @@ struct TMetricFetchResult {
     let debugRaw:  String
 }
 
-struct TMetricProjectSummary: Identifiable {
+struct TMetricProjectSummary: Identifiable, Equatable {
     let id: Int
     let name: String
     var totalSeconds: Int

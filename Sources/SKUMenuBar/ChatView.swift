@@ -383,6 +383,30 @@ struct SingleChatSessionView: View {
     }
 
     var body: some View {
+        observedPanel
+            .onAppear { handleAppear() }
+            .onChange(of: workingDirectory) { syncWorkingDirectoryOnChange() }
+            .onChange(of: state.claudeRateLimitActive) { applyFallbackModelIfNeeded() }
+            .onChange(of: state.pendingChatNewProject) { handlePendingNewProject() }
+            .onChange(of: state.pendingChatMessage) { handlePendingMessage() }
+            .onChange(of: isActive) { syncOnActiveChange() }
+            .onChange(of: inputText) { syncTriggerOnInputChange() }
+            .onChange(of: selectedAgent) { pendingTriggerAgentName = nil }
+            .onChange(of: state.tmetricKnownProjects) { _ in tryAutoMatchTMetricProject() }
+            .onDisappear { handleDisappear() }
+    }
+
+    private var observedPanel: some View {
+        mainPanel
+            .onChange(of: messages) { syncMessagesOnChange() }
+            .onChange(of: isStreaming) { syncStreamingOnChange() }
+            .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
+            .onChange(of: selectedModel) { tab.model = selectedModel }
+            .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
+            .onChange(of: selectedPersonaId) { tab.personaId = selectedPersonaId }
+    }
+
+    private var mainPanel: some View {
         ZStack {
             HStack(spacing: 0) {
                 // Left: File Explorer Panel
@@ -492,89 +516,7 @@ struct SingleChatSessionView: View {
                     }
 
                     // Token Counter — direkt über der Texteingabe
-                    // inputTokens ist kumulativ (Claude CLI zählt gesamten Kontext) → letzter Wert ist maßgeblich
-                    let assistantMessages = messages.filter { $0.role == .assistant }
-                    let totalIn  = assistantMessages.last?.inputTokens ?? 0
-                    let totalOut = assistantMessages.reduce(0) { $0 + $1.outputTokens }
-                    if totalIn > 0 || totalOut > 0 {
-                        let compactThreshold = state.settings.autoCompactThreshold
-                        // Kontextfenster des aktuellen Modells (Fallback 200k)
-                        let contextWindow = (KnownModel.all.first { $0.apiName == selectedModel }?.contextK ?? 200) * 1000
-                        let isWarning  = totalIn >= contextWindow / 2
-                        let isCritical = totalIn >= contextWindow
-                        let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
-                        let progress: Double = min(1.0, Double(totalIn) / Double(contextWindow))
-                        let arcColor: Color = isCritical ? .red : (isWarning ? .orange : .green)
-                        let dimOpacity: Double = (theme.isLight || theme.isMedium) ? 0.45 : 0.75
-                        HStack(spacing: 6) {
-                            // Arc progress ring gegen echtes Kontextfenster
-                            ZStack {
-                                Circle()
-                                    .stroke(theme.cardBorder.opacity(0.3), lineWidth: 1.5)
-                                Circle()
-                                    .trim(from: 0, to: progress)
-                                    .stroke(arcColor.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
-                                    .animation(.easeInOut(duration: 0.4), value: progress)
-                            }
-                            .frame(width: 16, height: 16)
-                            .help(isCritical ? "Kontext voll (\(Int(progress * 100))%) — Compact dringend empfohlen" : isWarning ? "Kontext halb voll (\(Int(progress * 100))%) — Zusammenfassung sinnvoll" : "Kontext-Auslastung: \(Int(progress * 100))% von \(contextWindow / 1000)k")
-                            Image(systemName: "arrow.up.circle")
-                                .font(.system(size: 12))
-                                .foregroundStyle(tokenColor.opacity(0.7))
-                            Text(totalIn >= 1000 ? String(format: "%.1fk", Double(totalIn) / 1000) : "\(totalIn)")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(tokenColor)
-                            Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.secondaryText.opacity(0.5))
-                            Text(totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(theme.secondaryText)
-                            Text("tokens")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.secondaryText.opacity(0.5))
-                            Text("/ \(contextWindow / 1000)k")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(theme.secondaryText.opacity(0.4))
-                            if compactThreshold > 0 {
-                                Text("· compact bei \(compactThreshold >= 1000 ? String(format: "%.0fk", Double(compactThreshold) / 1000) : "\(compactThreshold)")")
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText.opacity(0.3))
-                            }
-                            // Manuell gewählter Agent
-                            if !selectedAgent.isEmpty,
-                               let agentName = state.agentService.agents.first(where: { $0.id == selectedAgent })?.name {
-                                Text("· \(agentName)")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(accentColor.opacity(0.75))
-                            }
-                            Spacer()
-                            if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
-                                Button {
-                                    compactSession()
-                                } label: {
-                                    HStack(spacing: 3) {
-                                        Image(systemName: "scissors")
-                                            .font(.system(size: 11, weight: .medium))
-                                        Text(isCritical ? "Compact jetzt!" : "Compact")
-                                            .font(.system(size: 12, weight: .medium))
-                                    }
-                                    .foregroundStyle(isCritical ? .red : .orange)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background((isCritical ? Color.red : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
-                                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder((isCritical ? Color.red : Color.orange).opacity(0.3), lineWidth: 0.5))
-                                }
-                                .buttonStyle(.plain)
-                                .help(isCritical ? "Kontext-Limit erreicht — Konversation jetzt verdichten" : "Kontext ist halb voll — Konversation verdichten spart Tokens")
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 5)
-                        .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
-                        .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
-                    }
+                    tokenCounterBar
 
                     // Compact-Bestätigungsbanner
                     if showCompactBanner && !isCompacting {
@@ -668,136 +610,121 @@ struct SingleChatSessionView: View {
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
         .background(PickerDismissMonitor(isActive: anyPickerOpen, onDismiss: { closeAllPickers() }))
         .task { await loadAvailableMCPs() }
-        .onAppear {
-            inputFocused = true
-            // Restore state from tab
-            if !tab.inputText.isEmpty { inputText = tab.inputText }
-            if let wd = tab.workingDirectory { workingDirectory = wd }
-            fetchGitBranch()
-            if let sid = tab.sessionId {
-                currentSessionId = sid
-                sessionTitle = tab.title
-                selectedModel = tab.model
-                selectedAgent = tab.agentId
-                selectedPersonaId = tab.personaId
-                if tab.messages.isEmpty {
-                    resumeSession(sid)
-                } else {
-                    messages = tab.messages
+    }
+
+    private func handleAppear() {
+        inputFocused = true
+        if !tab.inputText.isEmpty { inputText = tab.inputText }
+        if let wd = tab.workingDirectory { workingDirectory = wd }
+        fetchGitBranch()
+        if let sid = tab.sessionId {
+            currentSessionId = sid
+            sessionTitle = tab.title
+            selectedModel = tab.model
+            selectedAgent = tab.agentId
+            selectedPersonaId = tab.personaId
+            if tab.messages.isEmpty { resumeSession(sid) }
+            else { messages = tab.messages }
+        } else {
+            messages = tab.messages
+            selectedModel = tab.model
+            selectedAgent = tab.agentId
+            selectedPersonaId = tab.personaId
+        }
+        if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
+        applyFallbackModelIfNeeded()
+        state.tmetricSelectedProjectId   = tab.tmetricProjectId
+        state.tmetricSelectedProjectName = tab.tmetricProjectName
+        tryAutoMatchTMetricProject()
+    }
+
+    private func handleDisappear() {
+        tab.inputText           = inputText
+        tab.tmetricProjectId    = state.tmetricSelectedProjectId
+        tab.tmetricProjectName  = state.tmetricSelectedProjectName
+        Task { await state.stopTMetricTimer() }
+    }
+
+    private func syncMessagesOnChange() {
+        if !isStreaming { tab.messages = messages }
+        if let cwd = workingDirectory {
+            for msg in messages {
+                guard let diff = msg.gitDiff else { continue }
+                for file in parseDiffFiles(diff) {
+                    changedFilePaths.insert(cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name)
                 }
-            } else {
-                messages = tab.messages
-                selectedModel = tab.model
-                selectedAgent = tab.agentId
-                selectedPersonaId = tab.personaId
-            }
-            // Auto-select persona if project is already set and no persona chosen
-            if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
-            // Proaktiv: wenn Claude-Limit aktiv + Fallback konfiguriert → Copilot-Modell setzen
-            applyFallbackModelIfNeeded()
-            // Restore TMetric project for this tab
-            state.tmetricSelectedProjectId   = tab.tmetricProjectId
-            state.tmetricSelectedProjectName = tab.tmetricProjectName
-        }
-        // Sync messages back to tab only when NOT streaming to avoid
-        // parent re-renders on every streaming token (input lag fix)
-        .onChange(of: messages) {
-            if !isStreaming { tab.messages = messages }
-            // Dateipfade aus gitDiff in changedFilePaths sammeln (für File-Tree-Badge)
-            if let cwd = workingDirectory {
-                for msg in messages {
-                    guard let diff = msg.gitDiff else { continue }
-                    for file in parseDiffFiles(diff) {
-                        changedFilePaths.insert(cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name)
-                    }
-                }
-            }
-            // Compact-Banner anzeigen wenn Schwellwert überschritten (nur einmal pro Session)
-            let threshold = state.settings.autoCompactThreshold
-            let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
-            if threshold > 0 && totalIn >= threshold && !isCompacting && !isStreaming
-               && !showCompactBanner && compactBannerSeenAt < threshold {
-                showCompactBanner = true
-                compactBannerSeenAt = totalIn
             }
         }
-        .onChange(of: isStreaming) {
-            // Sync streaming indicator to tab (shown in tab bar)
-            tab.isStreaming = isStreaming
-            // Flush final messages when streaming ends
-            if !isStreaming { tab.messages = messages }
-            // Streaming-Zeitmessung für Live-Plan-Panel
-            if isStreaming {
-                streamingStartDate = Date()
-            } else if let start = streamingStartDate {
-                lastStreamDuration = Date().timeIntervalSince(start)
-                streamingStartDate = nil
-            }
-            // Compact-Abschluss verarbeiten
-            if !isStreaming && isCompacting { finishCompact() }
-            // Post-Task Persona Validation
-            if !isStreaming && !selectedPersonaId.isEmpty && !isValidating {
-                triggerPersonaValidation()
-            }
-            // Reload history so Sidebar + Verlauf reflect the completed session immediately
-            if !isStreaming {
-                Task { await state.historyService.loadProjects() }
-            }
+        let threshold = state.settings.autoCompactThreshold
+        let totalIn = messages.filter { $0.role == .assistant }.last?.inputTokens ?? 0
+        if threshold > 0 && totalIn >= threshold && !isCompacting && !isStreaming
+           && !showCompactBanner && compactBannerSeenAt < threshold {
+            showCompactBanner = true
+            compactBannerSeenAt = totalIn
         }
-        .onChange(of: currentSessionId) { tab.sessionId = currentSessionId }
-        .onChange(of: selectedModel) { tab.model = selectedModel }
-        .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
-        .onChange(of: selectedPersonaId) { tab.personaId = selectedPersonaId }
-        .onChange(of: workingDirectory) {
-            tab.workingDirectory = workingDirectory
-            fetchGitBranch()
-            autoSelectPersonaForProject()
+    }
+
+    private func syncStreamingOnChange() {
+        tab.isStreaming = isStreaming
+        if !isStreaming { tab.messages = messages }
+        if isStreaming {
+            streamingStartDate = Date()
+        } else if let start = streamingStartDate {
+            lastStreamDuration = Date().timeIntervalSince(start)
+            streamingStartDate = nil
         }
-        // Wenn Rate-Limit-Status sich ändert → Modell live umschalten
-        .onChange(of: state.claudeRateLimitActive) {
-            applyFallbackModelIfNeeded()
+        if !isStreaming && isCompacting { finishCompact() }
+        if !isStreaming && !selectedPersonaId.isEmpty && !isValidating {
+            triggerPersonaValidation()
         }
-        .onChange(of: state.pendingChatNewProject) {
-            guard let path = state.pendingChatNewProject else { return }
-            state.pendingChatNewProject = nil
-            newSession()
-            workingDirectory = path
-            tab.title = URL(fileURLWithPath: path).lastPathComponent
-            withAnimation(.spring(response: 0.3)) { showFilePanel = true }
-            if let agentId = detectAgentForProject(path) {
-                selectedAgent = agentId
-            }
+        if !isStreaming {
+            Task { await state.historyService.loadProjects() }
         }
-        .onChange(of: state.pendingChatMessage) {
-            guard let msg = state.pendingChatMessage else { return }
-            state.pendingChatMessage = nil
-            inputText = msg
+    }
+
+    private func syncWorkingDirectoryOnChange() {
+        tab.workingDirectory = workingDirectory
+        fetchGitBranch()
+        autoSelectPersonaForProject()
+    }
+
+    private func handlePendingNewProject() {
+        guard let path = state.pendingChatNewProject else { return }
+        state.pendingChatNewProject = nil
+        newSession()
+        workingDirectory = path
+        tab.title = URL(fileURLWithPath: path).lastPathComponent
+        withAnimation(.spring(response: 0.3)) { showFilePanel = true }
+        if let agentId = detectAgentForProject(path) { selectedAgent = agentId }
+    }
+
+    private func handlePendingMessage() {
+        guard let msg = state.pendingChatMessage else { return }
+        state.pendingChatMessage = nil
+        inputText = msg
+    }
+
+    private func syncOnActiveChange() {
+        if !isActive {
+            tab.inputText = inputText
+            if isStreaming { tab.messages = messages }
         }
-        // Save inputText and sync messages when switching away from this tab (opacity approach
-        // keeps views alive, so onDisappear won't fire on tab switch)
-        .onChange(of: isActive) {
-            if !isActive {
-                tab.inputText = inputText
-                if isStreaming { tab.messages = messages }
-            }
-        }
-        // Live trigger detection: update pendingTriggerAgentName as the user types.
-        // Runs via onChange so it's outside @ViewBuilder and always sees current @State.
-        .onChange(of: inputText) {
-            pendingTriggerAgentName = (selectedAgent.isEmpty && !inputText.isEmpty)
-                ? autoTriggerAgent(for: inputText)?.name
-                : nil
-        }
-        .onChange(of: selectedAgent) {
-            // Clear pending trigger when user manually picks an agent (or clears one)
-            pendingTriggerAgentName = nil
-        }
-        .onDisappear {
-            tab.inputText           = inputText
-            tab.tmetricProjectId    = state.tmetricSelectedProjectId
-            tab.tmetricProjectName  = state.tmetricSelectedProjectName
-            Task { await state.stopTMetricTimer() }
-        }
+    }
+
+    private func syncTriggerOnInputChange() {
+        pendingTriggerAgentName = (selectedAgent.isEmpty && !inputText.isEmpty)
+            ? autoTriggerAgent(for: inputText)?.name
+            : nil
+    }
+
+    private func tryAutoMatchTMetricProject() {
+        guard tab.tmetricProjectId == nil, let wd = tab.workingDirectory else { return }
+        let folder = URL(fileURLWithPath: wd).lastPathComponent
+        guard let match = state.autoMatchTMetricProject(folderName: folder) else { return }
+        state.tmetricSelectedProjectId   = match.id
+        state.tmetricSelectedProjectName = match.name
+        tab.tmetricProjectId   = match.id
+        tab.tmetricProjectName = match.name
     }
 
     private func resumeSession(_ sessionId: String) {
@@ -1290,6 +1217,102 @@ struct SingleChatSessionView: View {
     }
 
     // MARK: - Compact-Bestätigungsbanner
+
+    @ViewBuilder
+    private var tokenCounterBar: some View {
+        let assistantMessages = messages.filter { $0.role == .assistant }
+        let totalIn  = assistantMessages.last?.inputTokens ?? 0
+        let totalOut = assistantMessages.reduce(0) { $0 + $1.outputTokens }
+        if totalIn > 0 || totalOut > 0 {
+            let compactThreshold = state.settings.autoCompactThreshold
+            let matchedModel     = KnownModel.all.first { $0.apiName == selectedModel }
+            let contextWindow    = (matchedModel?.contextK ?? 200) * 1000
+            let isWarning        = totalIn >= contextWindow / 2
+            let isCritical       = totalIn >= contextWindow
+            let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
+            let progress: Double  = min(1.0, Double(totalIn) / Double(contextWindow))
+            let arcColor: Color   = isCritical ? .red : (isWarning ? .orange : .green)
+            let pct = Int(progress * 100)
+            let progressHelp: String = isCritical
+                ? "Kontext voll (\(pct)%) — Compact dringend empfohlen"
+                : isWarning
+                    ? "Kontext halb voll (\(pct)%) — Zusammenfassung sinnvoll"
+                    : "Kontext-Auslastung: \(pct)% von \(contextWindow / 1000)k"
+            let totalInStr  = totalIn  >= 1000 ? String(format: "%.1fk", Double(totalIn)  / 1000) : "\(totalIn)"
+            let totalOutStr = totalOut >= 1000 ? String(format: "%.1fk", Double(totalOut) / 1000) : "\(totalOut)"
+            let compactStr  = compactThreshold >= 1000 ? String(format: "%.0fk", Double(compactThreshold) / 1000) : "\(compactThreshold)"
+            HStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .stroke(theme.cardBorder.opacity(0.3), lineWidth: 1.5)
+                    Circle()
+                        .trim(from: 0, to: progress)
+                        .stroke(arcColor.opacity(0.85), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeInOut(duration: 0.4), value: progress)
+                }
+                .frame(width: 16, height: 16)
+                .help(progressHelp)
+                Image(systemName: "arrow.up.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(tokenColor.opacity(0.7))
+                Text(totalInStr)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(tokenColor)
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText.opacity(0.5))
+                Text(totalOutStr)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                Text("tokens")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText.opacity(0.5))
+                Text("/ \(contextWindow / 1000)k")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText.opacity(0.4))
+                if compactThreshold > 0 {
+                    Text("· compact bei \(compactStr)")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText.opacity(0.3))
+                }
+                if !selectedAgent.isEmpty,
+                   let agentName = state.agentService.agents.first(where: { $0.id == selectedAgent })?.name {
+                    Text("· \(agentName)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(accentColor.opacity(0.75))
+                }
+                Spacer()
+                if compactThreshold > 0 && totalIn >= compactThreshold && !isCompacting && !isStreaming {
+                    compactButton(isCritical: isCritical)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 5)
+            .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
+            .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
+        }
+    }
+
+    @ViewBuilder
+    private func compactButton(isCritical: Bool) -> some View {
+        let tint: Color = isCritical ? .red : .orange
+        Button { compactSession() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "scissors")
+                    .font(.system(size: 11, weight: .medium))
+                Text(isCritical ? "Compact jetzt!" : "Compact")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(0.3), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .help(isCritical ? "Kontext-Limit erreicht — Konversation jetzt verdichten" : "Kontext ist halb voll — Konversation verdichten spart Tokens")
+    }
 
     private var compactConfirmBanner: some View {
         HStack(spacing: 10) {
