@@ -435,8 +435,8 @@ struct SingleChatSessionView: View {
                 VStack(spacing: 0) {
                     // Header strip with panel toggles (right-aligned)
                     HStack(spacing: 2) {
-                        // TMetric timer chip
-                        if !state.tmetricSelectedProjectName.isEmpty {
+                        // TMetric timer chip (visible when token is configured)
+                        if !state.settings.tmetricApiToken.isEmpty {
                             tmetricTimerChip
                                 .padding(.leading, 6)
                         }
@@ -695,6 +695,9 @@ struct SingleChatSessionView: View {
             if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
             // Proaktiv: wenn Claude-Limit aktiv + Fallback konfiguriert → Copilot-Modell setzen
             applyFallbackModelIfNeeded()
+            // Restore TMetric project for this tab
+            state.tmetricSelectedProjectId   = tab.tmetricProjectId
+            state.tmetricSelectedProjectName = tab.tmetricProjectName
         }
         // Sync messages back to tab only when NOT streaming to avoid
         // parent re-renders on every streaming token (input lag fix)
@@ -790,7 +793,9 @@ struct SingleChatSessionView: View {
             pendingTriggerAgentName = nil
         }
         .onDisappear {
-            tab.inputText = inputText
+            tab.inputText           = inputText
+            tab.tmetricProjectId    = state.tmetricSelectedProjectId
+            tab.tmetricProjectName  = state.tmetricSelectedProjectName
             Task { await state.stopTMetricTimer() }
         }
     }
@@ -930,44 +935,68 @@ struct SingleChatSessionView: View {
     // MARK: - TMetric Timer Chip
 
     private var tmetricTimerChip: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
+            // Project picker
+            Menu {
+                Button("Kein Projekt") {
+                    state.tmetricSelectedProjectId   = nil
+                    state.tmetricSelectedProjectName = ""
+                    tab.tmetricProjectId   = nil
+                    tab.tmetricProjectName = ""
+                }
+                Divider()
+                ForEach(state.tmetricKnownProjects) { p in
+                    Button(p.name) {
+                        state.tmetricSelectedProjectId   = p.id
+                        state.tmetricSelectedProjectName = p.name
+                        tab.tmetricProjectId   = p.id
+                        tab.tmetricProjectName = p.name
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    if state.tmetricIsTimerRunning {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                            .scaleEffect(chatTimerTick.timeIntervalSince1970.truncatingRemainder(dividingBy: 2) < 1 ? 1.0 : 0.65)
+                            .animation(.easeInOut(duration: 0.5), value: chatTimerTick)
+                    } else {
+                        Image(systemName: "clock")
+                            .font(.system(size: 10))
+                            .foregroundStyle(state.tmetricTimerError != nil ? .red : theme.tertiaryText)
+                    }
+                    Text(state.tmetricSelectedProjectName.isEmpty ? "Projekt wählen" : state.tmetricSelectedProjectName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(state.tmetricIsTimerRunning ? .green : (state.tmetricTimerError != nil ? .red : theme.secondaryText))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 130)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+            }
+            .menuStyle(.borderlessButton)
+
+            // Elapsed time (running only)
             if state.tmetricIsTimerRunning, let start = state.tmetricTimerStart {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(chatTimerTick.timeIntervalSince1970.truncatingRemainder(dividingBy: 2) < 1 ? 1.0 : 0.7)
-                    .animation(.easeInOut(duration: 0.5), value: chatTimerTick)
                 Text(tmetricElapsed(from: start))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.green)
-                Text(state.tmetricSelectedProjectName)
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 140)
-                Button {
-                    Task { await state.stopTMetricTimer() }
-                } label: {
+            }
+
+            // Play / Stop
+            if state.tmetricIsTimerRunning {
+                Button { Task { await state.stopTMetricTimer() } } label: {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.plain)
                 .help("Timer stoppen")
-            } else {
-                Image(systemName: "clock")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
-                Text(state.tmetricSelectedProjectName)
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 140)
-                Button {
-                    Task { await state.startTMetricTimer() }
-                } label: {
+            } else if state.tmetricSelectedProjectId != nil {
+                Button { Task { await state.startTMetricTimer() } } label: {
                     Image(systemName: "play.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.indigo)
@@ -979,7 +1008,8 @@ struct SingleChatSessionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(
-            state.tmetricIsTimerRunning ? Color.green.opacity(0.08) : theme.rowBg,
+            state.tmetricIsTimerRunning ? Color.green.opacity(0.08)
+            : (state.tmetricTimerError != nil ? Color.red.opacity(0.08) : theme.rowBg),
             in: Capsule()
         )
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
@@ -2845,6 +2875,7 @@ struct SingleChatSessionView: View {
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
         state.tmetricActivity()
         if state.tmetricSelectedProjectId != nil && !state.tmetricIsTimerRunning {
+            state.tmetricTimerError = nil
             Task { await state.startTMetricTimer() }
         }
 
