@@ -914,4 +914,8 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .zeiterfassung:  return "timer"
         }
     }
+
+    var isFullWidth: Bool {
+        self == .zeiterfassung
+    }
 }

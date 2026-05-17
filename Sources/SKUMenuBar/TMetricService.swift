@@ -56,15 +56,20 @@ private struct TMetricTimeEntry: Codable {
     let startTime: String?
     let endTime: String?
     let duration: Int?          // seconds; -1 when timer is running
+    // TMetric returns project info in different places depending on endpoint/version
     let details: TMetricDetails?
+    // Flat fields (alternative response shape)
+    let projectId: Int?
+    let projectName: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, startTime, endTime, duration, details
+        case id, startTime, endTime, duration, details, projectId, projectName
     }
 }
 
 private struct TMetricDetails: Codable {
     let projectId: Int?
+    let projectName: String?
     let project: TMetricProject?
 }
 
@@ -118,7 +123,20 @@ enum TMetricService {
             throw TMetricError.http(http.statusCode)
         }
 
-        let entries = try JSONDecoder().decode([TMetricTimeEntry].self, from: data)
+        let entries: [TMetricTimeEntry]
+        do {
+            entries = try JSONDecoder().decode([TMetricTimeEntry].self, from: data)
+        } catch {
+            let preview = String(data: data.prefix(500), encoding: .utf8) ?? "<binary>"
+            print("[TMetric] Decode-Fehler: \(error)\nAntwort-Preview: \(preview)")
+            throw error
+        }
+        // Debug: log first entry structure to console if entries exist
+        if let first = entries.first {
+            print("[TMetric] \(entries.count) Einträge. Erster: id=\(first.id ?? -1) projectId=\(String(describing: first.projectId)) details.projectId=\(String(describing: first.details?.projectId)) details.project.id=\(String(describing: first.details?.project?.id)) duration=\(String(describing: first.duration))")
+        } else {
+            print("[TMetric] Antwort enthält 0 Einträge für Zeitraum \(formatter.string(from: from))–\(formatter.string(from: to))")
+        }
         return aggregate(entries: entries, now: now)
     }
 
@@ -136,8 +154,15 @@ enum TMetricService {
         var totals: [Int: (name: String, seconds: Int)] = [:]
 
         for entry in entries {
-            let projectId   = entry.details?.project?.id ?? entry.details?.projectId ?? 0
-            let projectName = entry.details?.project?.name ?? "Ohne Projekt"
+            // Resolve project ID + name from all known response shapes
+            let projectId: Int   = entry.details?.project?.id
+                                ?? entry.details?.projectId
+                                ?? entry.projectId
+                                ?? 0
+            let projectName: String = entry.details?.project?.name
+                                   ?? entry.details?.projectName
+                                   ?? entry.projectName
+                                   ?? "Ohne Projekt"
 
             let seconds: Int
             if let d = entry.duration, d >= 0 {

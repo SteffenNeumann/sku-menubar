@@ -23,10 +23,16 @@ struct HomeView: View {
         state.homeTileOrder.filter { state.homeTileVisible.contains($0) }
     }
 
-    // Split into rows of 3
+    // Normal tiles (3-column rows) and full-width tiles (own row at bottom)
+    private var normalTiles: [HomeTileID] {
+        orderedVisibleTiles.filter { !$0.isFullWidth }
+    }
+    private var fullWidthTiles: [HomeTileID] {
+        orderedVisibleTiles.filter { $0.isFullWidth }
+    }
     private var tileRows: [[HomeTileID]] {
-        stride(from: 0, to: orderedVisibleTiles.count, by: 3).map {
-            Array(orderedVisibleTiles[$0 ..< min($0 + 3, orderedVisibleTiles.count)])
+        stride(from: 0, to: normalTiles.count, by: 3).map {
+            Array(normalTiles[$0 ..< min($0 + 3, normalTiles.count)])
         }
     }
 
@@ -58,8 +64,8 @@ struct HomeView: View {
         if orderedVisibleTiles.isEmpty {
             emptyDashboard
         } else {
-            // Use Grid for equal row heights
             Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
+                // Normal 3-column rows
                 ForEach(tileRows.indices, id: \.self) { rowIndex in
                     GridRow {
                         let row = tileRows[rowIndex]
@@ -67,12 +73,19 @@ struct HomeView: View {
                             tileView(for: tileID)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        // Fill missing columns so layout stays aligned
                         if row.count < 3 {
                             ForEach(0 ..< (3 - row.count), id: \.self) { _ in
                                 Color.clear
                             }
                         }
+                    }
+                }
+                // Full-width tiles — each spans all 3 columns
+                ForEach(fullWidthTiles) { tileID in
+                    GridRow {
+                        tileView(for: tileID)
+                            .frame(maxWidth: .infinity)
+                            .gridCellColumns(3)
                     }
                 }
             }
