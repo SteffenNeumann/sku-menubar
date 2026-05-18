@@ -4594,19 +4594,23 @@ struct MessageBubbleView: View {
                 if message.isStreaming {
                     LivePlanView(
                         toolCalls: message.toolCalls,
-                        startTime: taskStartTime ?? Date()
+                        startTime: taskStartTime ?? Date(),
+                        isStreaming: true
                     )
                 } else {
                     toolsSummaryView(message.toolCalls, duration: completedDuration)
                 }
             }
 
-            // Während aktiver Recherche (Tool-Calls laufen) keinen Zwischentext zeigen —
-            // erst nach Abschluss wird der finale Text eingeblendet.
-            let isResearching = message.isStreaming && !message.toolCalls.isEmpty
+            // Während aktiver Recherche Zwischentext leicht gedimmt zeigen —
+            // so sieht der User was der Agent gerade schreibt, auch zwischen Tool-Batches
+            let allToolsDone = !message.toolCalls.isEmpty
+                && message.toolCalls.allSatisfy { $0.result != nil }
+            let isResearching = message.isStreaming && !message.toolCalls.isEmpty && !allToolsDone
             if !message.content.isEmpty && !isResearching {
                 MarkdownTextView(text: message.content)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(allToolsDone && message.isStreaming ? 0.65 : 1.0)
             }
 
             if message.isStreaming && message.content.isEmpty && message.toolCalls.isEmpty {
@@ -4921,6 +4925,8 @@ private struct ResearchAnimationView: View {
 private struct LivePlanView: View {
     let toolCalls: [ToolCall]
     let startTime: Date
+    var isStreaming: Bool = false
+    @State private var pulse: Bool = false
     @Environment(\.appTheme) var theme
 
     private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
@@ -4928,23 +4934,44 @@ private struct LivePlanView: View {
     private var progress: Double {
         toolCalls.isEmpty ? 0 : Double(completedCount) / Double(toolCalls.count)
     }
+    // Alle Tools haben Ergebnis, Agent schreibt aber noch (zwischen Tool-Batches)
+    private var isThinking: Bool {
+        isStreaming && !toolCalls.isEmpty && toolCalls.allSatisfy { $0.result != nil }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header: Fortschrittsbalken + Elapsed
+            // Header: Fortschrittsbalken + Status
             HStack(spacing: 8) {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(accentColor.opacity(0.15))
                             .frame(height: 4)
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(accentColor.opacity(0.75))
-                            .frame(width: geo.size.width * progress, height: 4)
-                            .animation(.easeInOut(duration: 0.3), value: progress)
+                        if isThinking {
+                            // Pulsierender Balken: Agent schreibt noch
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(accentColor.opacity(pulse ? 0.55 : 0.2))
+                                .frame(width: geo.size.width, height: 4)
+                                .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: pulse)
+                        } else {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(accentColor.opacity(0.75))
+                                .frame(width: geo.size.width * progress, height: 4)
+                                .animation(.easeInOut(duration: 0.3), value: progress)
+                        }
                     }
                 }
                 .frame(height: 4)
+
+                if isThinking {
+                    HStack(spacing: 5) {
+                        ProgressView().scaleEffect(0.42).frame(width: 12, height: 12)
+                        Text("Schreibt…")
+                            .font(.system(size: 11))
+                            .foregroundStyle(accentColor.opacity(0.7))
+                    }
+                }
 
                 TimelineView(.periodic(from: startTime, by: 0.5)) { tl in
                     let elapsed = tl.date.timeIntervalSince(startTime)
@@ -4956,6 +4983,8 @@ private struct LivePlanView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 6)
+            .onAppear { pulse = true }
+            .onChange(of: isThinking) { if isThinking { pulse = true } }
 
             // Schritte-Liste
             VStack(alignment: .leading, spacing: 3) {
