@@ -916,6 +916,7 @@ struct AgentsView: View {
             if state.agentService.agents.isEmpty {
                 await state.agentService.loadAgents()
             }
+            state.agentService.startAgentsDirWatcher()
         }
         .onChange(of: state.agentService.agents) { _, _ in }
         .onReceive(state.agentService.objectWillChange) { _ in }

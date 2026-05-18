@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import PDFKit
 import AppKit
+import QuickLookUI
 
 // MARK: - Picker anchor preference key
 
@@ -3889,6 +3890,25 @@ struct PDFPreviewView: NSViewRepresentable {
     }
 }
 
+// MARK: - QuickLook preview (Office, Keynote, etc.)
+
+struct QLFilePreviewView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> QLPreviewView {
+        let view = QLPreviewView(frame: .zero, style: .normal) ?? QLPreviewView()
+        view.previewItem = url as QLPreviewItem
+        view.autostarts = true
+        return view
+    }
+
+    func updateNSView(_ view: QLPreviewView, context: Context) {
+        if (view.previewItem as? URL) != url {
+            view.previewItem = url as QLPreviewItem
+        }
+    }
+}
+
 // MARK: - Syntax Highlighter
 
 struct SyntaxHighlighter {
@@ -4097,6 +4117,7 @@ struct FilePreviewPanel: View {
     @State private var fileWatcher: DispatchSourceFileSystemObject? = nil
     @State private var reloadTrigger: Int = 0
     @State private var watcherNeedsRestart: Bool = false
+    @State private var qlPreviewURL: URL? = nil
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -4178,6 +4199,9 @@ struct FilePreviewPanel: View {
             } else if node.isPDF, let pdf = pdfDocument {
                 PDFPreviewView(document: pdf)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let url = qlPreviewURL {
+                QLFilePreviewView(url: url)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let img = nsImage {
                 ScrollView([.vertical, .horizontal]) {
                     Image(nsImage: img)
@@ -4236,7 +4260,7 @@ struct FilePreviewPanel: View {
     }
 
     private func startFileWatcher() {
-        guard node.isTextFile || node.isPDF || isImageFile else { return }
+        guard node.isTextFile || node.isPDF || isImageFile || node.isOfficeFile else { return }
         stopFileWatcher()
         let fd = open(node.url.path, O_EVTONLY)
         guard fd >= 0 else { return }
@@ -4271,11 +4295,14 @@ struct FilePreviewPanel: View {
         highlightedText = nil
         pdfDocument = nil
         nsImage = nil
+        qlPreviewURL = nil
         isLoading = false
         searchText = ""
         searchMatchCount = 0
         currentMatchIndex = 0
-        if node.isPDF {
+        if node.isOfficeFile {
+            qlPreviewURL = node.url
+        } else if node.isPDF {
             pdfDocument = PDFDocument(url: node.url)
         } else if isImageFile {
             isLoading = true

@@ -71,6 +71,10 @@ final class ExplorerNode: Identifiable, ObservableObject {
         ["png", "jpg", "jpeg", "gif", "bmp", "ico", "tiff", "tif", "webp", "heic"].contains(fileExtension)
     }
 
+    var isOfficeFile: Bool {
+        ["xlsx", "xls", "xlsm", "xlsb", "docx", "doc", "pptx", "ppt", "numbers", "pages", "key"].contains(fileExtension)
+    }
+
     var isWebPreviewable: Bool {
         ["html", "htm", "svg"].contains(fileExtension)
     }
@@ -107,6 +111,9 @@ final class ExplorerNode: Identifiable, ObservableObject {
         case "html", "htm", "css", "scss":    return "globe"
         case "sh", "bash", "zsh":             return "terminal.fill"
         case "bas", "cls", "frm", "vba", "vbs": return "tablecells.fill"
+        case "xlsx", "xls", "xlsm", "xlsb", "numbers": return "tablecells.fill"
+        case "docx", "doc", "pages":           return "doc.richtext.fill"
+        case "pptx", "ppt", "key":             return "rectangle.on.rectangle.fill"
         case "png", "jpg", "jpeg", "gif", "svg", "webp", "ico": return "photo"
         case "pdf":                            return "doc.fill"
         case "zip", "tar", "gz", "7z":        return "archivebox"
@@ -127,6 +134,9 @@ final class ExplorerNode: Identifiable, ObservableObject {
         case "html":         return Color(red: 0.90, green: 0.35, blue: 0.2)
         case "css", "scss": return .purple
         case "bas", "cls", "frm", "vba", "vbs": return Color(red: 0.13, green: 0.55, blue: 0.13)
+        case "xlsx", "xls", "xlsm", "xlsb", "numbers": return Color(red: 0.13, green: 0.55, blue: 0.13)
+        case "docx", "doc", "pages":           return Color(red: 0.17, green: 0.51, blue: 0.90)
+        case "pptx", "ppt", "key":             return Color(red: 0.98, green: 0.45, blue: 0.20)
         case "png", "jpg", "jpeg", "gif", "svg": return .pink
         case "pdf":          return .red
         default:             return .secondary
@@ -149,6 +159,7 @@ struct FileExplorerView: View {
     @State private var previewText: String? = nil
     @State private var pdfDocument: PDFDocument? = nil
     @State private var nsImage: NSImage? = nil
+    @State private var qlPreviewURL: URL? = nil
     @State private var isLoadingPreview: Bool = false
     @State private var renamingNode: ExplorerNode? = nil
     @State private var renameText: String = ""
@@ -911,6 +922,9 @@ struct FileExplorerView: View {
                     } else if node.isPDF, let pdf = pdfDocument {
                         PDFPreviewView(document: pdf)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let url = qlPreviewURL {
+                        QLFilePreviewView(url: url)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let img = nsImage {
                         ScrollView([.vertical, .horizontal]) {
                             Image(nsImage: img)
@@ -1436,6 +1450,7 @@ struct FileExplorerView: View {
         previewText = nil
         pdfDocument = nil
         nsImage = nil
+        qlPreviewURL = nil
         contentSearchText = ""
         contentSearchMatchCount = 0
         contentSearchCurrentIndex = 0
@@ -1444,6 +1459,8 @@ struct FileExplorerView: View {
             if node.children == nil {
                 node.loadChildren(showHidden: showHidden)
             }
+        } else if node.isOfficeFile {
+            qlPreviewURL = node.url
         } else if node.isPDF {
             pdfDocument = PDFDocument(url: node.url)
         } else if node.isImage {

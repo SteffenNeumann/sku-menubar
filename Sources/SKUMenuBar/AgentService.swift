@@ -19,10 +19,35 @@ final class AgentService: ObservableObject {
     private weak var appState: AppState?
     private let ghModelsService = GitHubModelsService()
     private var schedulerTimer: Timer?
+    private var agentsDirWatcher: DispatchSourceFileSystemObject?
+    private var reloadDebounceTask: Task<Void, Never>?
 
     init(cliService: ClaudeCLIService? = nil, appState: AppState? = nil) {
         self.cliService = cliService
         self.appState   = appState
+    }
+
+    func startAgentsDirWatcher() {
+        let path = agentsDir.path
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .attrib, .rename],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            reloadDebounceTask?.cancel()
+            reloadDebounceTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await self.loadAgents()
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        agentsDirWatcher = source
     }
 
     var agentsDir: URL {
