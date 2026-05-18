@@ -145,12 +145,16 @@ enum TMetricService {
             throw TMetricError.badURL
         }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        req.httpMethod = "POST"
+        req.httpMethod = "PUT"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["projectId": projectId])
-        print("[TMetric] POST /timer body: {\"projectId\": \(projectId)}")
+        // TMetric v3: PUT /timer with projectId + workspaceId
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "projectId":   projectId,
+            "workspaceId": accountId
+        ])
+        print("[TMetric] PUT /timer body: {\"projectId\": \(projectId), \"workspaceId\": \(accountId)}")
         let (data, response) = try await URLSession.shared.data(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let body = String(data: data.prefix(500), encoding: .utf8) ?? ""
