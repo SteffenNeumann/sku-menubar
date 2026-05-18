@@ -3,53 +3,68 @@ import Foundation
 // MARK: - Time Period
 
 enum TMetricPeriod: String, CaseIterable, Codable {
-    case today     = "today"
-    case thisWeek  = "thisWeek"
-    case thisMonth = "thisMonth"
-    case lastMonth = "lastMonth"
+    case today        = "today"
+    case thisWeek     = "thisWeek"
+    case thisMonth    = "thisMonth"
+    case lastMonth    = "lastMonth"
+    case thisQuarter  = "thisQuarter"
+    case thisYear     = "thisYear"
 
     var label: String {
         switch self {
-        case .today:     return "Heute"
-        case .thisWeek:  return "Woche"
-        case .thisMonth: return "Monat"
-        case .lastMonth: return "Vormonat"
+        case .today:       return "Heute"
+        case .thisWeek:    return "Woche"
+        case .thisMonth:   return "Monat"
+        case .lastMonth:   return "Vormonat"
+        case .thisQuarter: return "Quartal"
+        case .thisYear:    return "Jahr"
         }
     }
 
     var emptyText: String {
         switch self {
-        case .today:     return "Heute noch keine Zeit gebucht."
-        case .thisWeek:  return "Diese Woche noch keine Zeit gebucht."
-        case .thisMonth: return "Diesen Monat noch keine Zeit gebucht."
-        case .lastMonth: return "Im Vormonat keine Zeit gefunden."
+        case .today:       return "Heute noch keine Zeit gebucht."
+        case .thisWeek:    return "Diese Woche noch keine Zeit gebucht."
+        case .thisMonth:   return "Diesen Monat noch keine Zeit gebucht."
+        case .lastMonth:   return "Im Vormonat keine Zeit gefunden."
+        case .thisQuarter: return "Dieses Quartal noch keine Zeit gebucht."
+        case .thisYear:    return "Dieses Jahr noch keine Zeit gebucht."
         }
     }
 
     func dateRange() -> (from: Date, to: Date) {
-        // ISO 8601 calendar: week always starts on Monday
-        var cal = Calendar(identifier: .iso8601)
-        cal.timeZone = TimeZone.current
+        var gcal = Calendar(identifier: .gregorian)
+        gcal.timeZone = TimeZone.current
+        var isoCal = Calendar(identifier: .iso8601)
+        isoCal.timeZone = TimeZone.current
         let now = Date()
         switch self {
         case .today:
-            return (cal.startOfDay(for: now), now)
+            return (gcal.startOfDay(for: now), now)
         case .thisWeek:
-            let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-            let startOfWeek = cal.date(from: comps) ?? cal.startOfDay(for: now)
+            let comps = isoCal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+            let startOfWeek = isoCal.date(from: comps) ?? gcal.startOfDay(for: now)
             return (startOfWeek, now)
         case .thisMonth:
-            var gcal = Calendar(identifier: .gregorian)
-            gcal.timeZone = TimeZone.current
-            let startOfMonth = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? cal.startOfDay(for: now)
+            let startOfMonth = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? gcal.startOfDay(for: now)
             return (startOfMonth, now)
         case .lastMonth:
-            var gcal = Calendar(identifier: .gregorian)
-            gcal.timeZone = TimeZone.current
-            let thisMonthStart = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? cal.startOfDay(for: now)
+            let thisMonthStart = gcal.date(from: gcal.dateComponents([.year, .month], from: now)) ?? gcal.startOfDay(for: now)
             let lastMonthStart = gcal.date(byAdding: .month, value: -1, to: thisMonthStart) ?? thisMonthStart
             let lastMonthEnd   = gcal.date(byAdding: .second, value: -1, to: thisMonthStart) ?? now
             return (lastMonthStart, lastMonthEnd)
+        case .thisQuarter:
+            let month = gcal.component(.month, from: now)
+            let quarterStartMonth = ((month - 1) / 3) * 3 + 1
+            var comps = gcal.dateComponents([.year], from: now)
+            comps.month = quarterStartMonth; comps.day = 1
+            let startOfQuarter = gcal.date(from: comps) ?? gcal.startOfDay(for: now)
+            return (startOfQuarter, now)
+        case .thisYear:
+            var comps = gcal.dateComponents([.year], from: now)
+            comps.month = 1; comps.day = 1
+            let startOfYear = gcal.date(from: comps) ?? gcal.startOfDay(for: now)
+            return (startOfYear, now)
         }
     }
 }
@@ -62,10 +77,16 @@ private struct TMetricTimeEntry: Codable {
     let userId: Int?
     let startTime: String?
     let endTime: String?
-    let project: TMetricEntryProject?   // nested directly in entry
+    let project: TMetricEntryProject?
 }
 
 private struct TMetricEntryProject: Codable {
+    let id: Int?
+    let name: String?
+    let client: TMetricEntryClient?
+}
+
+private struct TMetricEntryClient: Codable {
     let id: Int?
     let name: String?
 }
@@ -85,6 +106,7 @@ struct TMetricFetchResult {
 struct TMetricProjectSummary: Identifiable, Equatable {
     let id: Int
     let name: String
+    let clientName: String
     var totalSeconds: Int
 
     var formattedDuration: String {
@@ -330,17 +352,17 @@ enum TMetricService {
             return localFmt.date(from: s) ?? ISO8601DateFormatter().date(from: s)
         }
 
-        var totals: [Int: (name: String, seconds: Int)] = [:]
+        var totals: [Int: (name: String, client: String, seconds: Int)] = [:]
 
         for entry in entries {
             let projectId   = entry.project?.id   ?? 0
             let projectName = entry.project?.name ?? (projectId == 0 ? "Ohne Projekt" : "Projekt \(projectId)")
+            let clientName  = entry.project?.client?.name ?? ""
 
             let seconds: Int
             if let s = parse(entry.startTime), let e = parse(entry.endTime) {
                 seconds = max(0, Int(e.timeIntervalSince(s)))
             } else if let s = parse(entry.startTime), entry.endTime == nil {
-                // Running timer
                 seconds = max(0, Int(now.timeIntervalSince(s)))
             } else {
                 continue
@@ -352,12 +374,12 @@ enum TMetricService {
                 existing.seconds += seconds
                 totals[projectId] = existing
             } else {
-                totals[projectId] = (name: projectName, seconds: seconds)
+                totals[projectId] = (name: projectName, client: clientName, seconds: seconds)
             }
         }
 
         return totals
-            .map { id, v in TMetricProjectSummary(id: id, name: v.name, totalSeconds: v.seconds) }
+            .map { id, v in TMetricProjectSummary(id: id, name: v.name, clientName: v.client, totalSeconds: v.seconds) }
             .sorted { $0.totalSeconds > $1.totalSeconds }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 // MARK: - HomeTileID + Identifiable
 // HomeTileID is defined in CLIModels.swift; add Identifiable conformance here.
@@ -552,7 +553,7 @@ struct HomeView: View {
     private var zeiterfassungCard: some View {
         HomeTile(title: "Zeiterfassung", icon: "timer", iconColor: .indigo, theme: theme) {
             VStack(alignment: .leading, spacing: 0) {
-                let _ = timerTick  // ensures body re-evaluates each tick
+                let _ = timerTick
                 if state.settings.tmetricApiToken.isEmpty {
                     VStack(spacing: 10) {
                         emptyState(icon: "timer", text: "TMetric API-Token in den Einstellungen hinterlegen.")
@@ -571,50 +572,16 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    // ── Projekt-Filter ────────────────────────────────────
-                    HStack(spacing: 0) {
-                        Menu {
-                            Button("Alle Projekte") {
-                                state.tmetricSelectedProjectId   = nil
-                                state.tmetricSelectedProjectName = ""
-                            }
-                            Divider()
-                            ForEach(state.tmetricKnownProjects) { p in
-                                Button(p.name) {
-                                    state.tmetricSelectedProjectId   = p.id
-                                    state.tmetricSelectedProjectName = p.name
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "folder.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(state.tmetricSelectedProjectId != nil ? .indigo : theme.tertiaryText)
-                                Text(state.tmetricSelectedProjectName.isEmpty ? "Alle Projekte" : state.tmetricSelectedProjectName)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(state.tmetricSelectedProjectId != nil ? theme.primaryText : theme.secondaryText)
-                                    .lineLimit(1)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(theme.tertiaryText)
-                            }
-                        }
-                        .menuStyle(.borderlessButton)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.bottom, 10)
-
-                    // ── Period chips + date range button ─────────────────
+                    // ── Period chips + custom date ────────────────────────
                     HStack(spacing: 4) {
                         ForEach(TMetricPeriod.allCases, id: \.self) { p in
                             let active = !state.tmetricIsCustomRange && state.tmetricPeriod == p
                             Text(p.label)
-                                .font(.system(size: 12, weight: active ? .semibold : .regular))
+                                .font(.system(size: 11, weight: active ? .semibold : .regular))
                                 .foregroundStyle(active ? Color.indigo : theme.secondaryText)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(active ? Color.indigo.opacity(0.13) : Color.clear,
-                                            in: Capsule())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(active ? Color.indigo.opacity(0.13) : Color.clear, in: Capsule())
                                 .contentShape(Capsule())
                                 .onTapGesture {
                                     state.tmetricIsCustomRange = false
@@ -623,27 +590,17 @@ struct HomeView: View {
                         }
                         Spacer(minLength: 0)
                         Button {
-                            tmetricDraftFrom = state.tmetricIsCustomRange
-                                ? state.tmetricCustomFrom
-                                : Calendar.current.startOfDay(for: Date())
-                            tmetricDraftTo = state.tmetricIsCustomRange
-                                ? state.tmetricCustomTo
-                                : Date()
+                            tmetricDraftFrom = state.tmetricIsCustomRange ? state.tmetricCustomFrom : Calendar.current.startOfDay(for: Date())
+                            tmetricDraftTo   = state.tmetricIsCustomRange ? state.tmetricCustomTo   : Date()
                             showTMetricDatePicker = true
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 11, weight: .medium))
-                                if state.tmetricIsCustomRange {
-                                    Text(tmetricCustomRangeLabel)
-                                        .font(.system(size: 11, weight: .medium))
-                                }
+                            HStack(spacing: 3) {
+                                Image(systemName: "calendar").font(.system(size: 10, weight: .medium))
+                                if state.tmetricIsCustomRange { Text(tmetricCustomRangeLabel).font(.system(size: 10, weight: .medium)) }
                             }
                             .foregroundStyle(state.tmetricIsCustomRange ? Color.indigo : theme.tertiaryText)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(state.tmetricIsCustomRange ? Color.indigo.opacity(0.13) : Color.clear,
-                                        in: Capsule())
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(state.tmetricIsCustomRange ? Color.indigo.opacity(0.13) : Color.clear, in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .popover(isPresented: $showTMetricDatePicker, arrowEdge: .bottom) {
@@ -676,35 +633,126 @@ struct HomeView: View {
                             ? "Keine Zeit in diesem Zeitraum."
                             : state.tmetricPeriod.emptyText)
                     } else {
-                        VStack(spacing: 6) {
-                            ForEach(displayedProjects.prefix(8)) { project in
-                                HStack(spacing: 10) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(Color.indigo.opacity(0.12))
-                                            .frame(width: 28, height: 28)
-                                        Image(systemName: "clock.fill")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(.indigo)
+                        // ── Gesamt + Donut ────────────────────────────────
+                        let totalSeconds = displayedProjects.map(\.totalSeconds).reduce(0, +)
+                        let chartColors: [Color] = [.indigo, .blue, .cyan, .teal, .purple, .pink, .orange, .green]
+
+                        HStack(alignment: .center, spacing: 16) {
+                            // Donut Chart
+                            Chart(Array(displayedProjects.prefix(8).enumerated()), id: \.element.id) { idx, project in
+                                SectorMark(
+                                    angle: .value("Zeit", project.totalSeconds),
+                                    innerRadius: .ratio(0.55),
+                                    angularInset: 1.5
+                                )
+                                .foregroundStyle(chartColors[idx % chartColors.count])
+                                .cornerRadius(3)
+                            }
+                            .frame(width: 110, height: 110)
+                            .overlay {
+                                VStack(spacing: 1) {
+                                    let h = totalSeconds / 3600
+                                    let m = (totalSeconds % 3600) / 60
+                                    Text(h > 0 ? "\(h)h" : "\(m)m")
+                                        .font(.system(size: 16, weight: .bold).monospacedDigit())
+                                        .foregroundStyle(theme.primaryText)
+                                    if h > 0 {
+                                        Text("\(m)m")
+                                            .font(.system(size: 11).monospacedDigit())
+                                            .foregroundStyle(theme.secondaryText)
                                     }
+                                }
+                            }
+
+                            // Legende
+                            VStack(alignment: .leading, spacing: 5) {
+                                ForEach(Array(displayedProjects.prefix(5).enumerated()), id: \.element.id) { idx, p in
+                                    HStack(spacing: 6) {
+                                        Circle()
+                                            .fill(chartColors[idx % chartColors.count])
+                                            .frame(width: 8, height: 8)
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(p.name)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(theme.primaryText)
+                                                .lineLimit(1)
+                                            if !p.clientName.isEmpty {
+                                                Text(p.clientName)
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(theme.tertiaryText)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        Spacer(minLength: 0)
+                                        let pct = totalSeconds > 0 ? Int(Double(p.totalSeconds) / Double(totalSeconds) * 100) : 0
+                                        Text("\(pct)%")
+                                            .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                            .foregroundStyle(chartColors[idx % chartColors.count])
+                                    }
+                                }
+                                if displayedProjects.count > 5 {
+                                    Text("+ \(displayedProjects.count - 5) weitere")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .padding(.bottom, 12)
+
+                        // ── Projekt-Tabelle ───────────────────────────────
+                        VStack(spacing: 0) {
+                            // Header
+                            HStack {
+                                Text("PROJEKT")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                Spacer()
+                                Text("CLIENT")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .frame(width: 90, alignment: .leading)
+                                Text("ZEIT")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .frame(width: 54, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 4)
+
+                            ForEach(Array(displayedProjects.prefix(8).enumerated()), id: \.element.id) { idx, project in
+                                HStack(spacing: 0) {
+                                    // Color dot
+                                    Circle()
+                                        .fill(chartColors[idx % chartColors.count])
+                                        .frame(width: 7, height: 7)
+                                        .padding(.trailing, 7)
                                     Text(project.name)
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: 12, weight: .medium))
                                         .foregroundStyle(theme.primaryText)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
-                                    Spacer()
+                                    Spacer(minLength: 6)
+                                    Text(project.clientName)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(theme.secondaryText)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .frame(width: 90, alignment: .leading)
                                     Text(project.formattedDuration)
-                                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                                        .foregroundStyle(.indigo)
+                                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                                        .foregroundStyle(chartColors[idx % chartColors.count])
+                                        .frame(width: 54, alignment: .trailing)
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(idx % 2 == 0 ? theme.rowBg : Color.clear, in: RoundedRectangle(cornerRadius: 7))
                             }
                         }
 
                         Spacer(minLength: 0)
 
+                        // ── Footer ────────────────────────────────────────
                         HStack {
                             if let updated = state.tmetricLastUpdated {
                                 let fmt = RelativeDateTimeFormatter()
@@ -713,9 +761,7 @@ struct HomeView: View {
                                     .foregroundStyle(theme.tertiaryText)
                             }
                             Spacer()
-                            Button {
-                                Task { await state.refreshTMetric(force: true) }
-                            } label: {
+                            Button { Task { await state.refreshTMetric(force: true) } } label: {
                                 Image(systemName: "arrow.clockwise")
                                     .font(.system(size: 12))
                                     .foregroundStyle(theme.tertiaryText)
@@ -728,7 +774,6 @@ struct HomeView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Zeitdaten neu laden")
-
                             Button {
                                 NSWorkspace.shared.open(URL(string: "https://app.tmetric.com/#/tracker/276655/")!)
                             } label: {
@@ -741,7 +786,7 @@ struct HomeView: View {
                         }
                         .padding(.top, 8)
                     }
-                }       // end outer else (token not empty)
+                }
             }
             .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
                 timerTick = date
