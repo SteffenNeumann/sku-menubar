@@ -305,7 +305,8 @@ final class AppState: ObservableObject {
         // Append any new tiles that were added since the settings were last saved
         let missing = HomeTileID.allCases.filter { !homeTileOrder.contains($0) }
         homeTileOrder += missing
-        homeTileVisible = saved.visible
+        // Also make newly added tiles visible by default
+        homeTileVisible = saved.visible.union(Set(missing))
     }
 
     private func persistHomeTiles() {
