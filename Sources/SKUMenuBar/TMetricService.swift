@@ -132,75 +132,68 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws {
+    @discardableResult
+    static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws -> Int? {
         let startStr = localFmt.string(from: Date())
+        let base = "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries"
 
-        // Candidate endpoints — try in order until one returns 2xx
-        struct Candidate {
-            let url: String; let method: String; let body: [String: Any]
-        }
-        var candidates: [Candidate] = []
+        // Try with userId first (preferred), then without
+        let bodies: [[String: Any]] = userId.map {
+            [["startTime": startStr, "userId": $0, "project": ["id": projectId]],
+             ["startTime": startStr, "project": ["id": projectId]]]
+        } ?? [["startTime": startStr, "project": ["id": projectId]]]
 
-        // 1. POST /timeentries with userId in body (most common REST pattern)
-        if let uid = userId {
-            candidates.append(.init(
-                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
-                method: "POST",
-                body: ["startTime": startStr, "userId": uid, "project": ["id": projectId]]
-            ))
-        }
-        // 2. POST /timeentries without userId
-        candidates.append(.init(
-            url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
-            method: "POST",
-            body: ["startTime": startStr, "project": ["id": projectId]]
-        ))
-        // 3. POST /timeentries with flat projectId
-        if let uid = userId {
-            candidates.append(.init(
-                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
-                method: "POST",
-                body: ["startTime": startStr, "userId": uid, "projectId": projectId]
-            ))
-        }
-        // 4. POST /timer with userId as query param
-        if let uid = userId {
-            candidates.append(.init(
-                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer?userId=\(uid)",
-                method: "POST",
-                body: ["projectId": projectId]
-            ))
-        }
-
-        var lastError: String = "Keine Kandidaten"
-        for c in candidates {
-            guard let url = URL(string: c.url) else { continue }
+        var lastError = "Kein Versuch"
+        for bodyDict in bodies {
+            guard let url = URL(string: base) else { continue }
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-            req.httpMethod = c.method
+            req.httpMethod = "POST"
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
-            req.httpBody = try JSONSerialization.data(withJSONObject: c.body)
+            req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
             let (data, response) = try await URLSession.shared.data(for: req)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
-            print("[TMetric] \(c.method) \(c.url) → HTTP \(status): \(body)")
-            if (200...299).contains(status) { return }   // success
-            lastError = "HTTP \(status): \(body.prefix(120))"
+            let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
+            print("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
+            if (200...299).contains(status) {
+                let entryId = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                    .flatMap { $0["id"] as? Int }
+                print("[TMetric] runningEntryId=\(String(describing: entryId))")
+                return entryId
+            }
+            lastError = "HTTP \(status): \(bodyStr.prefix(120))"
         }
-        throw TMetricError.http(0, "Alle Varianten fehlgeschlagen — \(lastError)")
+        throw TMetricError.http(0, lastError)
     }
 
-    static func stopTimer(token: String) async throws {
-        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
-            throw TMetricError.badURL
+    static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
+        // Preferred: PUT /timeentries/{id} with endTime
+        if let eid = entryId,
+           let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
+            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            req.httpMethod = "PUT"
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            var body: [String: Any] = ["endTime": localFmt.string(from: Date())]
+            if let uid = userId { body["userId"] = uid }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("[TMetric] PUT /timeentries/\(eid) → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
+            if (200...299).contains(status) { return }
         }
+        // Fallback: DELETE /timer
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else { return }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         req.httpMethod = "DELETE"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (_, response) = try await URLSession.shared.data(for: req)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw TMetricError.http(http.statusCode, "")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("[TMetric] DELETE /timer → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
+        if !(200...299).contains(status) {
+            throw TMetricError.http(status, "")
         }
     }
 

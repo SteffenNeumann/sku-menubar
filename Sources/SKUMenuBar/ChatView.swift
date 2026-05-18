@@ -907,11 +907,18 @@ struct SingleChatSessionView: View {
             }
             .menuStyle(.borderlessButton)
 
-            // Elapsed time (running only)
+            // Elapsed time (running) + total booked time for project
             if state.tmetricIsTimerRunning, let start = state.tmetricTimerStart {
                 Text(tmetricElapsed(from: start))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.green)
+            }
+            if let pid = tab.tmetricProjectId,
+               let summary = state.tmetricProjects.first(where: { $0.id == pid }),
+               summary.totalSeconds > 0 {
+                Text("· \(summary.formattedDuration)")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(state.tmetricIsTimerRunning ? Color.green.opacity(0.7) : theme.tertiaryText)
             }
 
             // Play / Stop

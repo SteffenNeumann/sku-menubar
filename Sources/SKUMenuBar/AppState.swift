@@ -172,6 +172,7 @@ final class AppState: ObservableObject {
     @Published var tmetricTimerStart:          Date?   = nil
     @Published var tmetricTimerError:          String? = nil
     private var tmetricCachedUserId:       Int?   = nil
+    private var tmetricRunningEntryId:     Int?   = nil
     private var tmetricInactivityTimer:    Timer? = nil
     private var tmetricLastActivity:       Date   = Date()
     @Published var tmetricPeriod:        TMetricPeriod = .today {
@@ -767,7 +768,8 @@ final class AppState: ObservableObject {
         guard let projectId else { return }
         tmetricTimerError = nil
         do {
-            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: tmetricCachedUserId)
+            let entryId = try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: tmetricCachedUserId)
+            tmetricRunningEntryId = entryId
             tmetricIsTimerRunning = true
             tmetricTimerStart     = Date()
             tmetricLastActivity   = Date()
@@ -783,8 +785,10 @@ final class AppState: ObservableObject {
         stopTMetricInactivityTimer()
         tmetricIsTimerRunning = false
         tmetricTimerStart     = nil
+        let entryId = tmetricRunningEntryId
+        tmetricRunningEntryId = nil
         do {
-            try await TMetricService.stopTimer(token: settings.tmetricApiToken)
+            try await TMetricService.stopTimer(token: settings.tmetricApiToken, entryId: entryId, userId: tmetricCachedUserId)
         } catch {
             tmetricTimerError = error.localizedDescription
         }
