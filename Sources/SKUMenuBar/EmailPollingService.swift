@@ -121,29 +121,25 @@ final class EmailPollingService: ObservableObject {
     // MARK: - Fetch unread emails (all accounts)
 
     private func fetchUnreadEmails() async throws -> String {
-        // Simple: grab every unread message from every mailbox of every account
+        // Use Mail.app's unified inbox — covers all accounts
         let script = """
 set output to ""
 tell application "Mail"
-    repeat with acc in every account
-        repeat with mb in every mailbox of acc
-            try
-                set msgs to (every message of mb whose read status is false)
-                repeat with m in msgs
-                    set mid to message id of m
-                    set subj to subject of m
-                    set sndr to sender of m
-                    set bd to content of m
-                    if (count of bd) > 8000 then set bd to text 1 thru 8000 of bd
-                    set output to output & "---MESSAGE---" & linefeed
-                    set output to output & "ID:" & mid & linefeed
-                    set output to output & "SUBJECT:" & subj & linefeed
-                    set output to output & "SENDER:" & sndr & linefeed
-                    set output to output & "BODY:" & bd & linefeed
-                end repeat
-            end try
+    try
+        set msgs to every message of inbox whose read status is false
+        repeat with m in msgs
+            set mid to message id of m
+            set subj to subject of m
+            set sndr to sender of m
+            set bd to content of m
+            if (count of bd) > 8000 then set bd to text 1 thru 8000 of bd
+            set output to output & "---MESSAGE---" & linefeed
+            set output to output & "ID:" & mid & linefeed
+            set output to output & "SUBJECT:" & subj & linefeed
+            set output to output & "SENDER:" & sndr & linefeed
+            set output to output & "BODY:" & bd & linefeed
         end repeat
-    end repeat
+    end try
 end tell
 return output
 """
