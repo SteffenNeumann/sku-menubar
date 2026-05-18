@@ -984,6 +984,13 @@ struct HomeView: View {
                     HStack(spacing: 6) {
                         Text(inquiry.senderName.isEmpty ? inquiry.senderAddress : "\(inquiry.senderName) <\(inquiry.senderAddress)>")
                             .font(.system(size: 10)).foregroundStyle(theme.tertiaryText).lineLimit(1)
+                        if let slug = inquiry.projectSlug {
+                            Text(slug)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.teal)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.teal.opacity(0.1), in: Capsule())
+                        }
                         if let lid = inquiry.linearIssueIdentifier {
                             Text(lid)
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -1521,6 +1528,36 @@ private struct InquiryDetailSheet: View {
                                         Text(item).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Project + Repo
+                    if let projName = inq.linearProjectName ?? inq.projectSlug {
+                        detailSection("Projekt") {
+                            HStack(spacing: 6) {
+                                Image(systemName: "folder.fill").font(.system(size: 12)).foregroundStyle(.teal)
+                                Text(projName)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(theme.primaryText)
+                                Spacer()
+                                if let rp = inq.repoPath {
+                                    Button {
+                                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: rp)
+                                    } label: {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "folder.badge.gearshape").font(.system(size: 10))
+                                            Text("Im Finder").font(.system(size: 10, weight: .medium))
+                                        }
+                                        .foregroundStyle(.blue)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            if let rp = inq.repoPath {
+                                Text(rp.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(theme.tertiaryText)
                             }
                         }
                     }

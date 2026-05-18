@@ -646,6 +646,19 @@ enum InquiryStatus: String, Codable {
     case failed            // technical error
 }
 
+struct CustomerProject: Identifiable, Codable {
+    var id: UUID = UUID()
+    var slug: String                    // e.g. "website", "newsletter"
+    var customerSlug: String            // e.g. "suzananda", "mueller-gmbh"
+    var customerName: String            // display name
+    var linearProjectId: String?        // Linear project ID once created
+    var linearProjectName: String?      // e.g. "Suzananda — Website"
+    var repoPath: String                // ~/Documents/Kunden/{customer}/{project}/
+    var createdAt: Date = Date()
+
+    var displayName: String { linearProjectName ?? "\(customerName) — \(slug)" }
+}
+
 struct CustomerInquiry: Identifiable, Codable {
     var id: UUID = UUID()
     var messageId: String
@@ -661,9 +674,12 @@ struct CustomerInquiry: Identifiable, Codable {
     var analysisSummary: String?
     var missingInfo: [String] = []
     var suggestedLinearTitle: String?
+    var projectSlug: String?            // identified by triage: "website", "newsletter", etc.
     // Populated after actions
     var linearIssueId: String?
     var linearIssueIdentifier: String?  // e.g. "ENG-42"
+    var linearProjectName: String?
+    var repoPath: String?               // ~/Documents/Kunden/{customer}/{project}/
     var draftReplyBody: String?
     var completionSummary: String?
     var errorMessage: String?

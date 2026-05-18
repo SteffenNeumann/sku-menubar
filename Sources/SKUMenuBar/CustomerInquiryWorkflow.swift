@@ -10,6 +10,7 @@ import UserNotifications
 final class CustomerInquiryWorkflow: ObservableObject {
 
     @Published var recentInquiries: [CustomerInquiry] = []
+    @Published var customerProjects: [CustomerProject] = []
 
     weak var cliService: ClaudeCLIService?
     weak var agentService: AgentService?
@@ -22,6 +23,8 @@ final class CustomerInquiryWorkflow: ObservableObject {
     var linearTeamId: String = ""
     private var teamStates: [LinearIssueState] = []
 
+    static let kundenBasePath = NSHomeDirectory() + "/Documents/Kunden"
+
     private func log(_ msg: String) {
         let path = NSHomeDirectory() + "/.claude/inquiry_debug.log"
         let line = "[\(Date())] \(msg)\n"
@@ -33,12 +36,14 @@ final class CustomerInquiryWorkflow: ObservableObject {
 
     private let ud = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let inquiriesKey = "customer_inquiries_v1"
+    private let projectsKey = "customer_projects_v1"
     private let maxStored = 200
 
     init(cliService: ClaudeCLIService, agentService: AgentService) {
         self.cliService   = cliService
         self.agentService = agentService
         loadInquiries()
+        loadProjects()
     }
 
     // MARK: - Linear setup (called after services are configured)
@@ -80,10 +85,19 @@ final class CustomerInquiryWorkflow: ObservableObject {
             inquiry.analysisSummary     = analysis.summary
             inquiry.missingInfo         = analysis.missingInfo
             inquiry.suggestedLinearTitle = analysis.suggestedLinearTitle
+            inquiry.projectSlug         = analysis.projectSlug
         }
 
-        // Create Linear issue
-        let issueId = await createLinearIssue(for: &inquiry)
+        // Phase 2b: Ensure project repo + Linear project
+        let customerSlug = deriveCustomerSlug(for: inquiry)
+        let projectSlug = inquiry.projectSlug ?? "general"
+        let project = await ensureProject(customerSlug: customerSlug, projectSlug: projectSlug, inquiry: inquiry)
+        inquiry.repoPath = project.repoPath
+        inquiry.linearProjectName = project.displayName
+        upsert(inquiry)
+
+        // Create Linear issue (in the project if available)
+        let issueId = await createLinearIssue(for: &inquiry, projectId: project.linearProjectId)
         inquiry.linearIssueId = issueId
 
         if !inquiry.missingInfo.isEmpty {
@@ -129,12 +143,23 @@ final class CustomerInquiryWorkflow: ObservableObject {
                 inquiry.analysisSummary     = analysis.summary
                 inquiry.missingInfo         = analysis.missingInfo
                 inquiry.suggestedLinearTitle = analysis.suggestedLinearTitle
+                inquiry.projectSlug         = analysis.projectSlug
             }
+        }
+
+        // Ensure project repo
+        if inquiry.repoPath == nil {
+            let customerSlug = deriveCustomerSlug(for: inquiry)
+            let projectSlug = inquiry.projectSlug ?? "general"
+            let project = await ensureProject(customerSlug: customerSlug, projectSlug: projectSlug, inquiry: inquiry)
+            inquiry.repoPath = project.repoPath
+            inquiry.linearProjectName = project.displayName
         }
 
         // Create Linear issue if missing
         if inquiry.linearIssueId == nil {
-            let issueId = await createLinearIssue(for: &inquiry)
+            let project = customerProjects.first(where: { $0.repoPath == inquiry.repoPath })
+            let issueId = await createLinearIssue(for: &inquiry, projectId: project?.linearProjectId)
             inquiry.linearIssueId = issueId
         }
         upsert(inquiry)
@@ -207,6 +232,12 @@ Customer reply:
             inquiry.status = .completed
             upsert(inquiry)
 
+            // Commit result to project repo
+            if let repoPath = inquiry.repoPath {
+                let commitMsg = inquiry.suggestedLinearTitle ?? "Kundenanfrage: \(inquiry.subject)"
+                commitToProjectRepo(repoPath: repoPath, message: commitMsg, content: trimmed)
+            }
+
             let finalComment = buildCompletionComment(inquiry: inquiry, output: trimmed)
             await addLinearComment(issueId: inquiry.linearIssueId, body: finalComment)
             await updateLinearStatus(issueId: inquiry.linearIssueId, to: "completed")
@@ -235,6 +266,111 @@ Customer reply:
         case "opus":   return "claude-opus-4-6-20250514"
         default:       return shortName
         }
+    }
+
+    // MARK: - Project management (Phase 2b)
+
+    private func deriveCustomerSlug(for inquiry: CustomerInquiry) -> String {
+        if let pid = inquiry.matchedPersonaId, !pid.isEmpty {
+            return pid.lowercased().replacingOccurrences(of: " ", with: "-")
+        }
+        let domain = inquiry.senderAddress.components(separatedBy: "@").last ?? ""
+        let slug = domain.components(separatedBy: ".").first ?? domain
+        return slug.lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+
+    private func customerDisplayName(for inquiry: CustomerInquiry) -> String {
+        if let pid = inquiry.matchedPersonaId, !pid.isEmpty {
+            return agentService?.agents.first(where: { $0.id == pid })?.name ?? pid
+        }
+        if !inquiry.senderName.isEmpty { return inquiry.senderName }
+        return inquiry.senderAddress.components(separatedBy: "@").first ?? inquiry.senderAddress
+    }
+
+    private func ensureProject(customerSlug: String, projectSlug: String, inquiry: CustomerInquiry) async -> CustomerProject {
+        if let existing = customerProjects.first(where: { $0.customerSlug == customerSlug && $0.slug == projectSlug }) {
+            return existing
+        }
+
+        let customerName = customerDisplayName(for: inquiry)
+        let repoPath = "\(Self.kundenBasePath)/\(customerSlug)/\(projectSlug)"
+        let linearName = "\(customerName) — \(projectSlug)"
+
+        ensureProjectRepo(at: repoPath, customerName: customerName, projectSlug: projectSlug)
+
+        var linearProjectId: String?
+        if let svc = linearService, !linearTeamId.isEmpty {
+            do {
+                let result = try await svc.createProject(teamId: linearTeamId, name: linearName, description: "Kundenproject: \(customerName) / \(projectSlug)")
+                linearProjectId = result.id
+                log("[Project] Linear project created: \(result.id) — \(result.name)")
+            } catch {
+                log("[Project] Linear project creation failed: \(error)")
+            }
+        }
+
+        let project = CustomerProject(
+            slug: projectSlug,
+            customerSlug: customerSlug,
+            customerName: customerName,
+            linearProjectId: linearProjectId,
+            linearProjectName: linearName,
+            repoPath: repoPath
+        )
+        customerProjects.append(project)
+        persistProjects()
+        return project
+    }
+
+    private func ensureProjectRepo(at path: String, customerName: String, projectSlug: String) {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: path) {
+            try? fm.createDirectory(atPath: path, withIntermediateDirectories: true)
+        }
+        let gitDir = path + "/.git"
+        if !fm.fileExists(atPath: gitDir) {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            proc.arguments = ["init"]
+            proc.currentDirectoryURL = URL(fileURLWithPath: path)
+            try? proc.run(); proc.waitUntilExit()
+
+            let readme = """
+            # \(customerName) — \(projectSlug)
+
+            Automatisch erstellt von myClaude Kundenanfragen-Workflow.
+            """
+            let readmePath = path + "/README.md"
+            try? readme.write(toFile: readmePath, atomically: true, encoding: .utf8)
+
+            let commitProc = Process()
+            commitProc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            commitProc.arguments = ["-C", path, "add", "-A"]
+            try? commitProc.run(); commitProc.waitUntilExit()
+
+            let commitProc2 = Process()
+            commitProc2.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            commitProc2.arguments = ["-C", path, "commit", "-m", "Initial commit: \(customerName) — \(projectSlug)"]
+            try? commitProc2.run(); commitProc2.waitUntilExit()
+
+            log("[Project] Git repo initialized at \(path)")
+        }
+    }
+
+    private func commitToProjectRepo(repoPath: String, message: String, content: String) {
+        let resultPath = repoPath + "/ergebnis.md"
+        try? content.write(toFile: resultPath, atomically: true, encoding: .utf8)
+
+        let addProc = Process()
+        addProc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        addProc.arguments = ["-C", repoPath, "add", "-A"]
+        try? addProc.run(); addProc.waitUntilExit()
+
+        let commitProc = Process()
+        commitProc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        commitProc.arguments = ["-C", repoPath, "commit", "-m", message]
+        try? commitProc.run(); commitProc.waitUntilExit()
+        log("[Project] Committed to \(repoPath): \(message)")
     }
 
     // MARK: - Routing
@@ -273,6 +409,7 @@ Customer reply:
         let summary: String
         let missingInfo: [String]
         let suggestedLinearTitle: String
+        let projectSlug: String
     }
 
     private func analyzeEmail(
@@ -306,7 +443,8 @@ Analyze the following customer email and return this exact JSON:
   "priority": <1=urgent|2=high|3=medium|4=low>,
   "summary": "<1-2 sentence summary of what the customer needs>",
   "missingInfo": ["<item 1>", "<item 2>"],
-  "suggestedLinearTitle": "<concise Linear issue title, max 80 chars, starts with verb>"
+  "suggestedLinearTitle": "<concise Linear issue title, max 80 chars, starts with verb>",
+  "projectSlug": "<lowercase slug identifying the project, e.g. website, newsletter, booking, branding>"
 }
 
 Rules:
@@ -316,6 +454,7 @@ Rules:
 - priority 4 = compliments, FYI, newsletter
 - missingInfo: list what info is still needed. Return [] if request is complete and actionable.
 - suggestedLinearTitle: e.g. "Investigate login failure for Mueller GmbH"
+- projectSlug: a short lowercase identifier for the project area (no spaces, use hyphens). Examples: "website", "newsletter", "booking-system", "branding", "seo", "social-media". If unclear, use "general".
 
 \(personaCtx)
 
@@ -346,6 +485,7 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
                 let summary: String
                 let missingInfo: [String]
                 let suggestedLinearTitle: String
+                let projectSlug: String?
             }
             guard let data = jsonStr.data(using: .utf8),
                   let obj  = try? JSONDecoder().decode(AnalysisJSON.self, from: data) else {
@@ -356,7 +496,8 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
                 priority: max(1, min(4, obj.priority)),
                 summary: obj.summary,
                 missingInfo: obj.missingInfo,
-                suggestedLinearTitle: obj.suggestedLinearTitle
+                suggestedLinearTitle: obj.suggestedLinearTitle,
+                projectSlug: obj.projectSlug ?? "general"
             ))
         } catch {
             log("analyzeEmail ERROR: \(error)")
@@ -367,7 +508,7 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
     // MARK: - Linear helpers
 
     @discardableResult
-    private func createLinearIssue(for inquiry: inout CustomerInquiry) async -> String? {
+    private func createLinearIssue(for inquiry: inout CustomerInquiry, projectId: String? = nil) async -> String? {
         guard !linearTeamId.isEmpty else {
             log("[Inquiry] Linear: skipped — no teamId configured")
             return nil
@@ -378,7 +519,8 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
         }
         do {
             let title  = inquiry.suggestedLinearTitle ?? "Kundenanfrage: \(inquiry.subject)"
-            let desc   = buildLinearDescription(for: inquiry)
+            var desc   = buildLinearDescription(for: inquiry)
+            if let rp = inquiry.repoPath { desc += "\n\n**Repo:** `\(rp)`" }
             let raw    = try await svc.createIssue(
                 teamId: linearTeamId,
                 title: title,
@@ -612,6 +754,18 @@ Mit freundlichen Grüßen
     private func persist() {
         if let d = try? JSONEncoder().encode(recentInquiries) {
             ud.set(d, forKey: inquiriesKey)
+        }
+    }
+
+    private func loadProjects() {
+        guard let d = ud.data(forKey: projectsKey),
+              let items = try? JSONDecoder().decode([CustomerProject].self, from: d) else { return }
+        customerProjects = items
+    }
+
+    private func persistProjects() {
+        if let d = try? JSONEncoder().encode(customerProjects) {
+            ud.set(d, forKey: projectsKey)
         }
     }
 

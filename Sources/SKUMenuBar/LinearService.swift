@@ -226,6 +226,30 @@ final class LinearService: ObservableObject {
         ])
     }
 
+    func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        let raw = try await session.callTool(name: "linear_create_project_with_issues", arguments: [
+            "teamIds": [teamId],
+            "name": name,
+            "description": description
+        ])
+        if let data = raw.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let project = json["project"] as? [String: Any] ?? (json["projectCreate"] as? [String: Any])?["project"] as? [String: Any],
+           let id = project["id"] as? String {
+            return (id, (project["name"] as? String) ?? name)
+        }
+        for line in raw.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Project:") || trimmed.hasPrefix("Name:") {
+                let val = trimmed.components(separatedBy: ":").dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
+                if !val.isEmpty { return (val, name) }
+            }
+        }
+        return (raw.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines), name)
+    }
+
     func loadIssueStates(teamId: String) async -> [LinearIssueState] {
         if teams.isEmpty { await loadTeams() }
         return teams.first(where: { $0.id == teamId })?.states ?? []
