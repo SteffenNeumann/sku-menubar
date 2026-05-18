@@ -169,33 +169,33 @@ enum TMetricService {
 
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
         let endStr = localFmt.string(from: Date())
+        let resolvedId = entryId ?? (try? await fetchRunningEntryId(token: token, userId: userId))
 
-        // Resolve entryId: use known value, or fetch the running entry
-        let resolvedId: Int?
-        if let eid = entryId {
-            resolvedId = eid
-        } else {
-            resolvedId = try? await fetchRunningEntryId(token: token, userId: userId)
-        }
-
-        // 1. PUT /timeentries/{id} with endTime (most reliable)
         if let eid = resolvedId,
-           let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
-            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-            req.httpMethod = "PUT"
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            var body: [String: Any] = ["endTime": endStr]
-            if let uid = userId { body["userId"] = uid }
-            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            let (data, response) = try await URLSession.shared.data(for: req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("[TMetric] PUT /timeentries/\(eid) → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
-            if (200...299).contains(status) { return }
+           let entryUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
+            // GET the full entry first, then merge endTime and PUT the complete object back
+            var getReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            getReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            getReq.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let (getData, getResp) = try? await URLSession.shared.data(for: getReq),
+               (getResp as? HTTPURLResponse)?.statusCode == 200,
+               var fullEntry = try? JSONSerialization.jsonObject(with: getData) as? [String: Any] {
+                fullEntry["endTime"] = endStr
+                var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+                putReq.httpMethod = "PUT"
+                putReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                putReq.setValue("application/json", forHTTPHeaderField: "Accept")
+                putReq.httpBody = try? JSONSerialization.data(withJSONObject: fullEntry)
+                let (putData, putResp) = try await URLSession.shared.data(for: putReq)
+                let status = (putResp as? HTTPURLResponse)?.statusCode ?? 0
+                print("[TMetric] PUT /timeentries/\(eid) → HTTP \(status)")
+                if (200...299).contains(status) { return }
+                print("[TMetric] PUT failed: \(String(data: putData.prefix(200), encoding: .utf8) ?? "")")
+            }
         }
 
-        // 2. Fallback: DELETE /timer (with userId query param if available)
+        // Fallback: DELETE /timer
         var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
         if let uid = userId { comps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
         guard let url = comps.url else { return }
