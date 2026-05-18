@@ -633,67 +633,95 @@ struct HomeView: View {
                             ? "Keine Zeit in diesem Zeitraum."
                             : state.tmetricPeriod.emptyText)
                     } else {
-                        // ── Gesamt + Donut ────────────────────────────────
+                        // ── Gesamt + Donut + Top-3-Cards ─────────────────
                         let totalSeconds = displayedProjects.map(\.totalSeconds).reduce(0, +)
                         let chartColors: [Color] = [.indigo, .blue, .cyan, .teal, .purple, .pink, .orange, .green]
 
-                        HStack(alignment: .center, spacing: 16) {
-                            // Donut Chart
+                        HStack(alignment: .center, spacing: 18) {
+                            // ── Donut (A: größer, Gesamtzeit + Label) ────────
                             Chart(Array(displayedProjects.prefix(8).enumerated()), id: \.element.id) { idx, project in
                                 SectorMark(
                                     angle: .value("Zeit", project.totalSeconds),
-                                    innerRadius: .ratio(0.55),
+                                    innerRadius: .ratio(0.58),
                                     angularInset: 1.5
                                 )
                                 .foregroundStyle(chartColors[idx % chartColors.count])
                                 .cornerRadius(3)
                             }
-                            .frame(width: 110, height: 110)
+                            .frame(width: 148, height: 148)
                             .overlay {
-                                VStack(spacing: 1) {
+                                VStack(spacing: 2) {
                                     let h = totalSeconds / 3600
                                     let m = (totalSeconds % 3600) / 60
                                     Text(h > 0 ? "\(h)h" : "\(m)m")
-                                        .font(.system(size: 16, weight: .bold).monospacedDigit())
+                                        .font(.system(size: 22, weight: .bold).monospacedDigit())
                                         .foregroundStyle(theme.primaryText)
                                     if h > 0 {
                                         Text("\(m)m")
-                                            .font(.system(size: 11).monospacedDigit())
+                                            .font(.system(size: 13).monospacedDigit())
                                             .foregroundStyle(theme.secondaryText)
                                     }
+                                    Text("Gesamt")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(theme.tertiaryText)
                                 }
                             }
 
-                            // Legende
-                            VStack(alignment: .leading, spacing: 5) {
-                                ForEach(Array(displayedProjects.prefix(5).enumerated()), id: \.element.id) { idx, p in
-                                    HStack(spacing: 6) {
-                                        Circle()
-                                            .fill(chartColors[idx % chartColors.count])
-                                            .frame(width: 8, height: 8)
-                                        VStack(alignment: .leading, spacing: 0) {
-                                            Text(p.name)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(theme.primaryText)
-                                                .lineLimit(1)
-                                            if !p.clientName.isEmpty {
-                                                Text(p.clientName)
-                                                    .font(.system(size: 10))
-                                                    .foregroundStyle(theme.tertiaryText)
-                                                    .lineLimit(1)
+                            // ── Top-3-Cards (C: Akzentbalken + Fortschritt) ──
+                            VStack(spacing: 7) {
+                                ForEach(Array(displayedProjects.prefix(3).enumerated()), id: \.element.id) { idx, p in
+                                    let pct = totalSeconds > 0 ? Double(p.totalSeconds) / Double(totalSeconds) : 0
+                                    let color = chartColors[idx % chartColors.count]
+
+                                    HStack(spacing: 0) {
+                                        // Farbiger Akzentbalken links
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(color)
+                                            .frame(width: 3)
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            HStack(alignment: .firstTextBaseline) {
+                                                VStack(alignment: .leading, spacing: 0) {
+                                                    Text(p.name)
+                                                        .font(.system(size: 12, weight: .semibold))
+                                                        .foregroundStyle(theme.primaryText)
+                                                        .lineLimit(1)
+                                                    if !p.clientName.isEmpty {
+                                                        Text(p.clientName)
+                                                            .font(.system(size: 10))
+                                                            .foregroundStyle(theme.tertiaryText)
+                                                            .lineLimit(1)
+                                                    }
+                                                }
+                                                Spacer(minLength: 4)
+                                                Text(p.formattedDuration)
+                                                    .font(.system(size: 13, weight: .bold).monospacedDigit())
+                                                    .foregroundStyle(color)
                                             }
+                                            // Fortschrittsbalken
+                                            GeometryReader { geo in
+                                                ZStack(alignment: .leading) {
+                                                    Capsule().fill(color.opacity(0.15))
+                                                        .frame(height: 3)
+                                                    Capsule().fill(color)
+                                                        .frame(width: max(3, geo.size.width * pct), height: 3)
+                                                }
+                                            }
+                                            .frame(height: 3)
                                         }
-                                        Spacer(minLength: 0)
-                                        let pct = totalSeconds > 0 ? Int(Double(p.totalSeconds) / Double(totalSeconds) * 100) : 0
-                                        Text("\(pct)%")
-                                            .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                                            .foregroundStyle(chartColors[idx % chartColors.count])
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 8)
                                     }
+                                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
-                                if displayedProjects.count > 5 {
-                                    Text("+ \(displayedProjects.count - 5) weitere")
+
+                                if displayedProjects.count > 3 {
+                                    Text("+ \(displayedProjects.count - 3) weitere")
                                         .font(.system(size: 10))
                                         .foregroundStyle(theme.tertiaryText)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                        .padding(.trailing, 2)
                                 }
                             }
                             .frame(maxWidth: .infinity)
