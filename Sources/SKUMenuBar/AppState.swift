@@ -700,6 +700,11 @@ final class AppState: ObservableObject {
         tmetricIsLoading = true
         tmetricError     = nil
 
+        // Ensure userId is always fresh — GET /users/me is cheap and definitive
+        if tmetricCachedUserId == nil {
+            tmetricCachedUserId = await TMetricService.fetchUserId(token: token)
+        }
+
         do {
             let (from, to) = tmetricIsCustomRange
                 ? (tmetricCustomFrom, tmetricCustomTo)
@@ -792,6 +797,10 @@ final class AppState: ObservableObject {
             return
         }
         let entryId = chatTabs[idx].tmetricRunningEntryId
+        // Fetch userId on demand if still missing
+        if tmetricCachedUserId == nil {
+            tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
+        }
         NSLog("[AppState] stopTMetricTimer: entryId=\(String(describing: entryId)) cachedUserId=\(String(describing: tmetricCachedUserId))")
         chatTabs[idx].tmetricIsTimerRunning  = false
         chatTabs[idx].tmetricTimerStart      = nil
