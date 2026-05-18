@@ -131,36 +131,26 @@ enum TMetricService {
     // MARK: Timer control
 
     static func startTimer(token: String, projectId: Int) async throws {
-        // First probe GET /timer to see what format TMetric expects
-        if let getUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") {
-            var probe = URLRequest(url: getUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-            probe.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            probe.setValue("application/json", forHTTPHeaderField: "Accept")
-            if let (pd, pr) = try? await URLSession.shared.data(for: probe) {
-                let status = (pr as? HTTPURLResponse)?.statusCode ?? 0
-                print("[TMetric] GET /timer → HTTP \(status): \(String(data: pd.prefix(500), encoding: .utf8) ?? "")")
-            }
-        }
-        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
+        // TMetric v3: start a running entry via POST /timeentries (endTime omitted = running)
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries") else {
             throw TMetricError.badURL
         }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        req.httpMethod = "PUT"
+        req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        // TMetric v3: PUT /timer with projectId + workspaceId
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "projectId":   projectId,
-            "workspaceId": accountId
-        ])
-        print("[TMetric] PUT /timer body: {\"projectId\": \(projectId), \"workspaceId\": \(accountId)}")
+        let body: [String: Any] = [
+            "startTime": localFmt.string(from: Date()),
+            "project":   ["id": projectId]
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let body = String(data: data.prefix(500), encoding: .utf8) ?? ""
-        print("[TMetric] POST /timer → HTTP \(status): \(body)")
+        let responseBody = String(data: data.prefix(500), encoding: .utf8) ?? ""
+        print("[TMetric] POST /timeentries → HTTP \(status): \(responseBody)")
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw TMetricError.http(http.statusCode, body)
+            throw TMetricError.http(http.statusCode, responseBody)
         }
     }
 
