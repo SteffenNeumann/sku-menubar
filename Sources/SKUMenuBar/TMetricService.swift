@@ -168,15 +168,25 @@ enum TMetricService {
     }
 
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
-        // Preferred: PUT /timeentries/{id} with endTime
-        if let eid = entryId,
+        let endStr = localFmt.string(from: Date())
+
+        // Resolve entryId: use known value, or fetch the running entry
+        let resolvedId: Int?
+        if let eid = entryId {
+            resolvedId = eid
+        } else {
+            resolvedId = try? await fetchRunningEntryId(token: token, userId: userId)
+        }
+
+        // 1. PUT /timeentries/{id} with endTime (most reliable)
+        if let eid = resolvedId,
            let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
             req.httpMethod = "PUT"
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
-            var body: [String: Any] = ["endTime": localFmt.string(from: Date())]
+            var body: [String: Any] = ["endTime": endStr]
             if let uid = userId { body["userId"] = uid }
             req.httpBody = try? JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await URLSession.shared.data(for: req)
@@ -184,8 +194,11 @@ enum TMetricService {
             print("[TMetric] PUT /timeentries/\(eid) → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
             if (200...299).contains(status) { return }
         }
-        // Fallback: DELETE /timer
-        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else { return }
+
+        // 2. Fallback: DELETE /timer (with userId query param if available)
+        var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
+        if let uid = userId { comps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
+        guard let url = comps.url else { return }
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         req.httpMethod = "DELETE"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -193,8 +206,30 @@ enum TMetricService {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         print("[TMetric] DELETE /timer → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
         if !(200...299).contains(status) {
-            throw TMetricError.http(status, "")
+            throw TMetricError.http(status, String(data: data.prefix(200), encoding: .utf8) ?? "")
         }
+    }
+
+    /// Fetches the ID of the currently running time entry (endTime == nil).
+    private static func fetchRunningEntryId(token: String, userId: Int?) async throws -> Int? {
+        let now = Date()
+        let dayStart = Calendar.current.startOfDay(for: now)
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "startTime", value: localFmt.string(from: dayStart)),
+            URLQueryItem(name: "endTime",   value: localFmt.string(from: now))
+        ]
+        if let uid = userId { items.append(URLQueryItem(name: "userIds", value: "\(uid)")) }
+        var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
+        comps.queryItems = items
+        guard let url = comps.url else { return nil }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let entries = (try? JSONDecoder().decode([TMetricTimeEntry].self, from: data)) ?? []
+        let running = entries.first(where: { $0.endTime == nil })
+        print("[TMetric] fetchRunningEntryId → \(String(describing: running?.id))")
+        return running?.id
     }
 
     // MARK: Main fetch
