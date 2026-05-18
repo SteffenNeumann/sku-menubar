@@ -121,60 +121,31 @@ final class EmailPollingService: ObservableObject {
     // MARK: - Fetch unread emails (all accounts)
 
     private func fetchUnreadEmails() async throws -> String {
-        // Search all account inboxes — catches "Eingang - Web", Gmail, iCloud etc.
+        // Simple: grab every unread message from every mailbox of every account
         let script = """
+set output to ""
 tell application "Mail"
-    set result to ""
-    set seenIds to {}
-    set inboxNames to {"INBOX", "Inbox", "Eingang", "inbox"}
-
-    -- Unified inbox first
-    try
-        set msgs to every message of inbox whose read status is false
-        repeat with m in msgs
-            set msgId to message id of m
-            set subj to subject of m
-            set sndr to sender of m
-            set bd to (content of m)
-            if (count of bd) > 8000 then set bd to (text 1 thru 8000 of bd)
-            set result to result & "---MESSAGE---" & return
-            set result to result & "ID:" & msgId & return
-            set result to result & "SUBJECT:" & subj & return
-            set result to result & "SENDER:" & sndr & return
-            set result to result & "BODY:" & bd & return
-            set end of seenIds to msgId
-        end repeat
-    end try
-
-    -- All account mailboxes named like an inbox
-    repeat with theAccount in every account
-        repeat with theMailbox in (every mailbox of theAccount)
-            set mName to name of theMailbox
-            if mName is in inboxNames then
-                try
-                    set msgs to every message of theMailbox whose read status is false
-                    repeat with m in msgs
-                        set msgId to message id of m
-                        if msgId is not in seenIds then
-                            set subj to subject of m
-                            set sndr to sender of m
-                            set bd to (content of m)
-                            if (count of bd) > 8000 then set bd to (text 1 thru 8000 of bd)
-                            set result to result & "---MESSAGE---" & return
-                            set result to result & "ID:" & msgId & return
-                            set result to result & "SUBJECT:" & subj & return
-                            set result to result & "SENDER:" & sndr & return
-                            set result to result & "BODY:" & bd & return
-                            set end of seenIds to msgId
-                        end if
-                    end repeat
-                end try
-            end if
+    repeat with acc in every account
+        repeat with mb in every mailbox of acc
+            try
+                set msgs to (every message of mb whose read status is false)
+                repeat with m in msgs
+                    set mid to message id of m
+                    set subj to subject of m
+                    set sndr to sender of m
+                    set bd to content of m
+                    if (count of bd) > 8000 then set bd to text 1 thru 8000 of bd
+                    set output to output & "---MESSAGE---" & linefeed
+                    set output to output & "ID:" & mid & linefeed
+                    set output to output & "SUBJECT:" & subj & linefeed
+                    set output to output & "SENDER:" & sndr & linefeed
+                    set output to output & "BODY:" & bd & linefeed
+                end repeat
+            end try
         end repeat
     end repeat
-
-    return result
 end tell
+return output
 """
         return try await runAppleScript(script)
     }
