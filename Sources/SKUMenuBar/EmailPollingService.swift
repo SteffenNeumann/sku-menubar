@@ -125,13 +125,24 @@ final class EmailPollingService: ObservableObject {
         let script = """
 tell application "Mail"
     set result to ""
+    set seenIds to {}
     set inboxNames to {"INBOX", "Inbox", "Eingang", "inbox"}
 
     -- Unified inbox first
     try
         set msgs to every message of inbox whose read status is false
         repeat with m in msgs
-            set result to result & my formatMsg(m)
+            set msgId to message id of m
+            set subj to subject of m
+            set sndr to sender of m
+            set bd to (content of m)
+            if (count of bd) > 8000 then set bd to (text 1 thru 8000 of bd)
+            set result to result & "---MESSAGE---" & return
+            set result to result & "ID:" & msgId & return
+            set result to result & "SUBJECT:" & subj & return
+            set result to result & "SENDER:" & sndr & return
+            set result to result & "BODY:" & bd & return
+            set end of seenIds to msgId
         end repeat
     end try
 
@@ -143,10 +154,18 @@ tell application "Mail"
                 try
                     set msgs to every message of theMailbox whose read status is false
                     repeat with m in msgs
-                        -- avoid duplicates already captured from unified inbox
                         set msgId to message id of m
-                        if msgId is not "" and result does not contain ("ID:" & msgId) then
-                            set result to result & my formatMsg(m)
+                        if msgId is not in seenIds then
+                            set subj to subject of m
+                            set sndr to sender of m
+                            set bd to (content of m)
+                            if (count of bd) > 8000 then set bd to (text 1 thru 8000 of bd)
+                            set result to result & "---MESSAGE---" & return
+                            set result to result & "ID:" & msgId & return
+                            set result to result & "SUBJECT:" & subj & return
+                            set result to result & "SENDER:" & sndr & return
+                            set result to result & "BODY:" & bd & return
+                            set end of seenIds to msgId
                         end if
                     end repeat
                 end try
@@ -156,20 +175,6 @@ tell application "Mail"
 
     return result
 end tell
-
-on formatMsg(m)
-    set msgId to message id of m
-    set subj to subject of m
-    set sndr to sender of m
-    set bd to (content of m)
-    if (count of bd) > 8000 then set bd to (text 1 thru 8000 of bd)
-    set out to "---MESSAGE---" & return
-    set out to out & "ID:" & msgId & return
-    set out to out & "SUBJECT:" & subj & return
-    set out to out & "SENDER:" & sndr & return
-    set out to out & "BODY:" & bd & return
-    return out
-end formatMsg
 """
         return try await runAppleScript(script)
     }
