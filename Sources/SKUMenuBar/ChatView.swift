@@ -623,6 +623,11 @@ struct SingleChatSessionView: View {
         } else if !tab.inputText.isEmpty {
             inputText = tab.inputText
         }
+        if isActive, let dir = state.pendingChatSetDirectory {
+            state.pendingChatSetDirectory = nil
+            workingDirectory = dir
+            if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+        }
         if let wd = tab.workingDirectory { workingDirectory = wd }
         fetchGitBranch()
         if let sid = tab.sessionId {
@@ -715,6 +720,11 @@ struct SingleChatSessionView: View {
         if isActive {
             tryAutoMatchTMetricProject()
             handlePendingMessage()
+            if let dir = state.pendingChatSetDirectory {
+                state.pendingChatSetDirectory = nil
+                workingDirectory = dir
+                if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+            }
         } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }

@@ -536,7 +536,11 @@ struct LinearView: View {
     // MARK: - Actions
 
     private func openInChat(_ issue: LinearIssue) {
-        var prompt = "Linear Issue **\(issue.identifier)**: \(issue.title)\n\n"
+        var prompt = ""
+        if let project = selectedProject {
+            prompt += "Linear Projekt: **\(project.name)**\n"
+        }
+        prompt += "Issue **\(issue.identifier)**: \(issue.title)\n\n"
         if let st = issue.state { prompt += "Status: \(st.name)\n" }
         prompt += "Priorität: \(issue.priority.label)\n"
         if let assignee = issue.assigneeName { prompt += "Zugewiesen: \(assignee)\n" }
@@ -544,6 +548,18 @@ struct LinearView: View {
 
         state.pendingChatMessage = prompt
         state.pendingChatSessionTitle = issue.identifier
+
+        // Match Linear project name against local projects and set working directory
+        if let linearProjectName = selectedProject?.name.lowercased() {
+            let match = state.historyService.projects.first {
+                let local = $0.displayName.lowercased()
+                return local.contains(linearProjectName) || linearProjectName.contains(local)
+            }
+            if let matched = match {
+                state.pendingChatSetDirectory = matched.path
+            }
+        }
+
         state.pendingNavigateToChat = true
     }
 

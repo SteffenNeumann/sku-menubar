@@ -98,6 +98,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
     @Published var pendingChatMessage: String? = nil      // pre-fill chat input + navigate to chat
+    @Published var pendingChatSetDirectory: String? = nil // set workingDirectory without new session
     @Published var pendingNavigateToChat: Bool = false    // trigger navigation to chat section
     @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
     @Published var hideSidebar: Bool = false               // hide the main navigation sidebar
@@ -781,9 +782,17 @@ final class AppState: ObservableObject {
 
     @MainActor
     func stopTMetricTimer(tabId: UUID) async {
-        guard let idx = chatTabs.firstIndex(where: { $0.id == tabId }) else { return }
-        guard chatTabs[idx].tmetricIsTimerRunning else { return }
+        NSLog("[AppState] stopTMetricTimer tabId=\(tabId)")
+        guard let idx = chatTabs.firstIndex(where: { $0.id == tabId }) else {
+            NSLog("[AppState] stopTMetricTimer: tab not found")
+            return
+        }
+        guard chatTabs[idx].tmetricIsTimerRunning else {
+            NSLog("[AppState] stopTMetricTimer: timer not running for tab \(idx)")
+            return
+        }
         let entryId = chatTabs[idx].tmetricRunningEntryId
+        NSLog("[AppState] stopTMetricTimer: entryId=\(String(describing: entryId)) cachedUserId=\(String(describing: tmetricCachedUserId))")
         chatTabs[idx].tmetricIsTimerRunning  = false
         chatTabs[idx].tmetricTimerStart      = nil
         chatTabs[idx].tmetricRunningEntryId  = nil
@@ -793,7 +802,9 @@ final class AppState: ObservableObject {
                 entryId: entryId,
                 userId: tmetricCachedUserId
             )
+            NSLog("[AppState] stopTMetricTimer: success")
         } catch {
+            NSLog("[AppState] stopTMetricTimer error: \(error.localizedDescription)")
             chatTabs[idx].tmetricTimerError = error.localizedDescription
         }
         Task { await refreshTMetric(force: true) }
