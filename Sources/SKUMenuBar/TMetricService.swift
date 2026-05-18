@@ -132,16 +132,44 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    /// Returns (entryId, userId) — userId ist aus der API-Antwort, damit wir ihn cachen können.
+    /// Starts a timer via POST /timer so TMetric's timer system tracks it.
+    /// Falls back to POST /timeentries if /timer returns non-2xx.
+    /// Returns (entryId, userId) from the response.
     static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws -> (entryId: Int?, userId: Int?) {
+        // Primary: POST /timer — integrates with TMetric's timer system (enables GET/DELETE /timer)
+        var timerComps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
+        if let uid = userId { timerComps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
+        if let url = timerComps.url {
+            var body: [String: Any] = ["projectId": projectId]
+            if let uid = userId { body["userId"] = uid }
+            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            if let (data, resp) = try? await URLSession.shared.data(for: req) {
+                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
+                NSLog("[TMetric] POST /timer → HTTP \(status): \(bodyStr)")
+                if (200...299).contains(status) {
+                    let json = try? JSONSerialization.jsonObject(with: data)
+                    let dict = (json as? [String: Any]) ?? (json as? [[String: Any]])?.first
+                    let entryId     = dict.flatMap { $0["id"]     as? Int }
+                    let returnedUid = dict.flatMap { $0["userId"] as? Int }
+                    NSLog("[TMetric] /timer start: entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
+                    return (entryId: entryId, userId: returnedUid)
+                }
+            }
+        }
+
+        // Fallback: POST /timeentries (manual entry — DELETE /timer won't stop this)
         let startStr = localFmt.string(from: Date())
         let base = "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries"
-
         let bodies: [[String: Any]] = userId.map {
             [["startTime": startStr, "userId": $0, "project": ["id": projectId]],
              ["startTime": startStr, "project": ["id": projectId]]]
         } ?? [["startTime": startStr, "project": ["id": projectId]]]
-
         var lastError = "Kein Versuch"
         for bodyDict in bodies {
             guard let url = URL(string: base) else { continue }
@@ -158,12 +186,10 @@ enum TMetricService {
             if (200...299).contains(status) {
                 let json = try? JSONSerialization.jsonObject(with: data)
                 let dict = (json as? [String: Any]) ?? (json as? [[String: Any]])?.first
-                if let dict = dict {
-                    let entryId     = dict["id"]     as? Int
-                    let returnedUid = dict["userId"] as? Int
-                    NSLog("[TMetric] started entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
-                    return (entryId: entryId, userId: returnedUid)
-                }
+                let entryId     = dict.flatMap { $0["id"]     as? Int }
+                let returnedUid = dict.flatMap { $0["userId"] as? Int }
+                NSLog("[TMetric] /timeentries start: entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
+                return (entryId: entryId, userId: returnedUid)
             }
             lastError = "HTTP \(status): \(bodyStr.prefix(120))"
         }
