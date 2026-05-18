@@ -80,6 +80,7 @@ struct MainWindowView: View {
             case .mcp:        MCPView()
             case .notes:      NotesView(lockedType: .note)
             case .tasks:      NotesView(lockedType: .task)
+            case .linear:     LinearView()
             case .settings:   SettingsFormView().padding(20)
             }
         }

@@ -56,7 +56,7 @@ struct SidebarView: View {
 
                         sectionDivider
 
-                        sectionGroup(title: "Workspace", items: [.notes, .tasks])
+                        sectionGroup(title: "Workspace", items: [.notes, .tasks, .linear])
                     }
                     .padding(.vertical, 8)
                     .padding(.horizontal, 10)

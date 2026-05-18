@@ -14,6 +14,7 @@ enum AppSection: String, CaseIterable, Hashable {
     case files       = "Files"
     case notes       = "Notizen"
     case tasks       = "Aufgaben"
+    case linear      = "Linear"
     case settings    = "Einstellungen"
 
     var icon: String {
@@ -28,6 +29,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .files:      return "folder.fill"
         case .notes:      return "note.text"
         case .tasks:      return "checkmark.square.fill"
+        case .linear:     return "arrow.triangle.2.circlepath"
         case .settings:   return "gearshape.fill"
         }
     }
@@ -44,6 +46,7 @@ enum AppSection: String, CaseIterable, Hashable {
         case .files:      return .indigo
         case .notes:      return .yellow
         case .tasks:      return .green
+        case .linear:     return Color(red: 0.35, green: 0.35, blue: 0.95)
         case .settings:   return .gray
         }
     }
