@@ -734,34 +734,35 @@ final class AppState: ObservableObject {
         if let timer = runningTimer {
             let projectId = (timer.raw["project"] as? [String: Any])?["id"] as? Int
                          ?? timer.raw["projectId"] as? Int
-            NSLog("[AppState] syncTMetricTimerState: TMetric timer running, entryId=\(timer.id) projectId=\(String(describing: projectId))")
-            // Mark the matching tab running — prefer tabs that already own this project
-            if let pid = projectId,
-               let idx = chatTabs.firstIndex(where: { $0.tmetricProjectId == pid }) {
-                if !chatTabs[idx].tmetricIsTimerRunning {
-                    chatTabs[idx].tmetricIsTimerRunning = true
-                    chatTabs[idx].tmetricRunningEntryId = timer.id
-                    if chatTabs[idx].tmetricTimerStart == nil { chatTabs[idx].tmetricTimerStart = Date() }
-                    NSLog("[AppState] syncTMetricTimerState: synced running state to tab idx=\(idx)")
-                }
+            NSLog("[AppState] sync: TMetric running entryId=\(timer.id) projectId=\(String(describing: projectId))")
+
+            // Find the one tab that should own this timer (matching projectId)
+            let matchIdx: Int? = projectId.flatMap { pid in
+                chatTabs.firstIndex(where: { $0.tmetricProjectId == pid })
             }
-            // Clear any tabs that think they're running but aren't the TMetric timer
-            for idx in chatTabs.indices where chatTabs[idx].tmetricIsTimerRunning {
-                let tabPid = chatTabs[idx].tmetricProjectId
-                if tabPid != projectId || chatTabs[idx].tmetricRunningEntryId != timer.id {
-                    chatTabs[idx].tmetricIsTimerRunning = false
-                    chatTabs[idx].tmetricTimerStart     = nil
-                    chatTabs[idx].tmetricRunningEntryId = nil
-                    NSLog("[AppState] syncTMetricTimerState: cleared stale timer from tab idx=\(idx)")
-                }
+
+            // Always sync the matching tab — update entryId even if already running
+            if let idx = matchIdx {
+                chatTabs[idx].tmetricIsTimerRunning = true
+                chatTabs[idx].tmetricRunningEntryId = timer.id  // always overwrite, fixes nil-mismatch
+                if chatTabs[idx].tmetricTimerStart == nil { chatTabs[idx].tmetricTimerStart = Date() }
+                NSLog("[AppState] sync: tab \(idx) ← running entryId=\(timer.id)")
+            }
+
+            // Clear every OTHER tab that incorrectly thinks it's running
+            for idx in chatTabs.indices where chatTabs[idx].tmetricIsTimerRunning && idx != matchIdx {
+                chatTabs[idx].tmetricIsTimerRunning = false
+                chatTabs[idx].tmetricTimerStart     = nil
+                chatTabs[idx].tmetricRunningEntryId = nil
+                NSLog("[AppState] sync: cleared stale timer from tab \(idx)")
             }
         } else {
             // No timer running in TMetric — clear all tab timer states
             for idx in chatTabs.indices where chatTabs[idx].tmetricIsTimerRunning {
-                NSLog("[AppState] syncTMetricTimerState: TMetric idle, clearing tab idx=\(idx)")
                 chatTabs[idx].tmetricIsTimerRunning = false
                 chatTabs[idx].tmetricTimerStart     = nil
                 chatTabs[idx].tmetricRunningEntryId = nil
+                NSLog("[AppState] sync: TMetric idle, cleared tab \(idx)")
             }
         }
     }
@@ -840,11 +841,10 @@ final class AppState: ObservableObject {
             NSLog("[AppState] stopTMetricTimer: tab not found")
             return
         }
-        guard chatTabs[idx].tmetricIsTimerRunning else {
-            NSLog("[AppState] stopTMetricTimer: timer not running for tab \(idx)")
-            return
-        }
         let entryId = chatTabs[idx].tmetricRunningEntryId
+        // If locally not marked running, still call API — TMetric might have a live timer
+        // (sync could have missed it, or stop was called from outside the app)
+        NSLog("[AppState] stopTMetricTimer: isRunning=\(chatTabs[idx].tmetricIsTimerRunning)")
         // Fetch userId on demand if still missing
         if tmetricCachedUserId == nil {
             tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
