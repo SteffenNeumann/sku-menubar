@@ -93,7 +93,8 @@ final class AgentService: ObservableObject {
         let memory      = fields["memory"]
         let portrait    = fields["portrait"].flatMap { $0.isEmpty ? nil : $0 }
         let triggers    = fields["triggers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
-        let schedule        = fields["schedule"].flatMap { $0.isEmpty ? nil : $0 }
+        let schedule        = fields["schedule"].flatMap      { $0.isEmpty ? nil : $0 }
+        let dreamSchedule   = fields["dream_schedule"].flatMap { $0.isEmpty ? nil : $0 }
         let isActive        = (fields["active"] ?? "false").lowercased() == "true"
         let timeoutMins     = fields["timeout"].flatMap { Int($0) } ?? 30
         let projectDir      = fields["project"].flatMap { $0.isEmpty ? nil : $0 }
@@ -156,6 +157,7 @@ final class AgentService: ObservableObject {
             timeoutMinutes: timeoutMins,
             researchUpdatedAt: researchUpdatedAt,
             skillsUpdatedAt:   skillsUpdatedAt,
+            dreamSchedule:     dreamSchedule,
             category: category,
             customerName: customerName,
             industry: industry,
@@ -180,7 +182,8 @@ final class AgentService: ObservableObject {
         if !draft.projectDirectory.isEmpty { lines.append("project: \(draft.projectDirectory)") }
         if !draft.portrait.isEmpty  { lines.append("portrait: \(draft.portrait)") }
         if !draft.triggers.isEmpty  { lines.append("triggers: \(draft.triggers)") }
-        if !draft.schedule.isEmpty  { lines.append("schedule: \(draft.schedule)") }
+        if !draft.schedule.isEmpty      { lines.append("schedule: \(draft.schedule)") }
+        if !draft.dreamSchedule.isEmpty { lines.append("dream_schedule: \(draft.dreamSchedule)") }
         if !draft.timeoutMinutes.isEmpty { lines.append("timeout: \(draft.timeoutMinutes)") }
         if draft.isActive          { lines.append("active: true") }
         if !draft.category.isEmpty        { lines.append("category: \(draft.category)") }
@@ -388,6 +391,13 @@ final class AgentService: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// Returns the last dream date as a Date (midnight of that day) for schedule comparison.
+    private func lastDreamDateAsDate(for agent: AgentDefinition) -> Date? {
+        guard let s = lastDreamDate(for: agent) else { return nil }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.date(from: s)
     }
 
     /// Consolidates an agent's MEMORY.md + learning_log.txt into a cleaner MEMORY.md via Claude.
@@ -684,11 +694,21 @@ Only include this line when you have a genuine technical or domain insight worth
     func checkSchedules() async {
         let now = Date()
         for agent in agents where agent.isActive {
-            guard let schedule = agent.schedule, !schedule.isEmpty else { continue }
-            guard !runningAgents.contains(agent.id) else { continue }
-            let lastRun = logs[agent.id]?.last?.startedAt
-            if isDue(schedule: schedule, lastRun: lastRun, now: now) {
-                await executeScheduledAgent(agent)
+            // Normal task schedule
+            if let schedule = agent.schedule, !schedule.isEmpty,
+               !runningAgents.contains(agent.id) {
+                let lastRun = logs[agent.id]?.last?.startedAt
+                if isDue(schedule: schedule, lastRun: lastRun, now: now) {
+                    await executeScheduledAgent(agent)
+                }
+            }
+            // Dream schedule (independent of task schedule)
+            if let ds = agent.dreamSchedule, !ds.isEmpty,
+               !dreamingAgents.contains(agent.id) {
+                let lastDream = lastDreamDateAsDate(for: agent)
+                if isDue(schedule: ds, lastRun: lastDream, now: now) {
+                    await dreamAgent(agent)
+                }
             }
         }
     }

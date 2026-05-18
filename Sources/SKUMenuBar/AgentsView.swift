@@ -2592,6 +2592,16 @@ private struct AgentEditorSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
+                        editorField("Dream Schedule", hint: "daily · weekly · every:N — Memory automatisch konsolidieren") {
+                            HStack(spacing: 6) {
+                                Image(systemName: "moon.stars")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.indigo.opacity(0.7))
+                                TextField("weekly", text: $draft.dreamSchedule)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
+
                         Divider().foregroundStyle(theme.cardBorder)
 
                         HStack(spacing: 8) {

@@ -453,6 +453,7 @@ struct AgentDefinition: Identifiable, Hashable {
     // Research
     let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
     let skillsUpdatedAt: String?    // date string from "🛠 Skill Recommendations" section
+    let dreamSchedule: String?      // "daily", "weekly", "every:N" — independent of task schedule
     // Category
     let category: String?       // nil = worker, "persona" = customer persona
     // Customer Persona fields (only used when category == "persona")
@@ -560,6 +561,7 @@ struct AgentDraft {
     var triggers: String = ""   // comma-separated
     var promptBody: String = ""
     var schedule: String = ""
+    var dreamSchedule: String = ""
     var isActive: Bool = false
     var timeoutMinutes: String = ""  // empty = default (30 min)
     var projectDirectory: String = ""
@@ -590,7 +592,8 @@ struct AgentDraft {
         portrait    = agent.portrait ?? ""
         triggers    = agent.triggers.joined(separator: ", ")
         promptBody  = agent.promptBody
-        schedule    = agent.schedule ?? ""
+        schedule      = agent.schedule      ?? ""
+        dreamSchedule = agent.dreamSchedule ?? ""
         isActive    = agent.isActive
         timeoutMinutes = agent.timeoutMinutes == 30 ? "" : String(agent.timeoutMinutes)
         projectDirectory = agent.projectDirectory ?? ""
