@@ -414,6 +414,9 @@ private struct AgentBaseballCard: View {
     let onDuplicate: () -> Void
     let onMemory: () -> Void
     let onRerun: () -> Void
+    let onDream: () -> Void
+    let isDreaming: Bool
+    let lastDreamDate: String?
 
     @State private var hovered = false
     @State private var hoveredAction: String? = nil
@@ -554,6 +557,38 @@ private struct AgentBaseballCard: View {
                     .padding(.top, 2)
                 }
 
+                // ── Dream badge ───────────────────────────────
+                if let d = lastDreamDate {
+                    HStack(spacing: 4) {
+                        Image(systemName: "moon.stars.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.indigo.opacity(0.85))
+                        Text("Geträumt: \(d)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.indigo.opacity(0.85))
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.indigo.opacity(0.10), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.indigo.opacity(0.30), lineWidth: 0.5))
+                    .padding(.top, 2)
+                }
+
+                // ── Skills badge ──────────────────────────────
+                if let s = agent.skillsUpdatedAt {
+                    HStack(spacing: 4) {
+                        Image(systemName: "wrench.and.screwdriver.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.teal.opacity(0.85))
+                        Text("Skills: \(s)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.teal.opacity(0.85))
+                    }
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.teal.opacity(0.10), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.30), lineWidth: 0.5))
+                    .padding(.top, 2)
+                }
+
                 // ── Scheduled-only: output, status, last run ──
                 if !(agent.schedule ?? "").isEmpty {
                     if let output = lastOutput, !output.isEmpty {
@@ -611,6 +646,8 @@ private struct AgentBaseballCard: View {
                 }
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "memory",  icon: "memorychip",           action: onMemory)
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
+                dreamButton
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
                 actionBarButton(id: "copy",    icon: "doc.on.clipboard",     action: onDuplicate)
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5, height: 16)
@@ -713,6 +750,29 @@ private struct AgentBaseballCard: View {
         .onHover { hoveredAction = $0 ? "rerun" : nil }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .animation(.easeInOut(duration: 0.3), value: isRunning)
+    }
+
+    @ViewBuilder
+    private var dreamButton: some View {
+        let isHovered = hoveredAction == "dream"
+        Button(action: isDreaming ? {} : onDream) {
+            ZStack {
+                Image(systemName: isDreaming ? "moon.zzz.fill" : "moon.stars")
+                    .font(.system(size: 13, weight: isHovered || isDreaming ? .semibold : .regular))
+                    .foregroundStyle(isDreaming ? Color.indigo : (isHovered ? Color.indigo : theme.secondaryText.opacity(0.55)))
+                    .opacity(isDreaming ? 0.7 : 1.0)
+                    .scaleEffect(isDreaming ? 1.1 : 1.0)
+                    .shadow(color: (isDreaming || isHovered) ? Color.indigo.opacity(0.85) : .clear, radius: 6)
+                    .animation(isDreaming
+                        ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
+                        : .default, value: isDreaming)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .help(isDreaming ? "Konsolidiert Erinnerungen…" : "Memory konsolidieren (Dream)")
+        .onHover { hoveredAction = $0 ? "dream" : nil }
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 
     private func sectionLabel(icon: String, title: String) -> some View {
@@ -1028,7 +1088,10 @@ struct AgentsView: View {
             onDelete: { pendingDeleteAgent = agent },
             onDuplicate: { duplicateAgent(agent) },
             onMemory: { memoryAgent = agent },
-            onRerun: { Task { await state.agentService.executeScheduledAgent(agent) } }
+            onRerun: { Task { await state.agentService.executeScheduledAgent(agent) } },
+            onDream: { Task { await state.agentService.dreamAgent(agent) } },
+            isDreaming: state.agentService.dreamingAgents.contains(agent.id),
+            lastDreamDate: state.agentService.lastDreamDate(for: agent)
         )
     }
 

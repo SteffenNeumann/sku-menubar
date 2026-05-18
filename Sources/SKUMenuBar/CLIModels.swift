@@ -452,6 +452,7 @@ struct AgentDefinition: Identifiable, Hashable {
     let timeoutMinutes: Int     // max run time in minutes (default 30)
     // Research
     let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
+    let skillsUpdatedAt: String?    // date string from "🛠 Skill Recommendations" section
     // Category
     let category: String?       // nil = worker, "persona" = customer persona
     // Customer Persona fields (only used when category == "persona")

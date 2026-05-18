@@ -11,6 +11,8 @@ final class AgentService: ObservableObject {
     // Persona email learning
     @Published var emailLearningRunning: Set<String> = []
     @Published var emailLearningStatus: [String: String] = [:]
+    // Dream mode
+    @Published var dreamingAgents: Set<String> = []
 
     private let home = NSHomeDirectory()
     private weak var cliService: ClaudeCLIService?
@@ -112,19 +114,27 @@ final class AgentService: ObservableObject {
 
         let body = lines[bodyStart...].joined(separator: "\n")
 
-        // Extract research update date from "🔬 Research Updates" section
+        // Section-aware extraction of research and skills update dates
         var researchUpdatedAt: String? = nil
+        var skillsUpdatedAt: String?   = nil
+        var currentSection: String?    = nil
         for line in lines[bodyStart...] {
-            // Matches: _Last updated: 2026-04-02 by Researcher_
-            if line.contains("Last updated:"),
+            if line.contains("🔬")      { currentSection = "research" }
+            else if line.contains("🛠") { currentSection = "skills" }
+            else if line.hasPrefix("## ") { currentSection = nil }
+
+            if let section = currentSection, line.contains("Last updated:"),
                let start = line.range(of: "Last updated:")?.upperBound {
                 let raw = String(line[start...])
                     .trimmingCharacters(in: .whitespaces)
                     .components(separatedBy: " ").first ?? ""
                 let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "_*"))
                 if cleaned.count == 10, cleaned.contains("-") {
-                    researchUpdatedAt = cleaned
-                    break
+                    switch section {
+                    case "research": researchUpdatedAt = cleaned
+                    case "skills":   skillsUpdatedAt   = cleaned
+                    default: break
+                    }
                 }
             }
         }
@@ -145,6 +155,7 @@ final class AgentService: ObservableObject {
             isActive: isActive,
             timeoutMinutes: timeoutMins,
             researchUpdatedAt: researchUpdatedAt,
+            skillsUpdatedAt:   skillsUpdatedAt,
             category: category,
             customerName: customerName,
             industry: industry,
@@ -362,6 +373,99 @@ final class AgentService: ObservableObject {
             }
         }
         return nil
+    }
+
+    // MARK: - Dream mode
+
+    /// Returns the date string from last_dream.txt for an agent, or nil if never dreamed.
+    func lastDreamDate(for agent: AgentDefinition) -> String? {
+        let (primary, secondary) = memoryDirs(for: agent)
+        for dir in [primary, secondary] {
+            let url = dir.appendingPathComponent("last_dream.txt")
+            if let raw = try? String(contentsOf: url, encoding: .utf8) {
+                let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if t.count == 10, t.contains("-") { return t }
+            }
+        }
+        return nil
+    }
+
+    /// Consolidates an agent's MEMORY.md + learning_log.txt into a cleaner MEMORY.md via Claude.
+    func dreamAgent(_ agent: AgentDefinition) async {
+        guard !dreamingAgents.contains(agent.id), let cli = cliService else { return }
+        dreamingAgents.insert(agent.id)
+        defer { dreamingAgents.remove(agent.id) }
+
+        let memContent = readMemoryFile(named: "MEMORY.md",        for: agent) ?? "(leer)"
+        let logContent = readMemoryFile(named: "learning_log.txt", for: agent) ?? "(leer)"
+
+        let systemPrompt = """
+You are a memory consolidator for AI agent "\(agent.name)".
+Output ONLY the new MEMORY.md content — no preamble, no fences, no explanations.
+
+Required sections (in this order):
+## Core Insights
+## What Works
+## What to Avoid
+## Archived
+
+Rules:
+- Keep only what is still actionable and relevant.
+- Each bullet = one sentence, starts with a strong verb.
+- Merge similar insights into one bullet.
+- Move outdated items to ## Archived with a brief note; remove trivial ones entirely.
+- Preserve: domain facts, confirmed failure patterns, source-reliability notes.
+- Output must be shorter than the combined input.
+"""
+
+        let userMessage = """
+Consolidate memory for "\(agent.name)".
+
+--- MEMORY.md ---
+\(memContent)
+
+--- learning_log.txt ---
+\(logContent)
+"""
+
+        var output = ""
+        do {
+            let stream = cli.send(
+                message: userMessage,
+                systemPrompt: systemPrompt,
+                model: agent.model.isEmpty ? nil : agent.model,
+                workingDirectory: nil,
+                skipPermissions: true,
+                maxTurns: 5
+            )
+            let deadline = Date().addingTimeInterval(10 * 60)
+            for try await event in stream {
+                if Date() > deadline { break }
+                if event.type == "assistant", let contents = event.message?.content {
+                    for c in contents where c.type == "text" { output += c.text ?? "" }
+                }
+            }
+        } catch { return }
+
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let dir     = writableMemoryDir(for: agent)
+        let memURL  = dir.appendingPathComponent("MEMORY.md")
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "yyyy-MM-dd"
+        let today   = dateFmt.string(from: Date())
+
+        if let old = try? String(contentsOf: memURL, encoding: .utf8),
+           !old.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let archiveURL = dir.appendingPathComponent("MEMORY_archive_\(today).md")
+            try? old.write(to: archiveURL, atomically: true, encoding: .utf8)
+        }
+
+        try? trimmed.write(to: memURL, atomically: true, encoding: .utf8)
+        try? today.write(
+            to: dir.appendingPathComponent("last_dream.txt"),
+            atomically: true, encoding: .utf8
+        )
     }
 
     /// Builds a context preamble from MEMORY.md + learning_log.txt to inject before the system prompt.
