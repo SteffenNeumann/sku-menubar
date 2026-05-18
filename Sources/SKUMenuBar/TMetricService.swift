@@ -193,6 +193,21 @@ enum TMetricService {
         let endStr = localFmt.string(from: Date())
         var diag: [String] = ["cachedEntry=\(entryId.map(String.init) ?? "nil") uid=\(userId.map(String.init) ?? "nil")"]
 
+        // Debug: wenn userId nil — zeige raw /users/me Antwort
+        if userId == nil {
+            if let url = URL(string: "https://app.tmetric.com/api/v3/users/me") {
+                var r = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                r.setValue("application/json", forHTTPHeaderField: "Accept")
+                if let (d, resp) = try? await URLSession.shared.data(for: r) {
+                    let st = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    diag.append("me:\(st)=\(String(data: d.prefix(120), encoding: .utf8) ?? "?")")
+                } else {
+                    diag.append("me:netz-fehler")
+                }
+            }
+        }
+
         // Step 1: GET /timer to find the actually running entry
         let timerEntry = await fetchCurrentTimer(token: token, userId: userId)
         diag.append("GET/timer id=\(timerEntry.map { "\($0.id)" } ?? "nil")")
@@ -363,7 +378,7 @@ enum TMetricError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .badURL:             return "Ungültige TMetric URL"
-        case .http(let c, let b): return "TMetric HTTP \(c)\(b.isEmpty ? "" : ": \(b.prefix(120))")"
+        case .http(let c, let b): return "TMetric HTTP \(c)\(b.isEmpty ? "" : ": \(b.prefix(400))")"
         }
     }
 }
