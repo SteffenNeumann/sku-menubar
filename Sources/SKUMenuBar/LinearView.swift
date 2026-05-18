@@ -12,6 +12,8 @@ struct LinearView: View {
     @State private var filterPriority: LinearPriority?
     @State private var filterStatus: String?
     @State private var searchText = ""
+    @State private var colWidthProject: CGFloat = 200
+    @State private var colWidthIssue: CGFloat = 300
     @State private var showNewIssueSheet = false
     @State private var configured = false
 
@@ -23,15 +25,17 @@ struct LinearView: View {
         HStack(spacing: 0) {
             // Col 1 — Projects
             projectColumn
-                .frame(width: 200)
+                .frame(width: colWidthProject)
 
-            Divider()
+            PanelResizeHandle(width: $colWidthProject, minWidth: 140, maxWidth: 320, growsRight: true)
+                .frame(width: 6)
 
             // Col 2 — Issues
             issueColumn
-                .frame(minWidth: 260, maxWidth: 340)
+                .frame(width: colWidthIssue)
 
-            Divider()
+            PanelResizeHandle(width: $colWidthIssue, minWidth: 220, maxWidth: 500, growsRight: true)
+                .frame(width: 6)
 
             // Col 3 — Detail
             detailColumn
@@ -117,6 +121,8 @@ struct LinearView: View {
         return Button {
             selectedProject = project
             selectedIssue = nil
+            filterPriority = nil
+            filterStatus = nil
             Task { await service.loadIssues(projectId: project.id) }
         } label: {
             HStack(spacing: 8) {
@@ -215,6 +221,7 @@ struct LinearView: View {
             // Priority filter chips
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
+                    filterChipLabel("Priorität")
                     priorityChip(nil, label: "Alle")
                     ForEach(LinearPriority.allCases, id: \.rawValue) { p in
                         priorityChip(p, label: p.label)
@@ -225,7 +232,31 @@ struct LinearView: View {
             }
 
             Divider()
+
+            // Status filter chips
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    filterChipLabel("Status")
+                    statusChip(nil, label: "Alle")
+                    ForEach(availableStatuses, id: \.id) { st in
+                        statusChip(st.id, label: st.name, color: st.displayColor)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+            }
+
+            Divider()
         }
+    }
+
+    private func filterChipLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(theme.tertiaryText)
+            .textCase(.uppercase)
+            .kerning(0.4)
+            .padding(.trailing, 2)
     }
 
     private func priorityChip(_ priority: LinearPriority?, label: String) -> some View {
@@ -255,6 +286,48 @@ struct LinearView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func statusChip(_ stateId: String?, label: String, color: Color = .secondary) -> some View {
+        let isActive = filterStatus == stateId
+        return Button {
+            filterStatus = isActive ? nil : stateId
+        } label: {
+            HStack(spacing: 3) {
+                if stateId != nil {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 5, height: 5)
+                }
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isActive ? theme.primaryText : theme.secondaryText)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isActive ? theme.hoverBg : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(isActive ? theme.cardBorder : Color.clear, lineWidth: 0.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var availableStatuses: [LinearIssueState] {
+        let all = selectedProject.flatMap { service.issues[$0.id] } ?? []
+        var seen = Set<String>()
+        var result: [LinearIssueState] = []
+        for issue in all {
+            if let st = issue.state, seen.insert(st.id).inserted {
+                result.append(st)
+            }
+        }
+        let order = ["backlog": 0, "unstarted": 1, "started": 2, "completed": 3, "cancelled": 4]
+        return result.sorted { (order[$0.type] ?? 5) < (order[$1.type] ?? 5) }
     }
 
     private func issueRow(_ issue: LinearIssue) -> some View {
@@ -514,10 +587,11 @@ struct LinearView: View {
         let all = selectedProject.flatMap { service.issues[$0.id] } ?? []
         return all.filter { issue in
             let matchesPriority = filterPriority == nil || issue.priority == filterPriority
+            let matchesStatus   = filterStatus == nil || issue.state?.id == filterStatus
             let matchesSearch   = searchText.isEmpty
                 || issue.title.localizedCaseInsensitiveContains(searchText)
                 || issue.identifier.localizedCaseInsensitiveContains(searchText)
-            return matchesPriority && matchesSearch
+            return matchesPriority && matchesStatus && matchesSearch
         }
     }
 
