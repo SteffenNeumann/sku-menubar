@@ -716,66 +716,41 @@ struct HomeView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
 
-                                if displayedProjects.count > 3 {
-                                    Text("+ \(displayedProjects.count - 3) weitere")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(theme.tertiaryText)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .padding(.trailing, 2)
-                                }
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 8)
 
-                        // ── Projekt-Tabelle ───────────────────────────────
-                        VStack(spacing: 0) {
-                            // Header
-                            HStack {
-                                Text("PROJEKT")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.tertiaryText)
-                                Spacer()
-                                Text("CLIENT")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.tertiaryText)
-                                    .frame(width: 90, alignment: .leading)
-                                Text("ZEIT")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.tertiaryText)
-                                    .frame(width: 54, alignment: .trailing)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 4)
-
-                            ForEach(Array(displayedProjects.prefix(8).enumerated()), id: \.element.id) { idx, project in
-                                HStack(spacing: 0) {
-                                    // Color dot
-                                    Circle()
-                                        .fill(chartColors[idx % chartColors.count])
-                                        .frame(width: 7, height: 7)
-                                        .padding(.trailing, 7)
-                                    Text(project.name)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(theme.primaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer(minLength: 6)
-                                    Text(project.clientName)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(theme.secondaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .frame(width: 90, alignment: .leading)
-                                    Text(project.formattedDuration)
-                                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                                        .foregroundStyle(chartColors[idx % chartColors.count])
-                                        .frame(width: 54, alignment: .trailing)
+                        // ── Restliche Projekte (4+) als kompakte Einzeiler ─
+                        if displayedProjects.count > 3 {
+                            VStack(spacing: 0) {
+                                Divider().padding(.bottom, 6)
+                                ForEach(Array(displayedProjects.dropFirst(3).prefix(5).enumerated()), id: \.element.id) { idx, project in
+                                    let color = chartColors[(idx + 3) % chartColors.count]
+                                    HStack(spacing: 7) {
+                                        Circle()
+                                            .fill(color)
+                                            .frame(width: 6, height: 6)
+                                        Text(project.name)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(theme.primaryText)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                        if !project.clientName.isEmpty {
+                                            Text("· \(project.clientName)")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(theme.tertiaryText)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer(minLength: 4)
+                                        Text(project.formattedDuration)
+                                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                            .foregroundStyle(color)
+                                    }
+                                    .padding(.vertical, 3)
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(idx % 2 == 0 ? theme.rowBg : Color.clear, in: RoundedRectangle(cornerRadius: 7))
                             }
+                            .padding(.bottom, 4)
                         }
 
                         Spacer(minLength: 0)
