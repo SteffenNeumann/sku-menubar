@@ -709,6 +709,7 @@ struct SingleChatSessionView: View {
     private func syncOnActiveChange() {
         if isActive {
             tryAutoMatchTMetricProject()
+            handlePendingMessage()
         } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }

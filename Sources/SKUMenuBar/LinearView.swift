@@ -537,19 +537,14 @@ struct LinearView: View {
 
     private func openInChat(_ issue: LinearIssue) {
         var prompt = "Linear Issue **\(issue.identifier)**: \(issue.title)\n\n"
-        if let state = issue.state { prompt += "Status: \(state.name)\n" }
+        if let st = issue.state { prompt += "Status: \(st.name)\n" }
         prompt += "Priorität: \(issue.priority.label)\n"
         if let assignee = issue.assigneeName { prompt += "Zugewiesen: \(assignee)\n" }
         if !issue.description.isEmpty { prompt += "\n---\n\(issue.description)" }
 
+        state.pendingChatMessage = prompt
         state.pendingChatSessionTitle = issue.identifier
         state.pendingNavigateToChat = true
-        // The prompt will appear in a new chat tab via the standard flow
-        // We set pendingChatSessionTitle so the tab auto-names itself
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        _ = prompt  // used if pendingChatPrompt becomes available in future
     }
 
     // MARK: - Filtered Issues
