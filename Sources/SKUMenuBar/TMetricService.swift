@@ -169,7 +169,12 @@ enum TMetricService {
 
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
         let endStr = localFmt.string(from: Date())
-        let resolvedId = entryId ?? (try? await fetchRunningEntryId(token: token, userId: userId))
+        let resolvedId: Int?
+        if let eid = entryId {
+            resolvedId = eid
+        } else {
+            resolvedId = try? await fetchRunningEntryId(token: token, userId: userId)
+        }
 
         if let eid = resolvedId,
            let entryUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
@@ -179,7 +184,10 @@ enum TMetricService {
             getReq.setValue("application/json", forHTTPHeaderField: "Accept")
             if let (getData, getResp) = try? await URLSession.shared.data(for: getReq),
                (getResp as? HTTPURLResponse)?.statusCode == 200,
-               var fullEntry = try? JSONSerialization.jsonObject(with: getData) as? [String: Any] {
+               let jsonObj = try? JSONSerialization.jsonObject(with: getData) {
+                let rawEntry = jsonObj as? [String: Any]
+                    ?? (jsonObj as? [[String: Any]])?.first
+                var fullEntry = rawEntry ?? [:]
                 fullEntry["endTime"] = endStr
                 var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
                 putReq.httpMethod = "PUT"

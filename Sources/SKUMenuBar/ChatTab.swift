@@ -13,7 +13,11 @@ struct ChatTab: Identifiable {
     var inputText: String = ""
     var workingDirectory: String?
     var orchestratorMode: Bool = false
-    // TMetric: per-tab project association
-    var tmetricProjectId:   Int?    = nil
-    var tmetricProjectName: String  = ""
+    // TMetric: per-tab project association + timer state
+    var tmetricProjectId:       Int?    = nil
+    var tmetricProjectName:     String  = ""
+    var tmetricIsTimerRunning:  Bool    = false
+    var tmetricTimerStart:      Date?   = nil
+    var tmetricRunningEntryId:  Int?    = nil
+    var tmetricTimerError:      String? = nil
 }

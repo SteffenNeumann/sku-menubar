@@ -641,7 +641,8 @@ struct SingleChatSessionView: View {
 
     private func handleDisappear() {
         tab.inputText = inputText
-        Task { await state.stopTMetricTimer() }
+        let tabId = tab.id
+        Task { await state.stopTMetricTimer(tabId: tabId) }
     }
 
     private func syncMessagesOnChange() {
@@ -883,7 +884,7 @@ struct SingleChatSessionView: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    if state.tmetricIsTimerRunning {
+                    if tab.tmetricIsTimerRunning {
                         Circle()
                             .fill(Color.green)
                             .frame(width: 6, height: 6)
@@ -892,11 +893,11 @@ struct SingleChatSessionView: View {
                     } else {
                         Image(systemName: "clock")
                             .font(.system(size: 10))
-                            .foregroundStyle(state.tmetricTimerError != nil ? .red : theme.tertiaryText)
+                            .foregroundStyle(tab.tmetricTimerError != nil ? .red : theme.tertiaryText)
                     }
                     Text(tab.tmetricProjectName.isEmpty ? "Projekt wählen" : tab.tmetricProjectName)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(state.tmetricIsTimerRunning ? .green : (state.tmetricTimerError != nil ? .red : theme.secondaryText))
+                        .foregroundStyle(tab.tmetricIsTimerRunning ? .green : (tab.tmetricTimerError != nil ? .red : theme.secondaryText))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: 130)
@@ -908,7 +909,7 @@ struct SingleChatSessionView: View {
             .menuStyle(.borderlessButton)
 
             // Elapsed time (running) + total booked time for project
-            if state.tmetricIsTimerRunning, let start = state.tmetricTimerStart {
+            if tab.tmetricIsTimerRunning, let start = tab.tmetricTimerStart {
                 Text(tmetricElapsed(from: start))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.green)
@@ -918,12 +919,15 @@ struct SingleChatSessionView: View {
                summary.totalSeconds > 0 {
                 Text("· \(summary.formattedDuration)")
                     .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(state.tmetricIsTimerRunning ? Color.green.opacity(0.7) : theme.tertiaryText)
+                    .foregroundStyle(tab.tmetricIsTimerRunning ? Color.green.opacity(0.7) : theme.tertiaryText)
             }
 
             // Play / Stop
-            if state.tmetricIsTimerRunning {
-                Button { Task { await state.stopTMetricTimer() } } label: {
+            if tab.tmetricIsTimerRunning {
+                Button {
+                    let tabId = tab.id
+                    Task { await state.stopTMetricTimer(tabId: tabId) }
+                } label: {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.red)
@@ -932,7 +936,8 @@ struct SingleChatSessionView: View {
                 .help("Timer stoppen")
             } else if tab.tmetricProjectId != nil {
                 Button {
-                    Task { await state.startTMetricTimer(projectId: tab.tmetricProjectId) }
+                    let tabId = tab.id
+                    Task { await state.startTMetricTimer(tabId: tabId) }
                 } label: {
                     Image(systemName: "play.fill")
                         .font(.system(size: 9))
@@ -945,11 +950,11 @@ struct SingleChatSessionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(
-            state.tmetricIsTimerRunning ? Color.green.opacity(0.08)
-            : (state.tmetricTimerError != nil ? Color.red.opacity(0.08) : theme.rowBg),
+            tab.tmetricIsTimerRunning ? Color.green.opacity(0.08)
+            : (tab.tmetricTimerError != nil ? Color.red.opacity(0.08) : theme.rowBg),
             in: Capsule()
         )
-        .help(state.tmetricTimerError ?? (state.tmetricIsTimerRunning ? "Timer läuft" : ""))
+        .help(tab.tmetricTimerError ?? (tab.tmetricIsTimerRunning ? "Timer läuft" : ""))
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
             chatTimerTick = date
         }
@@ -2908,9 +2913,9 @@ struct SingleChatSessionView: View {
         }
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
         state.tmetricActivity()
-        if let pid = tab.tmetricProjectId, !state.tmetricIsTimerRunning {
-            state.tmetricTimerError = nil
-            Task { await state.startTMetricTimer(projectId: pid) }
+        if tab.tmetricProjectId != nil, !tab.tmetricIsTimerRunning {
+            let tabId = tab.id
+            Task { await state.startTMetricTimer(tabId: tabId) }
         }
 
         // Prompt for working directory before first message of a new session

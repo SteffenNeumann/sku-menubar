@@ -165,14 +165,10 @@ final class AppState: ObservableObject {
     @Published var tmetricCustomFrom:       Date    = Calendar.current.startOfDay(for: Date())
     @Published var tmetricCustomTo:         Date    = Date()
     @Published var tmetricIsCustomRange:    Bool    = false
-    // Timer
+    // Timer (per-tab state lives in ChatTab; these are HomeView-tile globals)
     @Published var tmetricSelectedProjectId:   Int?    = nil
     @Published var tmetricSelectedProjectName: String  = ""
-    @Published var tmetricIsTimerRunning:      Bool    = false
-    @Published var tmetricTimerStart:          Date?   = nil
-    @Published var tmetricTimerError:          String? = nil
     private var tmetricCachedUserId:       Int?   = nil
-    private var tmetricRunningEntryId:     Int?   = nil
     private var tmetricInactivityTimer:    Timer? = nil
     private var tmetricLastActivity:       Date   = Date()
     @Published var tmetricPeriod:        TMetricPeriod = .today {
@@ -762,37 +758,48 @@ final class AppState: ObservableObject {
     // MARK: - TMetric Timer
 
     @MainActor
-    func startTMetricTimer(projectId explicitProjectId: Int? = nil) async {
+    func startTMetricTimer(tabId: UUID) async {
         guard !settings.tmetricApiToken.isEmpty else { return }
-        let projectId = explicitProjectId ?? tmetricSelectedProjectId
-        guard let projectId else { return }
-        tmetricTimerError = nil
+        guard let idx = chatTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        guard let projectId = chatTabs[idx].tmetricProjectId else { return }
+        chatTabs[idx].tmetricTimerError = nil
         do {
-            let entryId = try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: tmetricCachedUserId)
-            tmetricRunningEntryId = entryId
-            tmetricIsTimerRunning = true
-            tmetricTimerStart     = Date()
-            tmetricLastActivity   = Date()
+            let entryId = try await TMetricService.startTimer(
+                token: settings.tmetricApiToken,
+                projectId: projectId,
+                userId: tmetricCachedUserId
+            )
+            chatTabs[idx].tmetricRunningEntryId = entryId
+            chatTabs[idx].tmetricIsTimerRunning = true
+            chatTabs[idx].tmetricTimerStart     = Date()
+            tmetricLastActivity = Date()
             startTMetricInactivityTimer()
         } catch {
-            tmetricTimerError = error.localizedDescription
+            chatTabs[idx].tmetricTimerError = error.localizedDescription
         }
     }
 
     @MainActor
-    func stopTMetricTimer() async {
-        guard tmetricIsTimerRunning else { return }
-        stopTMetricInactivityTimer()
-        tmetricIsTimerRunning = false
-        tmetricTimerStart     = nil
-        let entryId = tmetricRunningEntryId
-        tmetricRunningEntryId = nil
+    func stopTMetricTimer(tabId: UUID) async {
+        guard let idx = chatTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        guard chatTabs[idx].tmetricIsTimerRunning else { return }
+        let entryId = chatTabs[idx].tmetricRunningEntryId
+        chatTabs[idx].tmetricIsTimerRunning  = false
+        chatTabs[idx].tmetricTimerStart      = nil
+        chatTabs[idx].tmetricRunningEntryId  = nil
         do {
-            try await TMetricService.stopTimer(token: settings.tmetricApiToken, entryId: entryId, userId: tmetricCachedUserId)
+            try await TMetricService.stopTimer(
+                token: settings.tmetricApiToken,
+                entryId: entryId,
+                userId: tmetricCachedUserId
+            )
         } catch {
-            tmetricTimerError = error.localizedDescription
+            chatTabs[idx].tmetricTimerError = error.localizedDescription
         }
         Task { await refreshTMetric(force: true) }
+        if !chatTabs.contains(where: { $0.tmetricIsTimerRunning }) {
+            stopTMetricInactivityTimer()
+        }
     }
 
     func tmetricActivity() {
@@ -800,14 +807,14 @@ final class AppState: ObservableObject {
     }
 
     private func startTMetricInactivityTimer() {
-        tmetricInactivityTimer?.invalidate()
+        guard tmetricInactivityTimer == nil else { return }
         tmetricInactivityTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor [weak self] in
-                guard let self, self.tmetricIsTimerRunning else { return }
-                if Date().timeIntervalSince(self.tmetricLastActivity) > 600 {
-                    await self.stopTMetricTimer()
-                }
+                guard let self else { return }
+                guard Date().timeIntervalSince(self.tmetricLastActivity) > 600 else { return }
+                let runningIds = self.chatTabs.filter { $0.tmetricIsTimerRunning }.map { $0.id }
+                for tabId in runningIds { await self.stopTMetricTimer(tabId: tabId) }
             }
         }
     }
