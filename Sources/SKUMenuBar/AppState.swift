@@ -768,15 +768,8 @@ final class AppState: ObservableObject {
         let projectId = explicitProjectId ?? tmetricSelectedProjectId
         guard let projectId else { return }
         tmetricTimerError = nil
-        if tmetricCachedUserId == nil {
-            tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
-        }
-        guard let userId = tmetricCachedUserId else {
-            tmetricTimerError = "User-ID nicht abrufbar — Token prüfen"
-            return
-        }
         do {
-            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: userId)
+            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId)
             tmetricIsTimerRunning = true
             tmetricTimerStart     = Date()
             tmetricLastActivity   = Date()

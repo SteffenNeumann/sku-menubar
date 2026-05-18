@@ -130,7 +130,7 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    static func startTimer(token: String, projectId: Int, userId: Int) async throws {
+    static func startTimer(token: String, projectId: Int) async throws {
         guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
             throw TMetricError.badURL
         }
@@ -138,11 +138,12 @@ enum TMetricService {
         req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["projectId": projectId, "userId": userId])
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["projectId": projectId])
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            print("[TMetric] startTimer HTTP \(http.statusCode): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
-            throw TMetricError.http(http.statusCode)
+            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
+            print("[TMetric] startTimer HTTP \(http.statusCode): \(body)")
+            throw TMetricError.http(http.statusCode, body)
         }
     }
 
@@ -155,7 +156,7 @@ enum TMetricService {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw TMetricError.http(http.statusCode)
+            throw TMetricError.http(http.statusCode, "")
         }
     }
 
@@ -188,7 +189,7 @@ enum TMetricService {
 
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             print("[TMetric] HTTP \(http.statusCode): \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
-            throw TMetricError.http(http.statusCode)
+            throw TMetricError.http(http.statusCode, String(data: data.prefix(300), encoding: .utf8) ?? "")
         }
 
         let rawPreview = String(data: data.prefix(600), encoding: .utf8) ?? "<binary>"
@@ -262,12 +263,12 @@ enum TMetricService {
 
 enum TMetricError: LocalizedError {
     case badURL
-    case http(Int)
+    case http(Int, String)
 
     var errorDescription: String? {
         switch self {
-        case .badURL:      return "Ungültige TMetric URL"
-        case .http(let c): return "TMetric API Fehler (HTTP \(c))"
+        case .badURL:             return "Ungültige TMetric URL"
+        case .http(let c, let b): return "TMetric HTTP \(c)\(b.isEmpty ? "" : ": \(b.prefix(120))")"
         }
     }
 }
