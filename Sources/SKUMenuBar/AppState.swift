@@ -770,14 +770,16 @@ final class AppState: ObservableObject {
         guard let projectId = chatTabs[idx].tmetricProjectId else { return }
         chatTabs[idx].tmetricTimerError = nil
         do {
-            let entryId = try await TMetricService.startTimer(
+            let result = try await TMetricService.startTimer(
                 token: settings.tmetricApiToken,
                 projectId: projectId,
                 userId: tmetricCachedUserId
             )
-            chatTabs[idx].tmetricRunningEntryId = entryId
+            chatTabs[idx].tmetricRunningEntryId = result.entryId
             chatTabs[idx].tmetricIsTimerRunning = true
             chatTabs[idx].tmetricTimerStart     = Date()
+            // Cache userId from start response — kein separater /users/me Aufruf nötig
+            if let uid = result.userId { tmetricCachedUserId = uid }
             tmetricLastActivity = Date()
             startTMetricInactivityTimer()
         } catch {

@@ -132,12 +132,11 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    @discardableResult
-    static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws -> Int? {
+    /// Returns (entryId, userId) — userId ist aus der API-Antwort, damit wir ihn cachen können.
+    static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws -> (entryId: Int?, userId: Int?) {
         let startStr = localFmt.string(from: Date())
         let base = "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries"
 
-        // Try with userId first (preferred), then without
         let bodies: [[String: Any]] = userId.map {
             [["startTime": startStr, "userId": $0, "project": ["id": projectId]],
              ["startTime": startStr, "project": ["id": projectId]]]
@@ -156,12 +155,12 @@ enum TMetricService {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
             NSLog("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
-            if (200...299).contains(status) {
-                let json = try? JSONSerialization.jsonObject(with: data)
-                let entryId = (json as? [String: Any]).flatMap { $0["id"] as? Int }
-                           ?? (json as? [[String: Any]])?.first.flatMap { $0["id"] as? Int }
-                NSLog("[TMetric] startTimer entryId=\(String(describing: entryId))")
-                return entryId
+            if (200...299).contains(status),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let entryId     = dict["id"]     as? Int
+                let returnedUid = dict["userId"] as? Int
+                NSLog("[TMetric] started entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
+                return (entryId: entryId, userId: returnedUid)
             }
             lastError = "HTTP \(status): \(bodyStr.prefix(120))"
         }
@@ -192,21 +191,6 @@ enum TMetricService {
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
         let endStr = localFmt.string(from: Date())
         var diag: [String] = ["cachedEntry=\(entryId.map(String.init) ?? "nil") uid=\(userId.map(String.init) ?? "nil")"]
-
-        // Debug: wenn userId nil — zeige raw /users/me Antwort
-        if userId == nil {
-            if let url = URL(string: "https://app.tmetric.com/api/v3/users/me") {
-                var r = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
-                r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                r.setValue("application/json", forHTTPHeaderField: "Accept")
-                if let (d, resp) = try? await URLSession.shared.data(for: r) {
-                    let st = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                    diag.append("me:\(st)=\(String(data: d.prefix(120), encoding: .utf8) ?? "?")")
-                } else {
-                    diag.append("me:netz-fehler")
-                }
-            }
-        }
 
         // Step 1: GET /timer to find the actually running entry
         let timerEntry = await fetchCurrentTimer(token: token, userId: userId)
@@ -264,6 +248,8 @@ enum TMetricService {
         let respBody = String(data: data.prefix(300), encoding: .utf8) ?? ""
         diag.append("DELETE/timer=\(status)")
         NSLog("[TMetric] DELETE /timer → \(status): \(respBody)")
+        // 404 = kein laufender Timer in TMetric → State war veraltet → gilt als Erfolg
+        if status == 404 { return }
         if !(200...299).contains(status) {
             throw TMetricError.http(status, diag.joined(separator: " | "))
         }
