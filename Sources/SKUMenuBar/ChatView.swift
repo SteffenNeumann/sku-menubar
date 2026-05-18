@@ -617,7 +617,12 @@ struct SingleChatSessionView: View {
 
     private func handleAppear() {
         inputFocused = true
-        if !tab.inputText.isEmpty { inputText = tab.inputText }
+        if isActive, let msg = state.pendingChatMessage {
+            state.pendingChatMessage = nil
+            inputText = msg
+        } else if !tab.inputText.isEmpty {
+            inputText = tab.inputText
+        }
         if let wd = tab.workingDirectory { workingDirectory = wd }
         fetchGitBranch()
         if let sid = tab.sessionId {
