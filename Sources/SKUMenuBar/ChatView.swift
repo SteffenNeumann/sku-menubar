@@ -3683,6 +3683,8 @@ struct ChatFilePanel: View {
     @State private var rootNode: ExplorerNode?
     @State private var selectedNode: ExplorerNode?
     @State private var showHidden = false
+    @AppStorage("fileExplorerSortOrder") private var sortOrder: FileSortOrder = .nameAsc
+    @AppStorage("fileExplorerGroupBy")   private var groupBy: FileGroupBy = .foldersFirst
     @State private var currentRoot: String = ""
     @State private var searchText: String = ""
 
@@ -3691,8 +3693,11 @@ struct ChatFilePanel: View {
     }
 
     private var filteredChildren: [ExplorerNode] {
-        guard !searchText.isEmpty, let root = rootNode else { return rootNode?.children ?? [] }
-        return flatSearch(in: root.children ?? [], query: searchText.lowercased())
+        guard !searchText.isEmpty, let root = rootNode else {
+            return applySortGroup(rootNode?.children ?? [], sortOrder: sortOrder, groupBy: groupBy)
+        }
+        let results = flatSearch(in: root.children ?? [], query: searchText.lowercased())
+        return applySortGroup(results, sortOrder: sortOrder, groupBy: groupBy)
     }
 
     private func flatSearch(in nodes: [ExplorerNode], query: String) -> [ExplorerNode] {
@@ -3720,6 +3725,30 @@ struct ChatFilePanel: View {
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 Spacer()
+                Menu {
+                    Picker("Sortieren", selection: $sortOrder) {
+                        ForEach(FileSortOrder.allCases, id: \.rawValue) { order in
+                            Text(order.label).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    Divider()
+                    Picker("Gruppieren", selection: $groupBy) {
+                        ForEach(FileGroupBy.allCases, id: \.rawValue) { group in
+                            Text(group.label).tag(group)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    let isCustom = sortOrder != .nameAsc || groupBy != .foldersFirst
+                    Image(systemName: isCustom ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                        .font(.system(size: 12))
+                        .foregroundStyle(isCustom ? accentColor : theme.tertiaryText)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Sortieren & Gruppieren")
+
                 Button {
                     showHidden.toggle()
                     reload()
@@ -3778,34 +3807,20 @@ struct ChatFilePanel: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if rootNode == nil {
                         ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
-                    } else if searchText.isEmpty {
-                        if let root = rootNode {
-                            ForEach(root.children ?? []) { node in
-                                ChatFilePanelRow(
-                                    node: node,
-                                    selectedId: selectedNode?.id,
-                                    showHidden: showHidden,
-                                    depth: 0,
-                                    changedPaths: changedPaths,
-                                    onSelect: selectNode,
-                                    onInsert: { onInsertPath($0.url.path) }
-                                )
-                            }
-                        }
                     } else {
-                        let results = filteredChildren
-                        if results.isEmpty {
+                        let nodes = filteredChildren
+                        if nodes.isEmpty && !searchText.isEmpty {
                             Text("Keine Treffer")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.top, 20)
                         } else {
-                            ForEach(results) { node in
+                            ForEach(nodes) { node in
                                 ChatFilePanelRow(
                                     node: node,
                                     selectedId: selectedNode?.id,
-                                    showHidden: true,
+                                    showHidden: showHidden || !searchText.isEmpty,
                                     depth: 0,
                                     changedPaths: changedPaths,
                                     onSelect: selectNode,
@@ -3818,6 +3833,8 @@ struct ChatFilePanel: View {
                 .padding(.vertical, 4)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environment(\.fileSortOrder, sortOrder)
+            .environment(\.fileGroupBy, groupBy)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.windowBg)
@@ -4335,6 +4352,8 @@ struct ChatFilePanelRow: View {
     let onInsert: (ExplorerNode) -> Void
 
     @Environment(\.appTheme) var theme
+    @Environment(\.fileSortOrder) private var sortOrder
+    @Environment(\.fileGroupBy)   private var groupBy
     @State private var isHovered = false
 
     private var accentColor: Color {
@@ -4346,7 +4365,7 @@ struct ChatFilePanelRow: View {
         VStack(alignment: .leading, spacing: 0) {
             row
             if node.isExpanded, let children = node.children {
-                ForEach(children) { child in
+                ForEach(applySortGroup(children, sortOrder: sortOrder, groupBy: groupBy)) { child in
                     ChatFilePanelRow(
                         node: child,
                         selectedId: selectedId,
