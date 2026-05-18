@@ -118,7 +118,7 @@ enum TMetricService {
         req.setValue("application/json",  forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        print("[TMetric GET] \(path) → HTTP \(status) (\(data.count)B): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
+        NSLog("[TMetric GET] \(path) → HTTP \(status) (\(data.count)B): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
@@ -126,7 +126,7 @@ enum TMetricService {
 
     static func fetchUserId(token: String) async -> Int? {
         let me: TMetricMe? = await get("users/me", token: token)
-        print("[TMetric] userId=\(String(describing: me?.id))")
+        NSLog("[TMetric] userId=\(String(describing: me?.id))")
         return me?.id
     }
 
@@ -155,11 +155,12 @@ enum TMetricService {
             let (data, response) = try await URLSession.shared.data(for: req)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
-            print("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
+            NSLog("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
             if (200...299).contains(status) {
-                let entryId = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-                    .flatMap { $0["id"] as? Int }
-                print("[TMetric] runningEntryId=\(String(describing: entryId))")
+                let json = try? JSONSerialization.jsonObject(with: data)
+                let entryId = (json as? [String: Any]).flatMap { $0["id"] as? Int }
+                           ?? (json as? [[String: Any]])?.first.flatMap { $0["id"] as? Int }
+                NSLog("[TMetric] startTimer entryId=\(String(describing: entryId))")
                 return entryId
             }
             lastError = "HTTP \(status): \(bodyStr.prefix(120))"
@@ -169,6 +170,7 @@ enum TMetricService {
 
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
         let endStr = localFmt.string(from: Date())
+        NSLog("[TMetric] stopTimer called: entryId=\(String(describing: entryId)) userId=\(String(describing: userId))")
         let resolvedId: Int?
         if let eid = entryId {
             resolvedId = eid
@@ -182,28 +184,30 @@ enum TMetricService {
             var getReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
             getReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             getReq.setValue("application/json", forHTTPHeaderField: "Accept")
-            if let (getData, getResp) = try? await URLSession.shared.data(for: getReq),
-               (getResp as? HTTPURLResponse)?.statusCode == 200,
-               let jsonObj = try? JSONSerialization.jsonObject(with: getData) {
-                let rawEntry = jsonObj as? [String: Any]
-                    ?? (jsonObj as? [[String: Any]])?.first
-                var fullEntry = rawEntry ?? [:]
-                fullEntry["endTime"] = endStr
-                var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-                putReq.httpMethod = "PUT"
-                putReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                putReq.setValue("application/json", forHTTPHeaderField: "Accept")
-                putReq.httpBody = try? JSONSerialization.data(withJSONObject: fullEntry)
-                let (putData, putResp) = try await URLSession.shared.data(for: putReq)
-                let status = (putResp as? HTTPURLResponse)?.statusCode ?? 0
-                print("[TMetric] PUT /timeentries/\(eid) → HTTP \(status)")
-                if (200...299).contains(status) { return }
-                print("[TMetric] PUT failed: \(String(data: putData.prefix(200), encoding: .utf8) ?? "")")
+            if let (getData, getResp) = try? await URLSession.shared.data(for: getReq) {
+                let getStatus = (getResp as? HTTPURLResponse)?.statusCode ?? 0
+                NSLog("[TMetric] GET /timeentries/\(eid) → HTTP \(getStatus): \(String(data: getData.prefix(300), encoding: .utf8) ?? "")")
+                if getStatus == 200,
+                   let jsonObj = try? JSONSerialization.jsonObject(with: getData),
+                   let rawEntry = jsonObj as? [String: Any] ?? (jsonObj as? [[String: Any]])?.first {
+                    var fullEntry = rawEntry
+                    fullEntry["endTime"] = endStr
+                    var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+                    putReq.httpMethod = "PUT"
+                    putReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    putReq.setValue("application/json", forHTTPHeaderField: "Accept")
+                    putReq.httpBody = try? JSONSerialization.data(withJSONObject: fullEntry)
+                    let (putData, putResp) = try await URLSession.shared.data(for: putReq)
+                    let putStatus = (putResp as? HTTPURLResponse)?.statusCode ?? 0
+                    NSLog("[TMetric] PUT /timeentries/\(eid) → HTTP \(putStatus)")
+                    if (200...299).contains(putStatus) { return }
+                    NSLog("[TMetric] PUT failed: \(String(data: putData.prefix(300), encoding: .utf8) ?? "")")
+                }
             }
         }
 
-        // Fallback: DELETE /timer
+        // Fallback: DELETE /timer (stops running entry without deleting it)
         var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
         if let uid = userId { comps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
         guard let url = comps.url else { return }
@@ -212,9 +216,9 @@ enum TMetricService {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        print("[TMetric] DELETE /timer → HTTP \(status): \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
+        NSLog("[TMetric] DELETE /timer → HTTP \(status): \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
         if !(200...299).contains(status) {
-            throw TMetricError.http(status, String(data: data.prefix(200), encoding: .utf8) ?? "")
+            throw TMetricError.http(status, String(data: data.prefix(300), encoding: .utf8) ?? "")
         }
     }
 
@@ -235,8 +239,8 @@ enum TMetricService {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, _) = try await URLSession.shared.data(for: req)
         let entries = (try? JSONDecoder().decode([TMetricTimeEntry].self, from: data)) ?? []
-        let running = entries.first(where: { $0.endTime == nil })
-        print("[TMetric] fetchRunningEntryId → \(String(describing: running?.id))")
+        let running = entries.first(where: { $0.endTime == nil || $0.endTime?.isEmpty == true })
+        NSLog("[TMetric] fetchRunningEntryId → \(String(describing: running?.id))")
         return running?.id
     }
 
@@ -263,20 +267,20 @@ enum TMetricService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        print("[TMetric] GET \(url)")
+        NSLog("[TMetric] GET \(url)")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-            print("[TMetric] HTTP \(http.statusCode): \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
+            NSLog("[TMetric] HTTP \(http.statusCode): \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
             throw TMetricError.http(http.statusCode, String(data: data.prefix(300), encoding: .utf8) ?? "")
         }
 
         let rawPreview = String(data: data.prefix(600), encoding: .utf8) ?? "<binary>"
-        print("[TMetric] Raw (\(data.count)B): \(rawPreview)")
+        NSLog("[TMetric] Raw (\(data.count)B): \(rawPreview)")
 
         let allEntries = (try? JSONDecoder().decode([TMetricTimeEntry].self, from: data)) ?? []
-        print("[TMetric] Decoded \(allEntries.count) total entries")
+        NSLog("[TMetric] Decoded \(allEntries.count) total entries")
 
         // Client-side date filter (server filter unreliable)
         let filtered = allEntries.filter { entry in
@@ -286,12 +290,12 @@ enum TMetricService {
             }
             return d >= from && d <= to
         }
-        print("[TMetric] After client filter [\(localFmt.string(from: from))…\(localFmt.string(from: to))]: \(filtered.count) entries")
+        NSLog("[TMetric] After client filter [\(localFmt.string(from: from))…\(localFmt.string(from: to))]: \(filtered.count) entries")
 
         let projectNames = Set(allEntries.compactMap { $0.project?.name }).sorted().prefix(5).joined(separator: ", ")
         let firstRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nProjekte: [\(projectNames)]"
         let extractedUserId = allEntries.compactMap { $0.userId }.first
-        print("[TMetric] extractedUserId=\(String(describing: extractedUserId))")
+        NSLog("[TMetric] extractedUserId=\(String(describing: extractedUserId))")
 
         return TMetricFetchResult(
             summaries: aggregate(entries: filtered, now: now),

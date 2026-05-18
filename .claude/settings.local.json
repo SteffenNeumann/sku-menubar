@@ -91,7 +91,8 @@
       "Bash(cp /tmp/skill_shadcn_clean.md /Users/steffen/.claude/skills/shadcn/SKILL.md)",
       "Bash(cp /tmp/skill_ui_ux_pro_max_clean.md /Users/steffen/.claude/skills/ui-ux-pro-max/SKILL.md)",
       "Bash(wc -l /Users/steffen/.claude/skills/*/SKILL.md)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Read(//Users/steffen/.claude/agents/**)"
     ],
     "defaultMode": "bypassPermissions"
   }

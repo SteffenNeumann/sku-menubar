@@ -938,6 +938,15 @@ struct SingleChatSessionView: View {
                     .foregroundStyle(tab.tmetricIsTimerRunning ? Color.green.opacity(0.7) : theme.tertiaryText)
             }
 
+            // Error (visible, not just tooltip)
+            if let err = tab.tmetricTimerError {
+                Text(err.prefix(40))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+                    .onTapGesture { tab.tmetricTimerError = nil }
+            }
+
             // Play / Stop
             if tab.tmetricIsTimerRunning {
                 Button {
@@ -3113,6 +3122,7 @@ struct SingleChatSessionView: View {
 
         do {
             for try await event in stream {
+                guard messages.indices.contains(assistantIndex) else { break }
                 if let sid = event.sessionId, currentSessionId == nil {
                     currentSessionId = sid
                 }
