@@ -55,7 +55,12 @@ struct LinearView: View {
     // MARK: - Setup
 
     private func setupAndLoad() async {
-        guard !configured else { return }
+        // Re-try if last attempt errored
+        if configured && service.error == nil { return }
+        service.error = nil
+        service.stopSession()
+        configured = false
+
         if let cfg = await state.cliService.getMCPServerConfig(name: "linear") {
             service.configure(config: cfg)
             configured = true
@@ -96,7 +101,7 @@ struct LinearView: View {
             Spacer(minLength: 0)
 
             Button {
-                Task { await service.loadProjects(); await service.loadTeams() }
+                Task { await setupAndLoad() }
             } label: {
                 Label("Aktualisieren", systemImage: "arrow.clockwise")
                     .font(.system(size: 11))
