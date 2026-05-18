@@ -132,155 +132,133 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    /// Starts a timer via POST /timer so TMetric's timer system tracks it.
-    /// Falls back to POST /timeentries if /timer returns non-2xx.
-    /// Returns (entryId, userId) from the response.
+    /// Starts a running timer via POST /timeentries WITHOUT endTime.
+    /// TMetric auto-stops any previously running entry.
+    /// Response is an array — we pick the entry where endTime == null.
     static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws -> (entryId: Int?, userId: Int?) {
-        // Primary: POST /timer — integrates with TMetric's timer system (enables GET/DELETE /timer)
-        var timerComps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
-        if let uid = userId { timerComps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
-        if let url = timerComps.url {
-            var body: [String: Any] = ["projectId": projectId]
-            if let uid = userId { body["userId"] = uid }
-            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-            req.httpMethod = "POST"
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            if let (data, resp) = try? await URLSession.shared.data(for: req) {
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
-                NSLog("[TMetric] POST /timer → HTTP \(status): \(bodyStr)")
-                if (200...299).contains(status) {
-                    let json = try? JSONSerialization.jsonObject(with: data)
-                    let dict = (json as? [String: Any]) ?? (json as? [[String: Any]])?.first
-                    let entryId     = dict.flatMap { $0["id"]     as? Int }
-                    let returnedUid = dict.flatMap { $0["userId"] as? Int }
-                    NSLog("[TMetric] /timer start: entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
-                    return (entryId: entryId, userId: returnedUid)
-                }
-            }
+        let startStr = localFmt.string(from: Date())
+        var body: [String: Any] = [
+            "startTime": startStr,
+            "project": ["id": projectId]
+        ]
+        if let uid = userId { body["userId"] = uid }
+
+        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries") else {
+            throw TMetricError.badURL
+        }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let respStr = String(data: data.prefix(600), encoding: .utf8) ?? ""
+        NSLog("[TMetric] POST /timeentries (start) → HTTP \(status): \(respStr)")
+
+        guard (200...299).contains(status) else {
+            throw TMetricError.http(status, respStr)
         }
 
-        // Fallback: POST /timeentries (manual entry — DELETE /timer won't stop this)
-        let startStr = localFmt.string(from: Date())
-        let base = "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries"
-        let bodies: [[String: Any]] = userId.map {
-            [["startTime": startStr, "userId": $0, "project": ["id": projectId]],
-             ["startTime": startStr, "project": ["id": projectId]]]
-        } ?? [["startTime": startStr, "project": ["id": projectId]]]
-        var lastError = "Kein Versuch"
-        for bodyDict in bodies {
-            guard let url = URL(string: base) else { continue }
-            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-            req.httpMethod = "POST"
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
-            let (data, response) = try await URLSession.shared.data(for: req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
-            NSLog("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
-            if (200...299).contains(status) {
-                let json = try? JSONSerialization.jsonObject(with: data)
-                let dict = (json as? [String: Any]) ?? (json as? [[String: Any]])?.first
-                let entryId     = dict.flatMap { $0["id"]     as? Int }
-                let returnedUid = dict.flatMap { $0["userId"] as? Int }
-                NSLog("[TMetric] /timeentries start: entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
-                return (entryId: entryId, userId: returnedUid)
-            }
-            lastError = "HTTP \(status): \(bodyStr.prefix(120))"
-        }
-        throw TMetricError.http(0, lastError)
+        // Response is array of affected entries; the NEW running one has endTime == null
+        let entries = (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+        let running = entries.first(where: { e in
+            let et = e["endTime"]
+            return et == nil || et is NSNull
+        })
+        let entryId     = running.flatMap { $0["id"]     as? Int }
+        let returnedUid = running.flatMap { $0["userId"] as? Int }
+        NSLog("[TMetric] start: entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid)) affected=\(entries.count)")
+        return (entryId: entryId, userId: returnedUid)
     }
 
     // MARK: GET current running timer
 
-    /// Asks TMetric which entry is currently running via GET /timer.
-    /// Returns (entryId, rawDict) or nil when no timer is active (404).
+    /// Finds the currently running entry by querying today's timeentries for one with endTime == null.
+    /// (GET /timer is not available on this account.)
     static func fetchCurrentTimer(token: String, userId: Int?) async -> (id: Int, raw: [String: Any])? {
-        var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
-        if let uid = userId { comps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
+        var gcal = Calendar(identifier: .gregorian)
+        gcal.timeZone = TimeZone.current
+        let now = Date()
+        let startOfDay = gcal.startOfDay(for: now)
+
+        var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries")!
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "startTime", value: localFmt.string(from: startOfDay)),
+            URLQueryItem(name: "endTime",   value: localFmt.string(from: now))
+        ]
+        if let uid = userId { items.append(URLQueryItem(name: "userIds", value: "\(uid)")) }
+        comps.queryItems = items
         guard let url = comps.url else { return nil }
+
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        let body = String(data: data.prefix(500), encoding: .utf8) ?? ""
-        NSLog("[TMetric] GET /timer → HTTP \(status): \(body)")
+        NSLog("[TMetric] fetchCurrentTimer GET /timeentries → HTTP \(status) (\(data.count)B)")
         guard status == 200,
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let eid = dict["id"] as? Int else { return nil }
-        return (id: eid, raw: dict)
+              let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+
+        // Running entry = endTime is missing or null
+        guard let running = entries.first(where: { e in
+            let et = e["endTime"]
+            return et == nil || et is NSNull
+        }), let eid = running["id"] as? Int else {
+            NSLog("[TMetric] fetchCurrentTimer: no running entry in \(entries.count) entries today")
+            return nil
+        }
+        NSLog("[TMetric] fetchCurrentTimer: running id=\(eid) project=\((running["project"] as? [String: Any])?["name"] ?? "?")")
+        return (id: eid, raw: running)
     }
 
+    /// Stops the running entry by setting endTime via PUT /timeentries/{id}.
     static func stopTimer(token: String, entryId: Int? = nil, userId: Int? = nil) async throws {
         let endStr = localFmt.string(from: Date())
-        var diag: [String] = ["cachedEntry=\(entryId.map(String.init) ?? "nil") uid=\(userId.map(String.init) ?? "nil")"]
 
-        // Step 1: GET /timer to find the actually running entry
+        // Always fetch from TMetric — don't trust cached entryId alone
         let timerEntry = await fetchCurrentTimer(token: token, userId: userId)
-        diag.append("GET/timer id=\(timerEntry.map { "\($0.id)" } ?? "nil")")
-        let resolvedId: Int? = timerEntry?.id ?? entryId
-        diag.append("resolved=\(resolvedId.map(String.init) ?? "nil")")
+        let resolvedId = timerEntry?.id ?? entryId
+        NSLog("[TMetric] stopTimer: resolvedId=\(String(describing: resolvedId)) (fromAPI=\(String(describing: timerEntry?.id)) cached=\(String(describing: entryId)))")
 
-        // Step 2: PUT /timeentries/{id} with full body + endTime
-        if let eid = resolvedId,
-           let entryUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") {
+        guard let eid = resolvedId else {
+            NSLog("[TMetric] stopTimer: nothing to stop")
+            return
+        }
+        guard let entryUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries/\(eid)") else { return }
 
-            var fullEntry: [String: Any]? = timerEntry?.raw
-            if fullEntry == nil {
-                var getReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-                getReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                getReq.setValue("application/json", forHTTPHeaderField: "Accept")
-                if let (d, r) = try? await URLSession.shared.data(for: getReq) {
-                    let st = (r as? HTTPURLResponse)?.statusCode ?? 0
-                    diag.append("GET/entries/\(eid)=\(st)")
-                    if st == 200 {
-                        fullEntry = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
-                            ?? (try? JSONSerialization.jsonObject(with: d) as? [[String: Any]])?.first
-                    }
-                }
-            }
-
-            if var body = fullEntry {
-                body["endTime"] = endStr
-                var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-                putReq.httpMethod = "PUT"
-                putReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                putReq.setValue("application/json", forHTTPHeaderField: "Accept")
-                putReq.httpBody = try? JSONSerialization.data(withJSONObject: body)
-                let (putData, putResp) = try await URLSession.shared.data(for: putReq)
-                let putStatus = (putResp as? HTTPURLResponse)?.statusCode ?? 0
-                diag.append("PUT/entries/\(eid)=\(putStatus)")
-                NSLog("[TMetric] PUT \(eid) → \(putStatus): \(String(data: putData.prefix(300), encoding: .utf8) ?? "")")
-                if (200...299).contains(putStatus) { return }
-                diag.append("PUT-body:\(String(data: putData.prefix(120), encoding: .utf8) ?? "")")
-            } else {
-                diag.append("kein body für PUT")
+        // Use raw entry from fetchCurrentTimer; if missing, GET it separately
+        var body: [String: Any] = timerEntry?.raw ?? [:]
+        if body.isEmpty {
+            var getReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            getReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            getReq.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let (d, r) = try? await URLSession.shared.data(for: getReq),
+               (r as? HTTPURLResponse)?.statusCode == 200,
+               let dict = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                body = dict
+                NSLog("[TMetric] stopTimer: fetched entry body separately")
             }
         }
+        guard !body.isEmpty else {
+            throw TMetricError.http(0, "stopTimer: no entry body for id=\(eid)")
+        }
 
-        // Step 3: Fallback DELETE /timer
-        var comps = URLComponents(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer")!
-        if let uid = userId { comps.queryItems = [URLQueryItem(name: "userId", value: "\(uid)")] }
-        guard let url = comps.url else { return }
-        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        req.httpMethod = "DELETE"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let respBody = String(data: data.prefix(300), encoding: .utf8) ?? ""
-        diag.append("DELETE/timer=\(status)")
-        NSLog("[TMetric] DELETE /timer → \(status): \(respBody)")
-        // 404 = kein laufender Timer in TMetric → State war veraltet → gilt als Erfolg
-        if status == 404 { return }
-        if !(200...299).contains(status) {
-            throw TMetricError.http(status, diag.joined(separator: " | "))
+        body["endTime"] = endStr
+        var putReq = URLRequest(url: entryUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        putReq.httpMethod = "PUT"
+        putReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        putReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        putReq.setValue("application/json", forHTTPHeaderField: "Accept")
+        putReq.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (putData, putResp) = try await URLSession.shared.data(for: putReq)
+        let putStatus = (putResp as? HTTPURLResponse)?.statusCode ?? 0
+        NSLog("[TMetric] stopTimer PUT /timeentries/\(eid) → HTTP \(putStatus): \(String(data: putData.prefix(300), encoding: .utf8) ?? "")")
+        if !(200...299).contains(putStatus) {
+            throw TMetricError.http(putStatus, String(data: putData.prefix(300), encoding: .utf8) ?? "")
         }
     }
 
