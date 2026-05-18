@@ -714,6 +714,10 @@ final class AppState: ObservableObject {
         }
 
         tmetricIsLoading = false
+        // Pre-cache userId so timer start doesn't need to fetch it on demand
+        if tmetricCachedUserId == nil {
+            tmetricCachedUserId = await TMetricService.fetchUserId(token: token)
+        }
         // Merge into known projects (accumulate across period changes)
         let newIds = Set(tmetricProjects.map(\.id))
         let existing = tmetricKnownProjects.filter { !newIds.contains($0.id) }
@@ -767,7 +771,10 @@ final class AppState: ObservableObject {
         if tmetricCachedUserId == nil {
             tmetricCachedUserId = await TMetricService.fetchUserId(token: settings.tmetricApiToken)
         }
-        guard let userId = tmetricCachedUserId else { return }
+        guard let userId = tmetricCachedUserId else {
+            tmetricTimerError = "User-ID nicht abrufbar — Token prüfen"
+            return
+        }
         do {
             try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: userId)
             tmetricIsTimerRunning = true
