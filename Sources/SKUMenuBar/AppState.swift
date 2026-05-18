@@ -159,6 +159,7 @@ final class AppState: ObservableObject {
 
     // MARK: - TMetric
     @Published var tmetricProjects:         [TMetricProjectSummary] = []
+    @Published var tmetricPreviousProjects: [TMetricProjectSummary] = []
     @Published var tmetricKnownProjects:    [TMetricProjectSummary] = []
     @Published var tmetricIsLoading:        Bool    = false
     @Published var tmetricError:            String? = nil
@@ -713,6 +714,14 @@ final class AppState: ObservableObject {
             tmetricProjects    = result.summaries
             tmetricLastUpdated = Date()
             if let uid = result.userId { tmetricCachedUserId = uid }
+
+            // Fetch previous period for trend arrows
+            let (prevFrom, prevTo) = tmetricIsCustomRange
+                ? { let d = to.timeIntervalSince(from); return (from.addingTimeInterval(-d), from) }()
+                : tmetricPeriod.previousPeriodRange()
+            if let prevResult = try? await TMetricService.fetchSummary(token: token, from: prevFrom, to: prevTo) {
+                tmetricPreviousProjects = prevResult.summaries
+            }
         } catch {
             tmetricError = error.localizedDescription
         }

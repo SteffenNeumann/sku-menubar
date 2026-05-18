@@ -672,6 +672,25 @@ struct HomeView: View {
                                 ForEach(Array(displayedProjects.prefix(3).enumerated()), id: \.element.id) { idx, p in
                                     let pct = totalSeconds > 0 ? Double(p.totalSeconds) / Double(totalSeconds) : 0
                                     let color = chartColors[idx % chartColors.count]
+                                    let pctInt = Int(pct * 100)
+
+                                    // Ø pro Tag
+                                    let (periodFrom, periodTo) = state.tmetricIsCustomRange
+                                        ? (state.tmetricCustomFrom, state.tmetricCustomTo)
+                                        : state.tmetricPeriod.dateRange()
+                                    let daysInPeriod = max(1, Int(ceil(periodTo.timeIntervalSince(periodFrom) / 86400)))
+                                    let avgSecs = p.totalSeconds / daysInPeriod
+                                    let avgStr: String = {
+                                        let h = avgSecs / 3600; let m = (avgSecs % 3600) / 60
+                                        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+                                    }()
+
+                                    // Trend
+                                    let prevProject = state.tmetricPreviousProjects.first(where: { $0.id == p.id })
+                                    let trendPct: Double? = {
+                                        guard let prev = prevProject, prev.totalSeconds > 0 else { return nil }
+                                        return Double(p.totalSeconds - prev.totalSeconds) / Double(prev.totalSeconds)
+                                    }()
 
                                     HStack(spacing: 0) {
                                         // Farbiger Akzentbalken links
@@ -679,40 +698,69 @@ struct HomeView: View {
                                             .fill(color)
                                             .frame(width: 3)
 
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            HStack(alignment: .firstTextBaseline) {
-                                                VStack(alignment: .leading, spacing: 0) {
-                                                    Text(p.name)
-                                                        .font(.system(size: 12, weight: .semibold))
-                                                        .foregroundStyle(theme.primaryText)
-                                                        .lineLimit(1)
-                                                    if !p.clientName.isEmpty {
-                                                        Text(p.clientName)
-                                                            .font(.system(size: 10))
-                                                            .foregroundStyle(theme.tertiaryText)
-                                                            .lineLimit(1)
-                                                    }
-                                                }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            // Zeile 1: Name + Zeit + %
+                                            HStack(alignment: .center, spacing: 6) {
+                                                Text(p.name)
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundStyle(theme.primaryText)
+                                                    .lineLimit(1)
                                                 Spacer(minLength: 4)
+                                                // Trend-Pfeil
+                                                if let trend = trendPct {
+                                                    HStack(spacing: 2) {
+                                                        Image(systemName: trend >= 0 ? "arrow.up" : "arrow.down")
+                                                            .font(.system(size: 9, weight: .semibold))
+                                                        Text("\(Int(abs(trend * 100)))%")
+                                                            .font(.system(size: 9, weight: .semibold).monospacedDigit())
+                                                    }
+                                                    .foregroundStyle(trend >= 0 ? Color.green : Color.orange)
+                                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                                    .background((trend >= 0 ? Color.green : Color.orange).opacity(0.12), in: Capsule())
+                                                }
                                                 Text(p.formattedDuration)
                                                     .font(.system(size: 13, weight: .bold).monospacedDigit())
                                                     .foregroundStyle(color)
+                                                Text("\(pctInt)%")
+                                                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                                    .foregroundStyle(color.opacity(0.75))
+                                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                                    .background(color.opacity(0.12), in: Capsule())
                                             }
-                                            // Fortschrittsbalken
-                                            GeometryReader { geo in
-                                                ZStack(alignment: .leading) {
-                                                    Capsule().fill(color.opacity(0.15))
-                                                        .frame(height: 3)
-                                                    Capsule().fill(color)
-                                                        .frame(width: max(3, geo.size.width * pct), height: 3)
+                                            // Zeile 2: Client · Ø/Tag · Sessions
+                                            HStack(spacing: 0) {
+                                                if !p.clientName.isEmpty {
+                                                    Text(p.clientName)
+                                                        .font(.system(size: 10))
+                                                        .foregroundStyle(theme.tertiaryText)
+                                                    Text("  ·  ")
+                                                        .font(.system(size: 10))
+                                                        .foregroundStyle(theme.tertiaryText)
                                                 }
+                                                Text("Ø \(avgStr)/Tag")
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(theme.tertiaryText)
+                                                Text("  ·  \(p.entryCount) Sessions")
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(theme.tertiaryText)
                                             }
-                                            .frame(height: 3)
+                                            .lineLimit(1)
                                         }
                                         .padding(.horizontal, 9)
                                         .padding(.vertical, 8)
                                     }
-                                    .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 10))
+                                    .background {
+                                        // Background-Fill: subtile Flächenfüllung bis zum %-Anteil
+                                        GeometryReader { geo in
+                                            HStack(spacing: 0) {
+                                                Rectangle()
+                                                    .fill(color.opacity(0.07))
+                                                    .frame(width: max(3, geo.size.width * pct))
+                                                Spacer(minLength: 0)
+                                            }
+                                        }
+                                    }
+                                    .background(theme.rowBg)
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                 }
 

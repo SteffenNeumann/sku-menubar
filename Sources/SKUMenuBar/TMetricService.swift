@@ -32,6 +32,34 @@ enum TMetricPeriod: String, CaseIterable, Codable {
         }
     }
 
+    func previousPeriodRange() -> (from: Date, to: Date) {
+        var gcal = Calendar(identifier: .gregorian)
+        gcal.timeZone = TimeZone.current
+        var isoCal = Calendar(identifier: .iso8601)
+        isoCal.timeZone = TimeZone.current
+        let (curFrom, _) = dateRange()
+        switch self {
+        case .today:
+            let prev = gcal.date(byAdding: .day, value: -1, to: curFrom)!
+            return (prev, curFrom)
+        case .thisWeek:
+            let prev = isoCal.date(byAdding: .weekOfYear, value: -1, to: curFrom)!
+            return (prev, curFrom)
+        case .thisMonth:
+            let prev = gcal.date(byAdding: .month, value: -1, to: curFrom)!
+            return (prev, curFrom)
+        case .lastMonth:
+            let prev = gcal.date(byAdding: .month, value: -1, to: curFrom)!
+            return (prev, curFrom)
+        case .thisQuarter:
+            let prev = gcal.date(byAdding: .month, value: -3, to: curFrom)!
+            return (prev, curFrom)
+        case .thisYear:
+            let prev = gcal.date(byAdding: .year, value: -1, to: curFrom)!
+            return (prev, curFrom)
+        }
+    }
+
     func dateRange() -> (from: Date, to: Date) {
         var gcal = Calendar(identifier: .gregorian)
         gcal.timeZone = TimeZone.current
@@ -108,6 +136,8 @@ struct TMetricProjectSummary: Identifiable, Equatable {
     let name: String
     let clientName: String
     var totalSeconds: Int
+    var entryCount: Int
+    var lastEntryDate: Date?
 
     var formattedDuration: String {
         let h = totalSeconds / 3600
@@ -352,7 +382,7 @@ enum TMetricService {
             return localFmt.date(from: s) ?? ISO8601DateFormatter().date(from: s)
         }
 
-        var totals: [Int: (name: String, client: String, seconds: Int)] = [:]
+        var totals: [Int: (name: String, client: String, seconds: Int, count: Int, lastDate: Date?)] = [:]
 
         for entry in entries {
             let projectId   = entry.project?.id   ?? 0
@@ -370,16 +400,21 @@ enum TMetricService {
 
             guard seconds > 0 else { continue }
 
+            let entryStart = parse(entry.startTime)
             if var existing = totals[projectId] {
-                existing.seconds += seconds
+                existing.seconds  += seconds
+                existing.count    += 1
+                if let d = entryStart, (existing.lastDate == nil || d > existing.lastDate!) {
+                    existing.lastDate = d
+                }
                 totals[projectId] = existing
             } else {
-                totals[projectId] = (name: projectName, client: clientName, seconds: seconds)
+                totals[projectId] = (name: projectName, client: clientName, seconds: seconds, count: 1, lastDate: entryStart)
             }
         }
 
         return totals
-            .map { id, v in TMetricProjectSummary(id: id, name: v.name, clientName: v.client, totalSeconds: v.seconds) }
+            .map { id, v in TMetricProjectSummary(id: id, name: v.name, clientName: v.client, totalSeconds: v.seconds, entryCount: v.count, lastEntryDate: v.lastDate) }
             .sorted { $0.totalSeconds > $1.totalSeconds }
     }
 }
