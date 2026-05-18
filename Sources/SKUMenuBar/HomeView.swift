@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
     @State private var tmetricDraftTo:   Date   = Date()
     @State private var timerTick:        Date   = Date()
+    @State private var selectedInquiry: CustomerInquiry?
 
     private var accentColor: Color { theme.accentText }
 
@@ -28,17 +29,24 @@ struct HomeView: View {
         state.homeTileOrder.filter { state.homeTileVisible.contains($0) }
     }
 
-    // Normal tiles (3-column rows) and full-width tiles (own row at bottom)
-    private var normalTiles: [HomeTileID] {
-        orderedVisibleTiles.filter { !$0.isFullWidth }
-    }
-    private var fullWidthTiles: [HomeTileID] {
-        orderedVisibleTiles.filter { $0.isFullWidth }
-    }
+    // Pack tiles into rows of total colSpan ≤ 3
     private var tileRows: [[HomeTileID]] {
-        stride(from: 0, to: normalTiles.count, by: 3).map {
-            Array(normalTiles[$0 ..< min($0 + 3, normalTiles.count)])
+        var rows: [[HomeTileID]] = []
+        var currentRow: [HomeTileID] = []
+        var usedCols = 0
+        for tile in orderedVisibleTiles {
+            let span = tile.colSpan
+            if usedCols + span > 3 {
+                if !currentRow.isEmpty { rows.append(currentRow) }
+                currentRow = [tile]
+                usedCols = span
+            } else {
+                currentRow.append(tile)
+                usedCols += span
+            }
         }
+        if !currentRow.isEmpty { rows.append(currentRow) }
+        return rows
     }
 
     var body: some View {
@@ -60,6 +68,10 @@ struct HomeView: View {
                 .environmentObject(state)
                 .environment(\.appTheme, theme)
         }
+        .sheet(item: $selectedInquiry) { inquiry in
+            InquiryDetailSheet(inquiry: inquiry, workflow: state.customerInquiryWorkflow)
+                .environment(\.appTheme, theme)
+        }
     }
 
     // MARK: - Tile Grid
@@ -70,27 +82,19 @@ struct HomeView: View {
             emptyDashboard
         } else {
             Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
-                // Normal 3-column rows
                 ForEach(tileRows.indices, id: \.self) { rowIndex in
                     GridRow {
                         let row = tileRows[rowIndex]
+                        let usedCols = row.reduce(0) { $0 + $1.colSpan }
                         ForEach(row) { tileID in
                             tileView(for: tileID)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .gridCellColumns(tileID.colSpan)
                         }
-                        if row.count < 3 {
-                            ForEach(0 ..< (3 - row.count), id: \.self) { _ in
-                                Color.clear
-                            }
+                        if usedCols < 3 {
+                            Color.clear
+                                .gridCellColumns(3 - usedCols)
                         }
-                    }
-                }
-                // Full-width tiles — each spans all 3 columns
-                ForEach(fullWidthTiles) { tileID in
-                    GridRow {
-                        tileView(for: tileID)
-                            .frame(maxWidth: .infinity)
-                            .gridCellColumns(3)
                     }
                 }
             }
@@ -884,16 +888,14 @@ struct HomeView: View {
 
     private var kundenanfragenCard: some View {
         let inquiries = state.customerInquiryWorkflow.recentInquiries
-        let pending   = inquiries.filter {
-            $0.status == .pending || $0.status == .analyzing || $0.status == .waitingForCustomer
-        }.count
+        let pending   = inquiries.filter { $0.status == .pending || $0.status == .analyzing }.count
+        let waiting   = inquiries.filter { $0.status == .waitingForCustomer }.count
         let working   = inquiries.filter { $0.status == .inProgress }.count
+        let done      = inquiries.filter { $0.status == .completed }.count
         let failed    = inquiries.filter { $0.status == .failed || $0.status == .blocked }.count
         let polling   = state.emailPollingService
-        let lastPoll  = polling.lastPollDate
 
         return HomeTile(title: "Kundenanfragen", icon: "envelope.badge.fill", iconColor: .teal, theme: theme) {
-            // Error banner
             if let err = polling.lastError {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 11))
@@ -905,24 +907,30 @@ struct HomeView: View {
             }
 
             if inquiries.isEmpty {
-                VStack(spacing: 10) {
-                    emptyState(icon: "envelope", text: "Noch keine Anfragen.\nMail-Routing in einem Persona-Agent konfigurieren.")
-                }
+                emptyState(icon: "envelope", text: "Noch keine Anfragen.\nMail-Routing in einem Persona-Agent konfigurieren.")
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
+                    // Stats row
+                    HStack(spacing: 14) {
                         inquiryStat(value: "\(inquiries.count)", label: "Gesamt",   color: .teal)
-                        if pending  > 0 { inquiryStat(value: "\(pending)",  label: "Offen",    color: .orange) }
-                        if working  > 0 { inquiryStat(value: "\(working)",  label: "In Arbeit", color: .blue) }
-                        if failed   > 0 { inquiryStat(value: "\(failed)",   label: "Fehler",   color: .red) }
+                        if pending > 0 { inquiryStat(value: "\(pending)", label: "Neu",      color: .orange) }
+                        if waiting > 0 { inquiryStat(value: "\(waiting)", label: "Wartet",   color: .yellow) }
+                        if working > 0 { inquiryStat(value: "\(working)", label: "In Arbeit", color: .blue) }
+                        if done    > 0 { inquiryStat(value: "\(done)",    label: "Fertig",   color: .green) }
+                        if failed  > 0 { inquiryStat(value: "\(failed)",  label: "Fehler",   color: .red) }
                         Spacer()
-                        if state.emailPollingService.isPolling { ProgressView().controlSize(.mini) }
+                        if polling.isPolling { ProgressView().controlSize(.mini) }
                     }
                     .padding(.horizontal, 12)
+
                     Divider().opacity(0.2)
-                    VStack(spacing: 4) {
-                        ForEach(inquiries.prefix(4)) { inquiry in
-                            inquiryRow(inquiry)
+
+                    // Inquiry list with step detail
+                    VStack(spacing: 6) {
+                        ForEach(inquiries.prefix(6)) { inquiry in
+                            inquiryDetailRow(inquiry)
+                                .contentShape(RoundedRectangle(cornerRadius: 10))
+                                .onTapGesture { selectedInquiry = inquiry }
                         }
                     }
                     .padding(.horizontal, 8)
@@ -931,12 +939,12 @@ struct HomeView: View {
                 .padding(.vertical, 6)
             }
 
-            // Footer: last poll time + manual trigger
+            // Footer
             HStack(spacing: 8) {
                 if polling.isPolling {
                     ProgressView().controlSize(.mini)
                     Text("Prüfe…").font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
-                } else if let lp = lastPoll {
+                } else if let lp = polling.lastPollDate {
                     Text("Zuletzt: \(lp, style: .relative)")
                         .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
                 } else {
@@ -965,21 +973,120 @@ struct HomeView: View {
         }
     }
 
-    private func inquiryRow(_ inquiry: CustomerInquiry) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(inquiryStatusColor(inquiry.status)).frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(inquiry.suggestedLinearTitle ?? inquiry.subject)
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(theme.primaryText).lineLimit(1)
-                Text(inquiry.senderAddress)
-                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText).lineLimit(1)
+    private func inquiryDetailRow(_ inquiry: CustomerInquiry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Title + sender + time
+            HStack(spacing: 8) {
+                Circle().fill(inquiryStatusColor(inquiry.status)).frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(inquiry.suggestedLinearTitle ?? inquiry.subject)
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.primaryText).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(inquiry.senderName.isEmpty ? inquiry.senderAddress : "\(inquiry.senderName) <\(inquiry.senderAddress)>")
+                            .font(.system(size: 10)).foregroundStyle(theme.tertiaryText).lineLimit(1)
+                        if let lid = inquiry.linearIssueIdentifier {
+                            Text(lid)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.indigo)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.indigo.opacity(0.1), in: Capsule())
+                        }
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(inquiry.receivedAt, style: .relative)
+                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+                    if let p = inquiry.priority {
+                        HStack(spacing: 2) {
+                            Image(systemName: p <= 2 ? "exclamationmark.triangle.fill" : "flag.fill")
+                                .font(.system(size: 8))
+                            Text(["", "Dringend", "Hoch", "Mittel", "Niedrig"][min(p, 4)])
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundStyle(p == 1 ? .red : p == 2 ? .orange : .secondary)
+                    }
+                }
             }
-            Spacer()
-            Text(inquiry.receivedAt, style: .relative)
-                .font(.system(size: 10, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+
+            // Phase progress steps
+            HStack(spacing: 0) {
+                inquiryPhaseStep("Eingang",   icon: "envelope.open.fill",    done: true, active: inquiry.status == .pending)
+                phaseConnector(done: inquiry.status != .pending)
+                inquiryPhaseStep("Analyse",   icon: "brain",                 done: phaseCompleted(inquiry, .analyzing), active: inquiry.status == .analyzing)
+                phaseConnector(done: phaseCompleted(inquiry, .analyzing))
+                inquiryPhaseStep("Linear",    icon: "arrow.triangle.2.circlepath", done: inquiry.linearIssueId != nil, active: inquiry.linearIssueId != nil && inquiry.status == .analyzing)
+                phaseConnector(done: inquiry.linearIssueId != nil)
+                inquiryPhaseStep(inquiry.missingInfo.isEmpty ? "Bearbeitung" : "Rückfrage",
+                                 icon: inquiry.missingInfo.isEmpty ? "gearshape.fill" : "questionmark.bubble.fill",
+                                 done: phaseCompleted(inquiry, .inProgress) || inquiry.status == .completed,
+                                 active: inquiry.status == .waitingForCustomer || inquiry.status == .inProgress)
+                phaseConnector(done: inquiry.status == .completed)
+                inquiryPhaseStep("Fertig",    icon: "checkmark.seal.fill",   done: inquiry.status == .completed, active: false)
+            }
+            .padding(.leading, 16)
+
+            // Detail text (summary, error, or current action)
+            if inquiry.status == .failed || inquiry.status == .blocked, let err = inquiry.errorMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.system(size: 10))
+                    Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                }
+                .padding(.leading, 16)
+            } else if inquiry.status == .waitingForCustomer, !inquiry.missingInfo.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.fill").foregroundStyle(.yellow).font(.system(size: 10))
+                    Text("Wartet auf: \(inquiry.missingInfo.joined(separator: ", "))").font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2)
+                }
+                .padding(.leading, 16)
+            } else if let summary = inquiry.analysisSummary, inquiry.status != .completed {
+                Text(summary).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2).padding(.leading, 16)
+            } else if inquiry.status == .completed, let result = inquiry.completionSummary {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 10))
+                    Text(result).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2)
+                }
+                .padding(.leading, 16)
+            }
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(theme.rowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(theme.rowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func inquiryPhaseStep(_ label: String, icon: String, done: Bool, active: Bool) -> some View {
+        VStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .fill(done ? Color.teal.opacity(0.15) : active ? Color.blue.opacity(0.12) : theme.rowBg)
+                    .frame(width: 22, height: 22)
+                if active && !done {
+                    Circle().strokeBorder(Color.blue, lineWidth: 1.5).frame(width: 22, height: 22)
+                }
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(done ? .teal : active ? .blue : theme.tertiaryText)
+            }
+            Text(label)
+                .font(.system(size: 8, weight: done ? .semibold : .regular))
+                .foregroundStyle(done ? theme.primaryText : active ? .blue : theme.tertiaryText)
+                .lineLimit(1)
+        }
+        .frame(minWidth: 44)
+    }
+
+    private func phaseConnector(done: Bool) -> some View {
+        Rectangle()
+            .fill(done ? Color.teal.opacity(0.4) : theme.tertiaryText.opacity(0.15))
+            .frame(height: 2)
+            .frame(maxWidth: 24)
+            .offset(y: -6)
+    }
+
+    private func phaseCompleted(_ inquiry: CustomerInquiry, _ phase: InquiryStatus) -> Bool {
+        let order: [InquiryStatus] = [.pending, .analyzing, .waitingForCustomer, .inProgress, .completed]
+        guard let phaseIdx = order.firstIndex(of: phase),
+              let currentIdx = order.firstIndex(of: inquiry.status) else { return false }
+        return currentIdx > phaseIdx
     }
 
     private func inquiryStatusColor(_ status: InquiryStatus) -> Color {
@@ -1274,5 +1381,247 @@ private struct TMetricDateRangePopover: View {
             .background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .onTapGesture(perform: action)
+    }
+}
+
+// MARK: - InquiryDetailSheet
+
+private struct InquiryDetailSheet: View {
+    let inquiry: CustomerInquiry
+    @ObservedObject var workflow: CustomerInquiryWorkflow
+    @Environment(\.appTheme) var theme
+    @Environment(\.dismiss) var dismiss
+    @State private var isReprocessing = false
+
+    private var liveInquiry: CustomerInquiry {
+        workflow.recentInquiries.first(where: { $0.id == inquiry.id }) ?? inquiry
+    }
+
+    var body: some View {
+        let inq = liveInquiry
+        VStack(spacing: 0) {
+            // Header
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(inq.suggestedLinearTitle ?? inq.subject)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(theme.primaryText)
+                    HStack(spacing: 8) {
+                        statusBadge(inq)
+                        if let lid = inq.linearIssueIdentifier {
+                            Text(lid)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.indigo)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.indigo.opacity(0.1), in: Capsule())
+                        }
+                        if let p = inq.priority {
+                            priorityBadge(p)
+                        }
+                    }
+                }
+                Spacer()
+                // Reprocess button
+                Button {
+                    isReprocessing = true
+                    Task {
+                        await workflow.reprocess(inquiry)
+                        isReprocessing = false
+                    }
+                } label: {
+                    if isReprocessing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Erneut bearbeiten", systemImage: "arrow.counterclockwise")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.teal)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isReprocessing || inq.status == .inProgress || inq.status == .analyzing)
+                .padding(.trailing, 8)
+
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+
+            Divider().opacity(0.3)
+
+            // Content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Progress indicator during reprocessing
+                    if isReprocessing || inq.status == .analyzing || inq.status == .inProgress {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(inq.status == .analyzing ? "Analysiere…" : inq.status == .inProgress ? "Agent arbeitet…" : "Verarbeite…")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.blue)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    // Sender + Date
+                    detailSection("Absender") {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.teal)
+                            VStack(alignment: .leading, spacing: 2) {
+                                if !inq.senderName.isEmpty {
+                                    Text(inq.senderName)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(theme.primaryText)
+                                }
+                                Text(inq.senderAddress)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                            Spacer()
+                            Text(inq.receivedAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+
+                    // Matched Persona
+                    if let pid = inq.matchedPersonaId {
+                        detailSection("Zugewiesener Agent") {
+                            HStack(spacing: 6) {
+                                Image(systemName: "cpu.fill").foregroundStyle(.purple).font(.system(size: 12))
+                                Text(pid).font(.system(size: 12, weight: .medium)).foregroundStyle(theme.primaryText)
+                            }
+                        }
+                    }
+
+                    // Analysis Summary
+                    if let summary = inq.analysisSummary {
+                        detailSection("Analyse") {
+                            Text(summary)
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                    }
+
+                    // Missing Info
+                    if !inq.missingInfo.isEmpty {
+                        detailSection("Fehlende Informationen") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(inq.missingInfo, id: \.self) { item in
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "questionmark.circle.fill")
+                                            .font(.system(size: 10)).foregroundStyle(.yellow)
+                                        Text(item).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Linear Issue
+                    if inq.linearIssueId != nil {
+                        detailSection("Linear") {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 12)).foregroundStyle(.indigo)
+                                if let identifier = inq.linearIssueIdentifier {
+                                    Text(identifier)
+                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(.indigo)
+                                }
+                                Text("Issue erstellt")
+                                    .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
+                            }
+                        }
+                    }
+
+                    // Result / Completion
+                    if let result = inq.completionSummary, !result.isEmpty {
+                        detailSection("Ergebnis") {
+                            Text(result)
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.primaryText)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    // Error
+                    if let err = inq.errorMessage {
+                        detailSection("Fehler") {
+                            HStack(spacing: 6) {
+                                Image(systemName: "xmark.octagon.fill").foregroundStyle(.red).font(.system(size: 12))
+                                Text(err).font(.system(size: 12)).foregroundStyle(.red)
+                            }
+                        }
+                    }
+
+                    // Original Email
+                    detailSection("Original-E-Mail") {
+                        Text(String(inq.body.prefix(3000)))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(theme.secondaryText)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .frame(width: 560, height: 520)
+        .background(theme.cardSurface)
+    }
+
+    private func statusBadge(_ inq: CustomerInquiry) -> some View {
+        let (label, color): (String, Color) = {
+            switch inq.status {
+            case .pending:            return ("Neu", .orange)
+            case .analyzing:          return ("Analyse…", .orange)
+            case .waitingForCustomer: return ("Wartet auf Kunde", .yellow)
+            case .inProgress:         return ("In Bearbeitung", .blue)
+            case .completed:          return ("Abgeschlossen", .green)
+            case .blocked:            return ("Blockiert", .red)
+            case .failed:             return ("Fehler", .red)
+            }
+        }()
+        return Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private func priorityBadge(_ p: Int) -> some View {
+        let (label, color): (String, Color) = {
+            switch p {
+            case 1: return ("Dringend", .red)
+            case 2: return ("Hoch", .orange)
+            case 3: return ("Mittel", .secondary)
+            default: return ("Niedrig", .secondary)
+            }
+        }()
+        return HStack(spacing: 3) {
+            Image(systemName: p <= 2 ? "exclamationmark.triangle.fill" : "flag.fill").font(.system(size: 9))
+            Text(label).font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(color)
+    }
+
+    private func detailSection<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+                .kerning(0.5)
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.rowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
     }
 }

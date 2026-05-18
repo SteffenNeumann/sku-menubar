@@ -16,8 +16,20 @@ final class CustomerInquiryWorkflow: ObservableObject {
     weak var linearService: LinearService?
     weak var emailPollingService: EmailPollingService?
 
+    var anthropicApiKey: String = ""
+    private let anthropicAPI = AnthropicService()
+
     var linearTeamId: String = ""
     private var teamStates: [LinearIssueState] = []
+
+    private func log(_ msg: String) {
+        let path = NSHomeDirectory() + "/.claude/inquiry_debug.log"
+        let line = "[\(Date())] \(msg)\n"
+        if let data = line.data(using: .utf8) {
+            if let fh = FileHandle(forWritingAtPath: path) { fh.seekToEndOfFile(); fh.write(data); fh.closeFile() }
+            else { FileManager.default.createFile(atPath: path, contents: data) }
+        }
+    }
 
     private let ud = UserDefaults(suiteName: "SKUMenuBar") ?? .standard
     private let inquiriesKey = "customer_inquiries_v1"
@@ -34,15 +46,20 @@ final class CustomerInquiryWorkflow: ObservableObject {
     func configureLinear(_ service: LinearService) async {
         linearService = service
         await service.loadTeams()
+        log("[Inquiry] Linear teams loaded: \(service.teams.map(\.name)), error: \(service.error ?? "none")")
         if linearTeamId.isEmpty { linearTeamId = service.teams.first?.id ?? "" }
         if !linearTeamId.isEmpty {
             teamStates = await service.loadIssueStates(teamId: linearTeamId)
+            log("[Inquiry] Linear configured: team=\(linearTeamId), states=\(teamStates.map(\.name))")
+        } else {
+            log("[Inquiry] Linear: no team found — issue creation will be skipped")
         }
     }
 
     // MARK: - Phase 1: New email received
 
     func processNewEmail(_ inquiry: CustomerInquiry) async {
+        log("processNewEmail: \(inquiry.subject) from \(inquiry.senderAddress)")
         var inquiry = inquiry
         inquiry.status = .analyzing
         upsert(inquiry)
@@ -66,7 +83,7 @@ final class CustomerInquiryWorkflow: ObservableObject {
         }
 
         // Create Linear issue
-        let issueId = await createLinearIssue(for: inquiry)
+        let issueId = await createLinearIssue(for: &inquiry)
         inquiry.linearIssueId = issueId
 
         if !inquiry.missingInfo.isEmpty {
@@ -84,6 +101,49 @@ final class CustomerInquiryWorkflow: ObservableObject {
             await executeTask(inquiry: &inquiry, persona: persona)
         }
 
+        notify(for: inquiry)
+    }
+
+    // MARK: - Re-process existing inquiry
+
+    func reprocess(_ inquiry: CustomerInquiry) async {
+        log("reprocess: \(inquiry.subject), linearTeamId=\(linearTeamId), linearSvc=\(linearService != nil)")
+        var inquiry = inquiry
+        inquiry.status = .analyzing
+        inquiry.completionSummary = nil
+        inquiry.errorMessage = nil
+        upsert(inquiry)
+
+        let persona = routePersona(for: inquiry)
+        inquiry.matchedPersonaId = persona?.id
+
+        // Re-analyze if no summary yet
+        if inquiry.analysisSummary == nil {
+            let result = await analyzeEmail(inquiry: inquiry, persona: persona)
+            switch result {
+            case .failure(let e):
+                fail(&inquiry, "Analyse-Fehler: \(e.localizedDescription)")
+                return
+            case .success(let analysis):
+                inquiry.priority            = analysis.priority
+                inquiry.analysisSummary     = analysis.summary
+                inquiry.missingInfo         = analysis.missingInfo
+                inquiry.suggestedLinearTitle = analysis.suggestedLinearTitle
+            }
+        }
+
+        // Create Linear issue if missing
+        if inquiry.linearIssueId == nil {
+            let issueId = await createLinearIssue(for: &inquiry)
+            inquiry.linearIssueId = issueId
+        }
+        upsert(inquiry)
+
+        // Execute
+        inquiry.status = .inProgress
+        upsert(inquiry)
+        await updateLinearStatus(issueId: inquiry.linearIssueId, to: "started")
+        await executeTask(inquiry: &inquiry, persona: persona)
         notify(for: inquiry)
     }
 
@@ -116,78 +176,64 @@ Customer reply:
     // MARK: - Phase 3: Autonomous task execution
 
     private func executeTask(inquiry: inout CustomerInquiry, persona: AgentDefinition?) async {
-        guard let cli = cliService else {
-            fail(&inquiry, "CLI nicht verfügbar")
+        guard !anthropicApiKey.isEmpty else {
+            fail(&inquiry, "Kein Anthropic API Key konfiguriert")
             return
         }
 
         let systemPrompt = buildExecutionPrompt(inquiry: inquiry, persona: persona)
         let userMessage   = buildExecutionMessage(inquiry: inquiry)
 
-        var output = ""
-        var progressBuffer = ""
-        let progressFlushInterval = 8  // flush comment every ~8 text chunks to avoid API spam
-        var chunkCount = 0
+        let modelId: String
+        if let m = persona?.model, !m.isEmpty {
+            modelId = resolveModelId(m)
+        } else {
+            modelId = "claude-sonnet-4-6-20250514"
+        }
 
         do {
-            let stream = cli.send(
-                message: userMessage,
+            log("executeTask: starting direct API call (model=\(modelId))")
+            let output = try await anthropicAPI.sendMessage(
+                apiKey: anthropicApiKey,
+                model: modelId,
                 systemPrompt: systemPrompt,
-                model: persona?.model.isEmpty == false ? persona!.model : "sonnet",
-                skipPermissions: true,
-                maxTurns: 20
+                userMessage: userMessage,
+                maxTokens: 8192
             )
+            log("executeTask: API completed, output length=\(output.count)")
 
-            let deadline = Date().addingTimeInterval(Double((persona?.timeoutMinutes ?? 30) * 60))
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            inquiry.completionSummary = String(trimmed.prefix(1000))
+            inquiry.status = .completed
+            upsert(inquiry)
 
-            for try await event in stream {
-                guard Date() < deadline else { break }
+            let finalComment = buildCompletionComment(inquiry: inquiry, output: trimmed)
+            await addLinearComment(issueId: inquiry.linearIssueId, body: finalComment)
+            await updateLinearStatus(issueId: inquiry.linearIssueId, to: "completed")
 
-                if event.type == "assistant", let contents = event.message?.content {
-                    for c in contents where c.type == "text" {
-                        let chunk = c.text ?? ""
-                        output += chunk
-                        progressBuffer += chunk
-                        chunkCount += 1
-
-                        // Post interim comment every ~8 chunks (avoid hammering Linear API)
-                        if chunkCount % progressFlushInterval == 0,
-                           progressBuffer.count > 200,
-                           let issueId = inquiry.linearIssueId {
-                            let preview = String(progressBuffer.prefix(500))
-                            await addLinearComment(issueId: issueId,
-                                                   body: "⚙️ **Fortschritt:**\n\n\(preview)…")
-                            progressBuffer = ""
-                        }
-                    }
-                }
+            if let emailSvc = emailPollingService, !inquiry.senderAddress.isEmpty {
+                let body = buildCompletionEmail(inquiry: inquiry, output: trimmed, persona: persona)
+                try? await emailSvc.createDraftReply(
+                    to: inquiry.senderAddress,
+                    subject: "Re: \(inquiry.subject)",
+                    body: body
+                )
             }
         } catch {
+            log("executeTask ERROR: \(error)")
             fail(&inquiry, "Ausführungsfehler: \(error.localizedDescription)")
             await addLinearComment(issueId: inquiry.linearIssueId,
                                    body: "❌ **Fehler bei Ausführung:**\n\n\(error.localizedDescription)")
-            await updateLinearStatus(issueId: inquiry.linearIssueId, to: "started")  // Blocked
-            return
+            await updateLinearStatus(issueId: inquiry.linearIssueId, to: "started")
         }
+    }
 
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        inquiry.completionSummary = String(trimmed.prefix(1000))
-        inquiry.status = .completed
-        upsert(inquiry)
-
-        // Final Linear update
-        let finalComment = buildCompletionComment(inquiry: inquiry, output: trimmed)
-        await addLinearComment(issueId: inquiry.linearIssueId, body: finalComment)
-        await updateLinearStatus(issueId: inquiry.linearIssueId, to: "completed")
-
-        // Draft completion email to customer (optional — for user to send manually)
-        if let emailSvc = emailPollingService, !inquiry.senderAddress.isEmpty {
-            let body = buildCompletionEmail(inquiry: inquiry, output: trimmed, persona: persona)
-            try? await emailSvc.createDraftReply(
-                to: inquiry.senderAddress,
-                subject: "Re: \(inquiry.subject)",
-                body: body
-            )
+    private func resolveModelId(_ shortName: String) -> String {
+        switch shortName.lowercased() {
+        case "haiku":  return "claude-haiku-4-5-20251001"
+        case "sonnet": return "claude-sonnet-4-6-20250514"
+        case "opus":   return "claude-opus-4-6-20250514"
+        default:       return shortName
         }
     }
 
@@ -233,9 +279,9 @@ Customer reply:
         inquiry: CustomerInquiry,
         persona: AgentDefinition?
     ) async -> Result<EmailAnalysis, Error> {
-        guard let cli = cliService else {
+        guard !anthropicApiKey.isEmpty else {
             return .failure(NSError(domain: "Workflow", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "CLI nicht verfügbar"]))
+                userInfo: [NSLocalizedDescriptionKey: "Kein Anthropic API Key konfiguriert — bitte in Settings hinterlegen"]))
         }
 
         let personaCtx: String
@@ -279,54 +325,57 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
 \(inquiry.body.prefix(6000))
 """
 
-        var raw = ""
         do {
-            let stream = cli.send(
-                message: userPrompt,
+            log("analyzeEmail: starting direct API call (model=haiku)")
+            let raw = try await anthropicAPI.sendMessage(
+                apiKey: anthropicApiKey,
+                model: "claude-haiku-4-5-20251001",
                 systemPrompt: system,
-                model: "haiku",
-                skipPermissions: true,
-                maxTurns: 1
+                userMessage: userPrompt,
+                maxTokens: 1024
             )
-            for try await event in stream {
-                if event.type == "assistant", let contents = event.message?.content {
-                    for c in contents where c.type == "text" { raw += c.text ?? "" }
-                }
+            log("analyzeEmail: API completed, raw=\(raw.prefix(300))")
+
+            let jsonStr: String
+            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
+                jsonStr = String(raw[start.lowerBound...end.upperBound])
+            } else { jsonStr = raw }
+
+            struct AnalysisJSON: Decodable {
+                let priority: Int
+                let summary: String
+                let missingInfo: [String]
+                let suggestedLinearTitle: String
             }
+            guard let data = jsonStr.data(using: .utf8),
+                  let obj  = try? JSONDecoder().decode(AnalysisJSON.self, from: data) else {
+                return .failure(NSError(domain: "Workflow", code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "JSON-Parsing fehlgeschlagen: \(raw.prefix(200))"]))
+            }
+            return .success(EmailAnalysis(
+                priority: max(1, min(4, obj.priority)),
+                summary: obj.summary,
+                missingInfo: obj.missingInfo,
+                suggestedLinearTitle: obj.suggestedLinearTitle
+            ))
         } catch {
+            log("analyzeEmail ERROR: \(error)")
             return .failure(error)
         }
-
-        // Extract JSON from response
-        let jsonStr: String
-        if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
-            jsonStr = String(raw[start.lowerBound...end.upperBound])
-        } else { jsonStr = raw }
-
-        struct AnalysisJSON: Decodable {
-            let priority: Int
-            let summary: String
-            let missingInfo: [String]
-            let suggestedLinearTitle: String
-        }
-        guard let data = jsonStr.data(using: .utf8),
-              let obj  = try? JSONDecoder().decode(AnalysisJSON.self, from: data) else {
-            return .failure(NSError(domain: "Workflow", code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "JSON-Parsing fehlgeschlagen: \(raw.prefix(200))"]))
-        }
-        return .success(EmailAnalysis(
-            priority: max(1, min(4, obj.priority)),
-            summary: obj.summary,
-            missingInfo: obj.missingInfo,
-            suggestedLinearTitle: obj.suggestedLinearTitle
-        ))
     }
 
     // MARK: - Linear helpers
 
     @discardableResult
-    private func createLinearIssue(for inquiry: CustomerInquiry) async -> String? {
-        guard !linearTeamId.isEmpty, let svc = linearService else { return nil }
+    private func createLinearIssue(for inquiry: inout CustomerInquiry) async -> String? {
+        guard !linearTeamId.isEmpty else {
+            log("[Inquiry] Linear: skipped — no teamId configured")
+            return nil
+        }
+        guard let svc = linearService else {
+            log("[Inquiry] Linear: skipped — service not available")
+            return nil
+        }
         do {
             let title  = inquiry.suggestedLinearTitle ?? "Kundenanfrage: \(inquiry.subject)"
             let desc   = buildLinearDescription(for: inquiry)
@@ -336,8 +385,16 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
                 description: desc,
                 priority: inquiry.priority ?? 3
             )
-            return extractIssueId(from: raw)
+            log("[Inquiry] Linear createIssue raw: \(raw.prefix(500))")
+            if let result = extractIssueId(from: raw) {
+                inquiry.linearIssueIdentifier = result.identifier
+                log("[Inquiry] Linear issue created: \(result.id), identifier: \(result.identifier ?? "nil")")
+                return result.id
+            }
+            log("[Inquiry] Linear: could not extract issue ID from response")
+            return nil
         } catch {
+            log("[Inquiry] Linear createIssue error: \(error)")
             return nil
         }
     }
@@ -366,14 +423,18 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
         parts.append("""
 ## Customer Inquiry Task
 
-You are handling a customer request. Work autonomously to address it completely.
+You are handling a real customer request. Execute the work — do NOT just describe what you would do.
 
-Instructions:
-- Analyze the request carefully
-- Use available tools if needed to research, write, or produce deliverables
-- Be thorough and professional
-- At the end, provide a clear summary of what you did and the outcome
-- If you need to document something, write it directly in your response
+Rules:
+1. READ the customer's email carefully and identify the concrete deliverable they need.
+2. DO the work: write the text, create the document, draft the response, research the answer — whatever is needed.
+3. PRODUCE the actual output in your response (not a plan or promise).
+4. End with a brief "## Ergebnis" section (2-3 sentences) summarizing what you delivered.
+
+Bad example: "I will create a professional email template..." — this is just a description.
+Good example: Actually writing the email template, then summarizing "Created responsive HTML email template with header, 3-column layout, and footer."
+
+If you cannot complete the task (missing access, unclear scope), explain specifically what is blocking you.
 """)
         return parts.joined(separator: "\n\n")
     }
@@ -383,12 +444,14 @@ Instructions:
 Customer: \(inquiry.senderName.isEmpty ? inquiry.senderAddress : "\(inquiry.senderName) <\(inquiry.senderAddress)>")
 Subject: \(inquiry.subject)
 
-Analysis summary: \(inquiry.analysisSummary ?? "N/A")
+Triage: \(inquiry.analysisSummary ?? "N/A")
 
 Full email:
+---
 \(inquiry.body.prefix(6000))
+---
 
-Please handle this customer inquiry completely and professionally.
+Execute this request now. Produce the actual deliverable the customer needs — not a description of what you would do.
 """
     }
 
@@ -554,11 +617,25 @@ Mit freundlichen Grüßen
 
     // MARK: - Helpers
 
-    private func extractIssueId(from raw: String) -> String? {
-        guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let issue = (json["issueCreate"] as? [String: Any])?["issue"] as? [String: Any],
-              let id    = issue["id"] as? String else { return nil }
-        return id
+    private func extractIssueId(from raw: String) -> (id: String, identifier: String?)? {
+        // Linear MCP returns text like:
+        // "Successfully created issue\nIssue: INT-240\nTitle: ...\nURL: ..."
+        for line in raw.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Issue:") {
+                let identifier = trimmed.dropFirst("Issue:".count).trimmingCharacters(in: .whitespaces)
+                if !identifier.isEmpty {
+                    return (identifier, identifier)
+                }
+            }
+        }
+        // Fallback: try JSON (issueCreate.issue.id)
+        if let data = raw.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let issue = (json["issueCreate"] as? [String: Any])?["issue"] as? [String: Any],
+           let id = issue["id"] as? String {
+            return (id, issue["identifier"] as? String)
+        }
+        return nil
     }
 }

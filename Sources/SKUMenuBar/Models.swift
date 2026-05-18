@@ -12,6 +12,7 @@ struct GitHubSettings: Codable {
     // Claude / Anthropic
     var anthropicAdminKey: String = ""
     var anthropicOrgId:    String = ""
+    var anthropicApiKey:   String = ""   // Messages API key (sk-ant-api03-…) for inquiry automation
     // Currency
     var currency: String = "USD"       // "USD" | "EUR"
     var eurRate:  Double = 0.92        // USD → EUR exchange rate
@@ -44,6 +45,7 @@ struct GitHubSettings: Codable {
         intervalSeconds   = (try? c.decodeIfPresent(Int.self,    forKey: .intervalSeconds))  ?? 300
         anthropicAdminKey = (try? c.decodeIfPresent(String.self, forKey: .anthropicAdminKey)) ?? ""
         anthropicOrgId    = (try? c.decodeIfPresent(String.self, forKey: .anthropicOrgId))   ?? ""
+        anthropicApiKey   = (try? c.decodeIfPresent(String.self, forKey: .anthropicApiKey))  ?? ""
         currency          = (try? c.decodeIfPresent(String.self, forKey: .currency))         ?? "USD"
         eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
         // Migrate old claudeWeeklyCostLimit (Double, USD) → no-op; new field is token-based

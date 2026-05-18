@@ -110,6 +110,7 @@ struct LinearTeam: Identifiable {
     let id: String
     let name: String
     let key: String
+    var states: [LinearIssueState] = []
 }
 
 // MARK: - Linear Service
@@ -211,8 +212,9 @@ final class LinearService: ObservableObject {
     func updateIssueStatus(issueId: String, stateId: String) async throws {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
-        _ = try await session.callTool(name: "linear_update_issue", arguments: [
-            "issueId": issueId, "stateId": stateId
+        _ = try await session.callTool(name: "linear_bulk_update_issues", arguments: [
+            "issueIds": [issueId],
+            "update": ["stateId": stateId]
         ])
     }
 
@@ -224,20 +226,9 @@ final class LinearService: ObservableObject {
         ])
     }
 
-    /// Loads workflow states for a team. Returns cached states if available.
     func loadIssueStates(teamId: String) async -> [LinearIssueState] {
-        do {
-            try await ensureConnected()
-            guard let session else { return [] }
-            let raw = try await session.callTool(name: "linear_get_issue_statuses", arguments: [
-                "teamId": teamId
-            ])
-            return parseIssueStates(from: raw)
-        } catch {
-            self.error = error.localizedDescription
-            sessionConnected = false
-            return []
-        }
+        if teams.isEmpty { await loadTeams() }
+        return teams.first(where: { $0.id == teamId })?.states ?? []
     }
 
     /// Returns first state ID matching the given type ("backlog","started","completed","cancelled").
@@ -366,7 +357,20 @@ final class LinearService: ObservableObject {
         return arr.compactMap { d in
             guard let id  = d["id"]   as? String,
                   let nam = d["name"] as? String else { return nil }
-            return LinearTeam(id: id, name: nam, key: (d["key"] as? String) ?? "")
+            var teamStates: [LinearIssueState] = []
+            if let statesObj = d["states"] as? [String: Any],
+               let stateNodes = statesObj["nodes"] as? [[String: Any]] {
+                teamStates = stateNodes.compactMap { s in
+                    guard let sid = s["id"] as? String else { return nil }
+                    return LinearIssueState(
+                        id: sid,
+                        name: s["name"] as? String ?? "",
+                        type: s["type"] as? String ?? "backlog",
+                        color: s["color"] as? String ?? "#888888"
+                    )
+                }
+            }
+            return LinearTeam(id: id, name: nam, key: (d["key"] as? String) ?? "", states: teamStates)
         }
     }
 

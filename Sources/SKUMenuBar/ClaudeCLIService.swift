@@ -88,11 +88,9 @@ final class ClaudeCLIService: ObservableObject {
                 env["HOME"] = home
                 // Ensure claude can find its config
                 env["XDG_CONFIG_HOME"] = "\(home)/.config"
-                // Remove VS Code / IDE proxy variables so the CLI uses the
-                // claude.ai subscription instead of a proxied API key.
-                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
-                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
-                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                for k in env.keys where k.hasPrefix("ANTHROPIC_") || k.hasPrefix("CLAUDE_") || k.hasPrefix("__CF") {
+                    env.removeValue(forKey: k)
+                }
                 process.environment = env
 
                 let stdoutPipe = Pipe()
@@ -218,9 +216,9 @@ final class ClaudeCLIService: ObservableObject {
                 env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
                 env["HOME"] = home
                 env["XDG_CONFIG_HOME"] = "\(home)/.config"
-                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
-                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
-                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                for k in env.keys where k.hasPrefix("ANTHROPIC_") || k.hasPrefix("CLAUDE_") || k.hasPrefix("__CF") {
+                    env.removeValue(forKey: k)
+                }
                 process.environment = env
 
                 let outPipe   = Pipe()
@@ -264,9 +262,9 @@ final class ClaudeCLIService: ObservableObject {
                 env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
                 env["HOME"] = home
                 env["XDG_CONFIG_HOME"] = "\(home)/.config"
-                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
-                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
-                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                for k in env.keys where k.hasPrefix("ANTHROPIC_") || k.hasPrefix("CLAUDE_") || k.hasPrefix("__CF") {
+                    env.removeValue(forKey: k)
+                }
                 process.environment = env
 
                 let outPipe = Pipe()
@@ -310,9 +308,9 @@ final class ClaudeCLIService: ObservableObject {
                 let extraPaths = "\(home)/.local/bin:/usr/local/bin:/opt/homebrew/bin"
                 env["PATH"] = extraPaths + ":" + (env["PATH"] ?? "/usr/bin:/bin")
                 env["HOME"] = home
-                env.removeValue(forKey: "ANTHROPIC_BASE_URL")
-                env.removeValue(forKey: "ANTHROPIC_AUTH_TOKEN")
-                env.removeValue(forKey: "ANTHROPIC_API_KEY")
+                for k in env.keys where k.hasPrefix("ANTHROPIC_") || k.hasPrefix("CLAUDE_") || k.hasPrefix("__CF") {
+                    env.removeValue(forKey: k)
+                }
                 process.environment = env
 
                 let outPipe = Pipe()

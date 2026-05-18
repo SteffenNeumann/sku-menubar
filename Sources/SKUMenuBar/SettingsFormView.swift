@@ -201,6 +201,15 @@ struct SettingsFormView: View {
                                                     .styledInput(theme: theme)
                                             }
                                         }
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            fieldLabel("Messages API Key (für Kundenanfragen-Automation)")
+                                            SecureField("sk-ant-api03-…", text: $draft.anthropicApiKey)
+                                                .textFieldStyle(.plain)
+                                                .styledInput(theme: theme)
+                                            Text("console.anthropic.com → API Keys · wird für E-Mail-Analyse + Agent-Ausführung benötigt")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
                                         // Plan Limits (von claude.ai/settings/usage ablesen)
                                         VStack(alignment: .leading, spacing: 6) {
                                             fieldLabel("Plan Limits (von claude.ai/settings/usage)")

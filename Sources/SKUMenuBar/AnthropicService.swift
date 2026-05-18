@@ -36,6 +36,47 @@ final class AnthropicService {
         return all
     }
 
+    // MARK: - Messages API (direct, no CLI subprocess)
+
+    func sendMessage(
+        apiKey: String,
+        model: String = "claude-haiku-4-5-20251001",
+        systemPrompt: String? = nil,
+        userMessage: String,
+        maxTokens: Int = 4096
+    ) async throws -> String {
+        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        var body: [String: Any] = [
+            "model": model,
+            "max_tokens": maxTokens,
+            "messages": [["role": "user", "content": userMessage]]
+        ]
+        if let sp = systemPrompt, !sp.isEmpty {
+            body["system"] = sp
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let msg = extractError(from: data)
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(http.statusCode, msg)
+        }
+
+        struct MessagesResponse: Decodable {
+            struct ContentBlock: Decodable { let type: String; let text: String? }
+            let content: [ContentBlock]
+        }
+        let resp = try JSONDecoder().decode(MessagesResponse.self, from: data)
+        return resp.content.compactMap(\.text).joined()
+    }
+
     // MARK: - Shared
 
     private func dateItems(start: Date, end: Date) -> [URLQueryItem] {

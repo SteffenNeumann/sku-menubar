@@ -987,7 +987,10 @@ enum HomeTileID: String, CaseIterable, Codable {
         }
     }
 
-    var isFullWidth: Bool {
-        self == .zeiterfassung
+    var colSpan: Int {
+        switch self {
+        case .zeiterfassung, .kundenanfragen: return 3
+        default: return 1
+        }
     }
 }

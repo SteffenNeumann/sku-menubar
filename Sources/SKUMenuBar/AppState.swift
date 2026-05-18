@@ -106,7 +106,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
-        didSet { persist(); reschedule() }
+        didSet { persist(); reschedule(); customerInquiryWorkflow.anthropicApiKey = settings.anthropicApiKey }
     }
 
     // MARK: - Currency formatting
@@ -140,6 +140,7 @@ final class AppState: ObservableObject {
     lazy var agentService: AgentService = AgentService(cliService: cliService, appState: self)
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
     lazy var emailPollingService: EmailPollingService = EmailPollingService()
+    var inquiryLinearService: LinearService?
     lazy var customerInquiryWorkflow: CustomerInquiryWorkflow = {
         let wf = CustomerInquiryWorkflow(cliService: cliService, agentService: agentService)
         return wf
@@ -244,11 +245,29 @@ final class AppState: ObservableObject {
             agentService.startScheduler()
             historyService.startWatching()
             // Email automation: configure Linear + start polling
+            let logPath = NSHomeDirectory() + "/.claude/inquiry_debug.log"
+            func inquiryLog(_ msg: String) {
+                let line = "[\(Date())] \(msg)\n"
+                if let data = line.data(using: .utf8) {
+                    if FileManager.default.fileExists(atPath: logPath) {
+                        if let fh = FileHandle(forWritingAtPath: logPath) { fh.seekToEndOfFile(); fh.write(data); fh.closeFile() }
+                    } else {
+                        FileManager.default.createFile(atPath: logPath, contents: data)
+                    }
+                }
+            }
+            inquiryLog("Checking Linear MCP config...")
             if let linearConfig = await self.cliService.getMCPServerConfig(name: "linear") {
+                inquiryLog("Linear MCP found: cmd=\(linearConfig.commandOrUrl) args=\(linearConfig.args) env=\(linearConfig.envVars.count) vars")
                 let linearSvc = LinearService()
                 linearSvc.configure(config: linearConfig)
+                self.inquiryLinearService = linearSvc
                 await self.customerInquiryWorkflow.configureLinear(linearSvc)
+                inquiryLog("Linear configured: teamId=\(self.customerInquiryWorkflow.linearTeamId), teams=\(linearSvc.teams.count), error=\(linearSvc.error ?? "none")")
+            } else {
+                inquiryLog("Linear MCP config NOT found — issue creation disabled")
             }
+            self.customerInquiryWorkflow.anthropicApiKey = self.settings.anthropicApiKey
             self.customerInquiryWorkflow.emailPollingService = self.emailPollingService
             self.emailPollingService.start(workflow: self.customerInquiryWorkflow)
             // Request notification permission once

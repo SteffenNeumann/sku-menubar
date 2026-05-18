@@ -121,12 +121,17 @@ final class EmailPollingService: ObservableObject {
     // MARK: - Fetch unread emails (all accounts)
 
     private func fetchUnreadEmails() async throws -> String {
-        // Use Mail.app's unified inbox — covers all accounts
+        // Use Mail.app's unified inbox — last 50 messages (read + unread)
         let script = """
 set output to ""
 tell application "Mail"
     try
-        set msgs to every message of inbox whose read status is false
+        set allMsgs to every message of inbox
+        if (count of allMsgs) > 50 then
+            set msgs to items 1 thru 50 of allMsgs
+        else
+            set msgs to allMsgs
+        end if
         repeat with m in msgs
             set mid to message id of m
             set subj to subject of m
