@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Linear Data Models
 
 enum LinearPriority: Int, Codable, CaseIterable {
-    case urgent = 1, high = 2, medium = 3, low = 4, noPriority = 0
+    case noPriority = 0, urgent = 1, high = 2, medium = 3, low = 4
 
     var label: String {
         switch self {
@@ -36,14 +36,8 @@ enum LinearPriority: Int, Codable, CaseIterable {
         }
     }
 
-    init(rawValue: Int) {
-        switch rawValue {
-        case 1: self = .urgent
-        case 2: self = .high
-        case 3: self = .medium
-        case 4: self = .low
-        default: self = .noPriority
-        }
+    init(int value: Int) {
+        self = LinearPriority(rawValue: value) ?? .noPriority
     }
 }
 
@@ -130,74 +124,84 @@ final class LinearService: ObservableObject {
     @Published var error: String?
 
     private var session: MCPClientSession?
-    private var configuredApiKey: String?
+    private var sessionConnected = false
 
     func configure(config: MCPServerConfig) {
-        let newKey = config.envVars.first(where: { $0.hasPrefix("LINEAR_API_KEY=") })
-        if newKey != configuredApiKey || session == nil {
-            session?.stop()
-            session = MCPClientSession(config: config)
-            configuredApiKey = newKey
+        session?.stop()
+        session = MCPClientSession(config: config)
+        sessionConnected = false
+    }
+
+    private func ensureConnected() async throws {
+        guard let session else { throw LinearError.notConfigured }
+        if !sessionConnected {
+            try await session.connect()
+            sessionConnected = true
         }
     }
 
     func loadProjects() async {
-        guard let session else { error = "Linear MCP nicht konfiguriert"; return }
         isLoading = true
         error = nil
         do {
-            if !(try await{ try await session.connect(); return true }()) { return }
+            try await ensureConnected()
+            guard let session else { throw LinearError.notConfigured }
             let raw = try await session.callTool(name: "linear_list_projects", arguments: [:])
             projects = parseProjects(from: raw)
         } catch {
             self.error = error.localizedDescription
+            sessionConnected = false
         }
         isLoading = false
     }
 
-    func loadIssues(projectId: String, teamId: String? = nil) async {
-        guard let session else { return }
+    func loadIssues(projectId: String) async {
         isLoading = true
         do {
-            var args: [String: Any] = ["includeArchived": false]
-            if !projectId.isEmpty { args["projectId"] = projectId }
+            try await ensureConnected()
+            guard let session else { throw LinearError.notConfigured }
+            // Use nested filter syntax: filter.project.id.eq
+            let args: [String: Any] = [
+                "filter": ["project": ["id": ["eq": projectId]]],
+                "first": 100
+            ]
             let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
             issues[projectId] = parseIssues(from: raw)
         } catch {
             self.error = error.localizedDescription
+            sessionConnected = false
         }
         isLoading = false
     }
 
-    func loadTeamIssues(teamKey: String) async -> [LinearIssue] {
-        guard let session else { return [] }
+    func loadAllIssues(teamId: String) async -> [LinearIssue] {
         do {
-            let raw = try await session.callTool(name: "linear_search_issues",
-                                                 arguments: ["teamKey": teamKey, "includeArchived": false])
+            try await ensureConnected()
+            guard let session else { return [] }
+            let args: [String: Any] = ["teamIds": [teamId], "first": 100]
+            let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
             return parseIssues(from: raw)
         } catch {
             self.error = error.localizedDescription
+            sessionConnected = false
             return []
         }
     }
 
     func loadTeams() async {
-        guard let session else { return }
         do {
+            try await ensureConnected()
+            guard let session else { throw LinearError.notConfigured }
             let raw = try await session.callTool(name: "linear_get_teams", arguments: [:])
             teams = parseTeams(from: raw)
         } catch {
             self.error = error.localizedDescription
+            sessionConnected = false
         }
     }
 
-    func updateIssueStatus(issueId: String, stateId: String) async throws {
-        guard let session else { throw LinearError.notConfigured }
-        _ = try await session.callTool(name: "linear_search_issues",
-                                       arguments: ["id": issueId, "stateId": stateId])
-    }
-
     func createIssue(teamId: String, title: String, description: String, priority: Int = 0) async throws -> String {
+        try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
         return try await session.callTool(name: "linear_create_issue", arguments: [
             "teamId": teamId, "title": title, "description": description, "priority": priority
@@ -207,21 +211,23 @@ final class LinearService: ObservableObject {
     func stopSession() {
         session?.stop()
         session = nil
+        sessionConnected = false
     }
 
     // MARK: - JSON Parsing helpers
+    // Response format: { "projects": { "nodes": [...] } }
 
     private func parseProjects(from raw: String) -> [LinearProject] {
-        guard let data = raw.data(using: .utf8) else { return [] }
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
 
-        // MCP returns either a direct array or { projects: [...] }
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let arr: [[String: Any]]
-        if let nodes = json?["projects"] as? [[String: Any]] {
+        if let outer = json["projects"] as? [String: Any],
+           let nodes = outer["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let nodes = json?["nodes"] as? [[String: Any]] {
+        } else if let nodes = json["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let direct = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+        } else if let direct = json["projects"] as? [[String: Any]] {
             arr = direct
         } else {
             return []
@@ -230,9 +236,8 @@ final class LinearService: ObservableObject {
         return arr.compactMap { d -> LinearProject? in
             guard let id   = d["id"]   as? String,
                   let name = d["name"] as? String else { return nil }
-            let teamIds = (d["teams"] as? [String: Any]).flatMap {
-                ($0["nodes"] as? [[String: Any]])?.compactMap { $0["id"] as? String }
-            } ?? []
+            let teamsOuter = d["teams"] as? [String: Any]
+            let teamIds = (teamsOuter?["nodes"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
             return LinearProject(
                 id:          id,
                 name:        name,
@@ -246,16 +251,18 @@ final class LinearService: ObservableObject {
         }
     }
 
+    // Response format: { "issues": { "nodes": [...], "pageInfo": {...} } }
     private func parseIssues(from raw: String) -> [LinearIssue] {
-        guard let data = raw.data(using: .utf8) else { return [] }
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
 
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let arr: [[String: Any]]
-        if let nodes = json?["issues"] as? [[String: Any]] {
+        if let outer = json["issues"] as? [String: Any],
+           let nodes = outer["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let nodes = json?["nodes"] as? [[String: Any]] {
+        } else if let nodes = json["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let direct = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+        } else if let direct = json["issues"] as? [[String: Any]] {
             arr = direct
         } else {
             return []
@@ -278,10 +285,10 @@ final class LinearService: ObservableObject {
             }
 
             let assigneeDict = d["assignee"] as? [String: Any]
-            let assigneeName = assigneeDict?["displayName"] as? String
-                            ?? assigneeDict?["name"] as? String
+            let assigneeName = assigneeDict?["name"] as? String
 
-            let labelsData  = (d["labels"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+            let labelsOuter = d["labels"] as? [String: Any]
+            let labelsData  = (labelsOuter?["nodes"] as? [[String: Any]]) ?? []
             let labels      = labelsData.compactMap { $0["name"] as? String }
 
             return LinearIssue(
@@ -289,7 +296,7 @@ final class LinearService: ObservableObject {
                 identifier:   ident,
                 title:        title,
                 description:  (d["description"] as? String) ?? "",
-                priority:     LinearPriority(rawValue: (d["priority"] as? Int) ?? 0),
+                priority:     LinearPriority(int: (d["priority"] as? Int) ?? 0),
                 state:        issueState,
                 teamId:       (d["team"] as? [String: Any])?["id"] as? String ?? "",
                 projectId:    (d["project"] as? [String: Any])?["id"] as? String,
@@ -302,21 +309,25 @@ final class LinearService: ObservableObject {
         }
     }
 
+    // Response format: { "teams": { "nodes": [...] } }
     private func parseTeams(from raw: String) -> [LinearTeam] {
-        guard let data = raw.data(using: .utf8) else { return [] }
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+
         let arr: [[String: Any]]
-        if let nodes = json?["teams"] as? [[String: Any]] {
+        if let outer = json["teams"] as? [String: Any],
+           let nodes = outer["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let nodes = json?["nodes"] as? [[String: Any]] {
+        } else if let nodes = json["nodes"] as? [[String: Any]] {
             arr = nodes
-        } else if let direct = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+        } else if let direct = json["teams"] as? [[String: Any]] {
             arr = direct
         } else {
             return []
         }
+
         return arr.compactMap { d in
-            guard let id  = d["id"]  as? String,
+            guard let id  = d["id"]   as? String,
                   let nam = d["name"] as? String else { return nil }
             return LinearTeam(id: id, name: nam, key: (d["key"] as? String) ?? "")
         }

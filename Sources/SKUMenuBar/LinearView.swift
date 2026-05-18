@@ -56,7 +56,7 @@ struct LinearView: View {
 
     private func setupAndLoad() async {
         guard !configured else { return }
-        if let cfg = await state.cliService.getMCPServerConfig(name: "Linear") {
+        if let cfg = await state.cliService.getMCPServerConfig(name: "linear") {
             service.configure(config: cfg)
             configured = true
             await service.loadProjects()
