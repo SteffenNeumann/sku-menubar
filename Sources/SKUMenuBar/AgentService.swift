@@ -693,16 +693,16 @@ Only include this line when you have a genuine technical or domain insight worth
 
     func checkSchedules() async {
         let now = Date()
-        for agent in agents where agent.isActive {
-            // Normal task schedule
-            if let schedule = agent.schedule, !schedule.isEmpty,
+        for agent in agents {
+            // Normal task schedule — requires isActive
+            if agent.isActive, let schedule = agent.schedule, !schedule.isEmpty,
                !runningAgents.contains(agent.id) {
                 let lastRun = logs[agent.id]?.last?.startedAt
                 if isDue(schedule: schedule, lastRun: lastRun, now: now) {
                     await executeScheduledAgent(agent)
                 }
             }
-            // Dream schedule (independent of task schedule)
+            // Dream schedule — works regardless of isActive
             if let ds = agent.dreamSchedule, !ds.isEmpty,
                !dreamingAgents.contains(agent.id) {
                 let lastDream = lastDreamDateAsDate(for: agent)
