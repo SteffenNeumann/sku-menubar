@@ -720,6 +720,8 @@ struct SingleChatSessionView: View {
         if isActive {
             tryAutoMatchTMetricProject()
             handlePendingMessage()
+            // Re-sync timer chip state from TMetric when switching to this tab
+            Task { await state.syncTimerStateFromTMetric() }
             if let dir = state.pendingChatSetDirectory {
                 state.pendingChatSetDirectory = nil
                 workingDirectory = dir

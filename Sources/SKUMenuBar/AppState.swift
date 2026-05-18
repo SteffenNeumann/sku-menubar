@@ -722,6 +722,48 @@ final class AppState: ObservableObject {
         let newIds = Set(tmetricProjects.map(\.id))
         let existing = tmetricKnownProjects.filter { !newIds.contains($0.id) }
         tmetricKnownProjects = (existing + tmetricProjects).filter { $0.id != 0 }.sorted { $0.name < $1.name }
+
+        // Sync actual timer state from TMetric so chip always reflects reality
+        let runningTimer = await TMetricService.fetchCurrentTimer(token: token, userId: tmetricCachedUserId)
+        NSLog("[AppState] refreshTMetric: runningTimer=\(String(describing: runningTimer?.id))")
+        syncTMetricTimerState(runningTimer: runningTimer)
+    }
+
+    @MainActor
+    private func syncTMetricTimerState(runningTimer: (id: Int, raw: [String: Any])?) {
+        if let timer = runningTimer {
+            let projectId = (timer.raw["project"] as? [String: Any])?["id"] as? Int
+                         ?? timer.raw["projectId"] as? Int
+            NSLog("[AppState] syncTMetricTimerState: TMetric timer running, entryId=\(timer.id) projectId=\(String(describing: projectId))")
+            // Mark the matching tab running — prefer tabs that already own this project
+            if let pid = projectId,
+               let idx = chatTabs.firstIndex(where: { $0.tmetricProjectId == pid }) {
+                if !chatTabs[idx].tmetricIsTimerRunning {
+                    chatTabs[idx].tmetricIsTimerRunning = true
+                    chatTabs[idx].tmetricRunningEntryId = timer.id
+                    if chatTabs[idx].tmetricTimerStart == nil { chatTabs[idx].tmetricTimerStart = Date() }
+                    NSLog("[AppState] syncTMetricTimerState: synced running state to tab idx=\(idx)")
+                }
+            }
+            // Clear any tabs that think they're running but aren't the TMetric timer
+            for idx in chatTabs.indices where chatTabs[idx].tmetricIsTimerRunning {
+                let tabPid = chatTabs[idx].tmetricProjectId
+                if tabPid != projectId || chatTabs[idx].tmetricRunningEntryId != timer.id {
+                    chatTabs[idx].tmetricIsTimerRunning = false
+                    chatTabs[idx].tmetricTimerStart     = nil
+                    chatTabs[idx].tmetricRunningEntryId = nil
+                    NSLog("[AppState] syncTMetricTimerState: cleared stale timer from tab idx=\(idx)")
+                }
+            }
+        } else {
+            // No timer running in TMetric — clear all tab timer states
+            for idx in chatTabs.indices where chatTabs[idx].tmetricIsTimerRunning {
+                NSLog("[AppState] syncTMetricTimerState: TMetric idle, clearing tab idx=\(idx)")
+                chatTabs[idx].tmetricIsTimerRunning = false
+                chatTabs[idx].tmetricTimerStart     = nil
+                chatTabs[idx].tmetricRunningEntryId = nil
+            }
+        }
     }
 
     // Fetch last 90 days to seed the known-projects picker
@@ -778,11 +820,15 @@ final class AppState: ObservableObject {
             chatTabs[idx].tmetricRunningEntryId = result.entryId
             chatTabs[idx].tmetricIsTimerRunning = true
             chatTabs[idx].tmetricTimerStart     = Date()
+            NSLog("[AppState] startTMetricTimer: success entryId=\(String(describing: result.entryId))")
             // Cache userId from start response — kein separater /users/me Aufruf nötig
             if let uid = result.userId { tmetricCachedUserId = uid }
             tmetricLastActivity = Date()
             startTMetricInactivityTimer()
+            // Sync from TMetric after short delay to confirm the timer was registered
+            Task { try? await Task.sleep(nanoseconds: 1_500_000_000); await refreshTMetric(force: true) }
         } catch {
+            NSLog("[AppState] startTMetricTimer error: \(error.localizedDescription)")
             chatTabs[idx].tmetricTimerError = error.localizedDescription
         }
     }
@@ -826,6 +872,15 @@ final class AppState: ObservableObject {
 
     func tmetricActivity() {
         tmetricLastActivity = Date()
+    }
+
+    /// Lightweight sync — only checks GET /timer, does NOT re-fetch the full summary
+    @MainActor
+    func syncTimerStateFromTMetric() async {
+        let token = settings.tmetricApiToken
+        guard !token.isEmpty else { return }
+        let runningTimer = await TMetricService.fetchCurrentTimer(token: token, userId: tmetricCachedUserId)
+        syncTMetricTimerState(runningTimer: runningTimer)
     }
 
     private func startTMetricInactivityTimer() {
