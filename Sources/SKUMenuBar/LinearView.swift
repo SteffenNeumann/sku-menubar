@@ -406,23 +406,39 @@ struct LinearView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 // Header
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
                         Text(issue.identifier)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(theme.tertiaryText)
                         Spacer()
+                        // Action toolbar — Linear-style icon buttons
+                        Button {
+                            openInChat(issue)
+                        } label: {
+                            Image(systemName: "cpu.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                                .frame(width: 26, height: 26)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(theme.hoverBg.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Mit Agent bearbeiten")
+
                         if !issue.url.isEmpty, let url = URL(string: issue.url) {
                             Link(destination: url) {
-                                Label("In Linear öffnen", systemImage: "arrow.up.right.square")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(accentColor)
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .frame(width: 26, height: 26)
+                                    .background(RoundedRectangle(cornerRadius: 5).fill(theme.hoverBg.opacity(0.6)))
                             }
+                            .help("In Linear öffnen")
                         }
                     }
 
                     Text(issue.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                         .strikethrough(issue.state?.isCompleted ?? false)
                 }
@@ -499,9 +515,6 @@ struct LinearView: View {
                     Divider()
                 }
 
-                // Agent action
-                agentActionCard(issue)
-                    .padding(16)
             }
         }
     }
@@ -518,48 +531,6 @@ struct LinearView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-    }
-
-    private func agentActionCard(_ issue: LinearIssue) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Mit Agent bearbeiten", systemImage: "cpu.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(theme.primaryText)
-
-            Text("Öffnet einen Chat-Tab mit dem Issue-Kontext. Claude kann das Issue analysieren, Code schreiben oder Kommentare vorschlagen.")
-                .font(.system(size: 11))
-                .foregroundStyle(theme.secondaryText)
-
-            Button {
-                openInChat(issue)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 11))
-                    Text("In Chat öffnen")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(accentColor.opacity(0.15))
-                .foregroundStyle(accentColor)
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(accentColor.opacity(0.3), lineWidth: 0.5)
-                )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(theme.cardBg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(theme.cardBorder, lineWidth: 0.5)
-                )
-        )
     }
 
     // MARK: - Actions
