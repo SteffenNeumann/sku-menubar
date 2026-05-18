@@ -8,6 +8,7 @@ struct MainWindowView: View {
     @State private var chatLoaded       = false
     @State private var filesLoaded      = false
     @State private var codeReviewLoaded = false
+    @State private var linearLoaded     = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -67,6 +68,12 @@ struct MainWindowView: View {
                     .allowsHitTesting(selectedSection == .codeReview)
                     .accessibilityHidden(selectedSection != .codeReview)
             }
+            if linearLoaded {
+                LinearView()
+                    .opacity(selectedSection == .linear ? 1 : 0)
+                    .allowsHitTesting(selectedSection == .linear)
+                    .accessibilityHidden(selectedSection != .linear)
+            }
 
             // Alle anderen Sections werden normal gerendert
             switch selectedSection {
@@ -74,13 +81,13 @@ struct MainWindowView: View {
             case .chat:       EmptyView()
             case .files:      EmptyView()
             case .codeReview: EmptyView()
+            case .linear:     EmptyView()
             case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
             case .mcp:        MCPView()
             case .notes:      NotesView(lockedType: .note)
             case .tasks:      NotesView(lockedType: .task)
-            case .linear:     LinearView()
             case .settings:   SettingsFormView().padding(20)
             }
         }
@@ -88,6 +95,7 @@ struct MainWindowView: View {
             if section == .chat       { chatLoaded       = true }
             if section == .files      { filesLoaded      = true }
             if section == .codeReview { codeReviewLoaded = true }
+            if section == .linear     { linearLoaded     = true }
         }
     }
 }

@@ -134,6 +134,98 @@ final class ExplorerNode: Identifiable, ObservableObject {
     }
 }
 
+// MARK: - Sort / Group
+
+enum FileSortOrder: String, CaseIterable {
+    case nameAsc  = "name_asc"
+    case nameDesc = "name_desc"
+    case dateDesc = "date_desc"
+    case dateAsc  = "date_asc"
+    case sizeDesc = "size_desc"
+    case kindAsc  = "kind_asc"
+
+    var label: String {
+        switch self {
+        case .nameAsc:  return "Name A → Z"
+        case .nameDesc: return "Name Z → A"
+        case .dateDesc: return "Datum (Neueste)"
+        case .dateAsc:  return "Datum (Älteste)"
+        case .sizeDesc: return "Größe (Größte)"
+        case .kindAsc:  return "Art/Erweiterung"
+        }
+    }
+}
+
+enum FileGroupBy: String, CaseIterable {
+    case none         = "none"
+    case foldersFirst = "folders_first"
+    case kind         = "kind"
+
+    var label: String {
+        switch self {
+        case .none:         return "Keine Gruppierung"
+        case .foldersFirst: return "Ordner zuerst"
+        case .kind:         return "Nach Art"
+        }
+    }
+}
+
+private struct FileSortOrderEnvKey: EnvironmentKey {
+    static let defaultValue: FileSortOrder = .nameAsc
+}
+private struct FileGroupByEnvKey: EnvironmentKey {
+    static let defaultValue: FileGroupBy = .foldersFirst
+}
+extension EnvironmentValues {
+    fileprivate var fileSortOrder: FileSortOrder {
+        get { self[FileSortOrderEnvKey.self] }
+        set { self[FileSortOrderEnvKey.self] = newValue }
+    }
+    fileprivate var fileGroupBy: FileGroupBy {
+        get { self[FileGroupByEnvKey.self] }
+        set { self[FileGroupByEnvKey.self] = newValue }
+    }
+}
+
+private func applySortGroup(
+    _ nodes: [ExplorerNode],
+    sortOrder: FileSortOrder,
+    groupBy: FileGroupBy
+) -> [ExplorerNode] {
+    func sorted(_ arr: [ExplorerNode]) -> [ExplorerNode] {
+        arr.sorted { a, b in
+            switch sortOrder {
+            case .nameAsc:  return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            case .nameDesc: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedDescending
+            case .dateDesc: return (a.modifiedAt ?? .distantPast) > (b.modifiedAt ?? .distantPast)
+            case .dateAsc:  return (a.modifiedAt ?? .distantPast) < (b.modifiedAt ?? .distantPast)
+            case .sizeDesc: return a.fileSize > b.fileSize
+            case .kindAsc:  return a.fileExtension.localizedCaseInsensitiveCompare(b.fileExtension) == .orderedAscending
+            }
+        }
+    }
+    switch groupBy {
+    case .none:
+        return sorted(nodes)
+    case .foldersFirst:
+        return sorted(nodes.filter(\.isDirectory)) + sorted(nodes.filter { !$0.isDirectory })
+    case .kind:
+        return nodes.sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            let extCmp = a.fileExtension.localizedCaseInsensitiveCompare(b.fileExtension)
+            if extCmp != .orderedSame { return extCmp == .orderedAscending }
+            switch sortOrder {
+            case .nameAsc:  return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            case .nameDesc: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedDescending
+            case .dateDesc: return (a.modifiedAt ?? .distantPast) > (b.modifiedAt ?? .distantPast)
+            case .dateAsc:  return (a.modifiedAt ?? .distantPast) < (b.modifiedAt ?? .distantPast)
+            case .sizeDesc: return a.fileSize > b.fileSize
+            case .kindAsc:  return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+    }
+}
+
 // MARK: - File Explorer View
 
 struct FileExplorerView: View {
@@ -143,6 +235,8 @@ struct FileExplorerView: View {
     @State private var rootNode: ExplorerNode?
     @State private var selectedNode: ExplorerNode?
     @State private var showHidden: Bool = false
+    @AppStorage("fileExplorerSortOrder") private var sortOrder: FileSortOrder = .nameAsc
+    @AppStorage("fileExplorerGroupBy")   private var groupBy: FileGroupBy = .foldersFirst
     @State private var rootPath: String = NSHomeDirectory()
     @State private var previewText: String? = nil
     @State private var pdfDocument: PDFDocument? = nil
@@ -230,6 +324,8 @@ struct FileExplorerView: View {
                 .frame(width: treePanelWidth)
                 .background(theme.windowBg)
                 .transition(.move(edge: .leading))
+                .environment(\.fileSortOrder, sortOrder)
+                .environment(\.fileGroupBy, groupBy)
 
                 // Divider column: static line in header zone, draggable handle below
                 VStack(spacing: 0) {
@@ -416,6 +512,31 @@ struct FileExplorerView: View {
             .help("Verzeichnis wählen")
 
             Spacer()
+
+            Menu {
+                Picker("Sortieren", selection: $sortOrder) {
+                    ForEach(FileSortOrder.allCases, id: \.rawValue) { order in
+                        Text(order.label).tag(order)
+                    }
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Picker("Gruppieren", selection: $groupBy) {
+                    ForEach(FileGroupBy.allCases, id: \.rawValue) { group in
+                        Text(group.label).tag(group)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                let isCustom = sortOrder != .nameAsc || groupBy != .foldersFirst
+                Image(systemName: isCustom ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                    .font(.system(size: 12))
+                    .foregroundStyle(isCustom ? accentColor : theme.tertiaryText)
+                    .frame(width: 26, height: 26)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Sortieren & Gruppieren")
 
             Button {
                 showHidden.toggle()
@@ -793,7 +914,7 @@ struct FileExplorerView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 if let root = rootNode {
-                    ForEach(root.children ?? []) { node in
+                    ForEach(applySortGroup(root.children ?? [], sortOrder: sortOrder, groupBy: groupBy)) { node in
                         ExplorerTreeRow(
                             node: node,
                             selectedNode: $selectedNode,
@@ -976,7 +1097,7 @@ struct FileExplorerView: View {
                             .foregroundStyle(theme.tertiaryText)
                             .padding(16)
                     } else {
-                        ForEach(children) { child in
+                        ForEach(applySortGroup(children, sortOrder: sortOrder, groupBy: groupBy)) { child in
                             Button {
                                 selectNode(child)
                             } label: {
@@ -1529,6 +1650,8 @@ struct ExplorerTreeRow: View {
     var onReveal: (ExplorerNode) -> Void
 
     @Environment(\.appTheme) var theme
+    @Environment(\.fileSortOrder) private var sortOrder
+    @Environment(\.fileGroupBy)   private var groupBy
     @State private var isHovered = false
     @State private var showContextMenu = false
 
@@ -1548,7 +1671,7 @@ struct ExplorerTreeRow: View {
             rowContent
             // Children
             if node.isExpanded, let children = node.children {
-                ForEach(children) { child in
+                ForEach(applySortGroup(children, sortOrder: sortOrder, groupBy: groupBy)) { child in
                     ExplorerTreeRow(
                         node: child,
                         selectedNode: $selectedNode,
