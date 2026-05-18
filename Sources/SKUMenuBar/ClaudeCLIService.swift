@@ -497,12 +497,17 @@ final class ClaudeCLIService: ObservableObject {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.lowercased().hasPrefix("transport:") {
                 transport = trimmed.dropFirst("transport:".count).trimmingCharacters(in: .whitespaces)
+            } else if trimmed.lowercased().hasPrefix("type:") {
+                // "Type: stdio" — synonym for transport in some CLI versions
+                let t = trimmed.dropFirst("type:".count).trimmingCharacters(in: .whitespaces).lowercased()
+                if !t.isEmpty { transport = t }
             } else if trimmed.lowercased().hasPrefix("command:") {
                 commandOrUrl = trimmed.dropFirst("command:".count).trimmingCharacters(in: .whitespaces)
             } else if trimmed.lowercased().hasPrefix("url:") {
                 commandOrUrl = trimmed.dropFirst("url:".count).trimmingCharacters(in: .whitespaces)
             } else if trimmed.lowercased().hasPrefix("args:") {
                 let raw = trimmed.dropFirst("args:".count).trimmingCharacters(in: .whitespaces)
+                // Multi-value: could be space-separated or a single path
                 args = raw.split(separator: " ").map(String.init)
             } else if trimmed.lowercased().hasPrefix("env:") {
                 let raw = trimmed.dropFirst("env:".count).trimmingCharacters(in: .whitespaces)
@@ -510,9 +515,13 @@ final class ClaudeCLIService: ObservableObject {
             } else if trimmed.lowercased().hasPrefix("header:") {
                 let raw = trimmed.dropFirst("header:".count).trimmingCharacters(in: .whitespaces)
                 if !raw.isEmpty { headers.append(raw) }
-            } else if trimmed.contains("=") && !trimmed.hasPrefix("#") && commandOrUrl.isEmpty {
-                // Bare KEY=VALUE lines
-                envVars.append(trimmed)
+            } else if trimmed.contains("=") && !trimmed.hasPrefix("#") {
+                // KEY=VALUE env var lines (e.g. under "Environment:" section).
+                // Only treat as env var if the key part contains no spaces/colons.
+                let key = String(trimmed.prefix(while: { $0 != "=" }))
+                if !key.contains(" ") && !key.contains(":") && !key.isEmpty {
+                    envVars.append(trimmed)
+                }
             }
         }
 
