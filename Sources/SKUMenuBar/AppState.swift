@@ -709,15 +709,12 @@ final class AppState: ObservableObject {
             let result = try await TMetricService.fetchSummary(token: token, from: from, to: to)
             tmetricProjects    = result.summaries
             tmetricLastUpdated = Date()
+            if let uid = result.userId { tmetricCachedUserId = uid }
         } catch {
             tmetricError = error.localizedDescription
         }
 
         tmetricIsLoading = false
-        // Pre-cache userId so timer start doesn't need to fetch it on demand
-        if tmetricCachedUserId == nil {
-            tmetricCachedUserId = await TMetricService.fetchUserId(token: token)
-        }
         // Merge into known projects (accumulate across period changes)
         let newIds = Set(tmetricProjects.map(\.id))
         let existing = tmetricKnownProjects.filter { !newIds.contains($0.id) }
@@ -736,6 +733,7 @@ final class AppState: ObservableObject {
             let newIds = Set(tmetricKnownProjects.map(\.id))
             let fresh  = result.summaries.filter { $0.id != 0 && !newIds.contains($0.id) }
             tmetricKnownProjects = (tmetricKnownProjects + fresh).sorted { $0.name < $1.name }
+            if let uid = result.userId { tmetricCachedUserId = uid }
         }
     }
 
@@ -769,7 +767,7 @@ final class AppState: ObservableObject {
         guard let projectId else { return }
         tmetricTimerError = nil
         do {
-            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId)
+            try await TMetricService.startTimer(token: settings.tmetricApiToken, projectId: projectId, userId: tmetricCachedUserId)
             tmetricIsTimerRunning = true
             tmetricTimerStart     = Date()
             tmetricLastActivity   = Date()

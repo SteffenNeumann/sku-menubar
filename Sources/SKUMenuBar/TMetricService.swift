@@ -59,6 +59,7 @@ enum TMetricPeriod: String, CaseIterable, Codable {
 // Actual structure returned by TMetric v3 timeentries endpoint
 private struct TMetricTimeEntry: Codable {
     let id: Int?
+    let userId: Int?
     let startTime: String?
     let endTime: String?
     let project: TMetricEntryProject?   // nested directly in entry
@@ -78,6 +79,7 @@ private struct TMetricMe: Codable {
 struct TMetricFetchResult {
     let summaries: [TMetricProjectSummary]
     let debugRaw:  String
+    let userId:    Int?
 }
 
 struct TMetricProjectSummary: Identifiable, Equatable {
@@ -130,28 +132,63 @@ enum TMetricService {
 
     // MARK: Timer control
 
-    static func startTimer(token: String, projectId: Int) async throws {
-        // TMetric v3: start a running entry via POST /timeentries (endTime omitted = running)
-        guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries") else {
-            throw TMetricError.badURL
+    static func startTimer(token: String, projectId: Int, userId: Int? = nil) async throws {
+        let startStr = localFmt.string(from: Date())
+
+        // Candidate endpoints — try in order until one returns 2xx
+        struct Candidate {
+            let url: String; let method: String; let body: [String: Any]
         }
-        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let body: [String: Any] = [
-            "startTime": localFmt.string(from: Date()),
-            "project":   ["id": projectId]
-        ]
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: req)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let responseBody = String(data: data.prefix(500), encoding: .utf8) ?? ""
-        print("[TMetric] POST /timeentries → HTTP \(status): \(responseBody)")
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw TMetricError.http(http.statusCode, responseBody)
+        var candidates: [Candidate] = []
+
+        // 1. POST /timeentries with userId in body (most common REST pattern)
+        if let uid = userId {
+            candidates.append(.init(
+                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
+                method: "POST",
+                body: ["startTime": startStr, "userId": uid, "project": ["id": projectId]]
+            ))
         }
+        // 2. POST /timeentries without userId
+        candidates.append(.init(
+            url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
+            method: "POST",
+            body: ["startTime": startStr, "project": ["id": projectId]]
+        ))
+        // 3. POST /timeentries with flat projectId
+        if let uid = userId {
+            candidates.append(.init(
+                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timeentries",
+                method: "POST",
+                body: ["startTime": startStr, "userId": uid, "projectId": projectId]
+            ))
+        }
+        // 4. POST /timer with userId as query param
+        if let uid = userId {
+            candidates.append(.init(
+                url: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer?userId=\(uid)",
+                method: "POST",
+                body: ["projectId": projectId]
+            ))
+        }
+
+        var lastError: String = "Keine Kandidaten"
+        for c in candidates {
+            guard let url = URL(string: c.url) else { continue }
+            var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+            req.httpMethod = c.method
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.httpBody = try JSONSerialization.data(withJSONObject: c.body)
+            let (data, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
+            print("[TMetric] \(c.method) \(c.url) → HTTP \(status): \(body)")
+            if (200...299).contains(status) { return }   // success
+            lastError = "HTTP \(status): \(body.prefix(120))"
+        }
+        throw TMetricError.http(0, "Alle Varianten fehlgeschlagen — \(lastError)")
     }
 
     static func stopTimer(token: String) async throws {
@@ -215,14 +252,15 @@ enum TMetricService {
         }
         print("[TMetric] After client filter [\(localFmt.string(from: from))…\(localFmt.string(from: to))]: \(filtered.count) entries")
 
-        // Debug: show decoded project names
-        let firstRaw: String
         let projectNames = Set(allEntries.compactMap { $0.project?.name }).sorted().prefix(5).joined(separator: ", ")
-        firstRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nProjekte: [\(projectNames)]"
+        let firstRaw = "Total:\(allEntries.count) Filtered:\(filtered.count)\nProjekte: [\(projectNames)]"
+        let extractedUserId = allEntries.compactMap { $0.userId }.first
+        print("[TMetric] extractedUserId=\(String(describing: extractedUserId))")
 
         return TMetricFetchResult(
             summaries: aggregate(entries: filtered, now: now),
-            debugRaw:  firstRaw
+            debugRaw:  firstRaw,
+            userId:    extractedUserId
         )
     }
 
