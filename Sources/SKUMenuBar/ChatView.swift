@@ -942,6 +942,7 @@ struct SingleChatSessionView: View {
             : (state.tmetricTimerError != nil ? Color.red.opacity(0.08) : theme.rowBg),
             in: Capsule()
         )
+        .help(state.tmetricTimerError ?? (state.tmetricIsTimerRunning ? "Timer läuft" : ""))
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
             chatTimerTick = date
         }

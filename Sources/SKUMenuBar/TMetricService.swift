@@ -131,18 +131,31 @@ enum TMetricService {
     // MARK: Timer control
 
     static func startTimer(token: String, projectId: Int) async throws {
+        // First probe GET /timer to see what format TMetric expects
+        if let getUrl = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") {
+            var probe = URLRequest(url: getUrl, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+            probe.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            probe.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let (pd, pr) = try? await URLSession.shared.data(for: probe) {
+                let status = (pr as? HTTPURLResponse)?.statusCode ?? 0
+                print("[TMetric] GET /timer → HTTP \(status): \(String(data: pd.prefix(500), encoding: .utf8) ?? "")")
+            }
+        }
         guard let url = URL(string: "https://app.tmetric.com/api/v3/accounts/\(accountId)/timer") else {
             throw TMetricError.badURL
         }
-        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["projectId": projectId])
+        print("[TMetric] POST /timer body: {\"projectId\": \(projectId)}")
         let (data, response) = try await URLSession.shared.data(for: req)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let body = String(data: data.prefix(500), encoding: .utf8) ?? ""
+        print("[TMetric] POST /timer → HTTP \(status): \(body)")
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            let body = String(data: data.prefix(300), encoding: .utf8) ?? ""
-            print("[TMetric] startTimer HTTP \(http.statusCode): \(body)")
             throw TMetricError.http(http.statusCode, body)
         }
     }
