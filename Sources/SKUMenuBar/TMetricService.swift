@@ -155,12 +155,15 @@ enum TMetricService {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyStr = String(data: data.prefix(500), encoding: .utf8) ?? ""
             NSLog("[TMetric] POST /timeentries → HTTP \(status): \(bodyStr)")
-            if (200...299).contains(status),
-               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                let entryId     = dict["id"]     as? Int
-                let returnedUid = dict["userId"] as? Int
-                NSLog("[TMetric] started entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
-                return (entryId: entryId, userId: returnedUid)
+            if (200...299).contains(status) {
+                let json = try? JSONSerialization.jsonObject(with: data)
+                let dict = (json as? [String: Any]) ?? (json as? [[String: Any]])?.first
+                if let dict = dict {
+                    let entryId     = dict["id"]     as? Int
+                    let returnedUid = dict["userId"] as? Int
+                    NSLog("[TMetric] started entryId=\(String(describing: entryId)) userId=\(String(describing: returnedUid))")
+                    return (entryId: entryId, userId: returnedUid)
+                }
             }
             lastError = "HTTP \(status): \(bodyStr.prefix(120))"
         }
