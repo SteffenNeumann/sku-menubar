@@ -134,10 +134,12 @@ struct ChatMessage: Identifiable, Equatable {
     var timestamp = Date()
     var gitDiff: String?          // populated after tool calls that modify files
     var gitDiffExpanded: Bool = false
+    var currentTodos: [TodoItem]? = nil   // latest TodoWrite state
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming
             && lhs.gitDiff == rhs.gitDiff && lhs.toolCalls.count == rhs.toolCalls.count
+            && lhs.currentTodos?.count == rhs.currentTodos?.count
     }
 }
 
@@ -162,6 +164,18 @@ enum ChatProviderSource: String, Codable {
         case .copilot: return "arrow.triangle.2.circlepath"
         }
     }
+}
+
+// MARK: - Todo Items (from TodoWrite tool)
+
+struct TodoItem: Decodable, Equatable, Identifiable {
+    let id: String
+    let content: String
+    let status: String   // "pending", "in_progress", "completed"
+    let priority: String?
+
+    var isCompleted: Bool { status == "completed" }
+    var isActive: Bool    { status == "in_progress" }
 }
 
 struct ToolCall: Identifiable, Equatable {
@@ -222,6 +236,7 @@ struct StreamToolInput: Decodable {
     let pattern: String?      // Glob / Grep
     let path: String?         // LS
     let description: String?  // misc
+    let todos: [TodoItem]?    // TodoWrite
 
     enum CodingKeys: String, CodingKey {
         case command
@@ -229,6 +244,7 @@ struct StreamToolInput: Decodable {
         case pattern
         case path
         case description
+        case todos
     }
 
     /// Human-readable single-line summary for UI display
@@ -243,6 +259,7 @@ struct StreamToolInput: Decodable {
         self.pattern     = nil
         self.path        = nil
         self.description = description
+        self.todos       = nil
     }
 }
 

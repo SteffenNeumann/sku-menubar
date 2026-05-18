@@ -3159,6 +3159,10 @@ struct SingleChatSessionView: View {
                                     toolUseId: block.id
                                 )
                                 messages[assistantIndex].toolCalls.append(tool)
+                                // TodoWrite: Todo-Liste sofort in Message speichern
+                                if name == "TodoWrite", let todos = block.toolInput?.todos {
+                                    messages[assistantIndex].currentTodos = todos
+                                }
                             default: break
                             }
                         }
@@ -4582,7 +4586,11 @@ struct MessageBubbleView: View {
                 }
             }
 
-            if !message.toolCalls.isEmpty {
+            // Todo-Panel (TodoWrite-basiert) — Vorrang vor LivePlanView
+            if let todos = message.currentTodos {
+                TodoPanel(todos: todos, isStreaming: message.isStreaming,
+                          startTime: taskStartTime ?? Date())
+            } else if !message.toolCalls.isEmpty {
                 if message.isStreaming {
                     LivePlanView(
                         toolCalls: message.toolCalls,
@@ -4986,6 +4994,131 @@ private struct LivePlanView: View {
         }
         .background(accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(accentColor.opacity(0.15), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Todo Panel (zeigt TodoWrite-Todos live während und nach dem Streaming)
+
+private struct TodoPanel: View {
+    let todos: [TodoItem]
+    let isStreaming: Bool
+    let startTime: Date
+    @State private var expanded: Bool = false
+    @Environment(\.appTheme) var theme
+
+    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+    private var completedCount: Int { todos.filter(\.isCompleted).count }
+    private var allDone: Bool { completedCount == todos.count && !todos.isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    // Status icon
+                    if isStreaming {
+                        ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
+                    } else if allDone {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.green.opacity(0.8))
+                    } else {
+                        Image(systemName: "list.bullet.clipboard")
+                            .font(.system(size: 12))
+                            .foregroundStyle(accentColor.opacity(0.8))
+                    }
+
+                    // Counter label
+                    Text(isStreaming
+                         ? "\(completedCount)/\(todos.count) erledigt"
+                         : allDone
+                             ? "\(todos.count) Aufgaben abgeschlossen"
+                             : "\(completedCount)/\(todos.count) erledigt")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isStreaming ? accentColor : allDone ? .green.opacity(0.7) : accentColor)
+
+                    Spacer()
+
+                    // Elapsed timer during streaming
+                    if isStreaming {
+                        TimelineView(.periodic(from: startTime, by: 0.5)) { tl in
+                            let elapsed = tl.date.timeIntervalSince(startTime)
+                            Text(String(format: "%.0fs", max(0, elapsed)))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(accentColor.opacity(0.5))
+                        }
+                    }
+
+                    Image(systemName: (isStreaming || expanded) ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText.opacity(0.4))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+            }
+            .buttonStyle(.plain)
+
+            // Progress bar (during streaming)
+            if isStreaming {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(accentColor.opacity(0.1)).frame(height: 2)
+                        let w = todos.isEmpty ? 0.0 : geo.size.width * Double(completedCount) / Double(todos.count)
+                        Rectangle()
+                            .fill(accentColor.opacity(0.6))
+                            .frame(width: w, height: 2)
+                            .animation(.easeInOut(duration: 0.3), value: completedCount)
+                    }
+                }
+                .frame(height: 2)
+            }
+
+            // Todo list (shown when streaming OR when expanded after done)
+            if isStreaming || expanded {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(todos) { todo in
+                        HStack(alignment: .top, spacing: 7) {
+                            // Status icon
+                            Group {
+                                if todo.isCompleted {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.green.opacity(0.7))
+                                } else if todo.isActive {
+                                    ProgressView()
+                                        .scaleEffect(0.4)
+                                        .frame(width: 11, height: 11)
+                                } else {
+                                    Circle()
+                                        .strokeBorder(accentColor.opacity(0.3), lineWidth: 1)
+                                        .frame(width: 9, height: 9)
+                                        .padding(.top, 1)
+                                }
+                            }
+                            .frame(width: 14, alignment: .center)
+
+                            Text(todo.content)
+                                .font(.system(size: 12))
+                                .foregroundStyle(
+                                    todo.isCompleted ? theme.secondaryText.opacity(0.45)
+                                    : todo.isActive  ? accentColor
+                                    : theme.primaryText.opacity(0.75)
+                                )
+                                .strikethrough(todo.isCompleted, color: theme.secondaryText.opacity(0.3))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
+                .padding(.top, isStreaming ? 6 : 2)
+            }
+        }
+        .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(
+            isStreaming ? accentColor.opacity(0.2) : accentColor.opacity(0.12), lineWidth: 0.5))
     }
 }
 
