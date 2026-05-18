@@ -889,17 +889,24 @@ struct HomeView: View {
         }.count
         let working   = inquiries.filter { $0.status == .inProgress }.count
         let failed    = inquiries.filter { $0.status == .failed || $0.status == .blocked }.count
+        let polling   = state.emailPollingService
+        let lastPoll  = polling.lastPollDate
 
         return HomeTile(title: "Kundenanfragen", icon: "envelope.badge.fill", iconColor: .teal, theme: theme) {
+            // Error banner
+            if let err = polling.lastError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 11))
+                    Text(err).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 8)
+            }
+
             if inquiries.isEmpty {
                 VStack(spacing: 10) {
                     emptyState(icon: "envelope", text: "Noch keine Anfragen.\nMail-Routing in einem Persona-Agent konfigurieren.")
-                    if state.emailPollingService.isPolling {
-                        HStack(spacing: 5) {
-                            ProgressView().controlSize(.mini)
-                            Text("Prüfe Posteingang…").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
-                        }
-                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -923,6 +930,31 @@ struct HomeView: View {
                 }
                 .padding(.vertical, 6)
             }
+
+            // Footer: last poll time + manual trigger
+            HStack(spacing: 8) {
+                if polling.isPolling {
+                    ProgressView().controlSize(.mini)
+                    Text("Prüfe…").font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                } else if let lp = lastPoll {
+                    Text("Zuletzt: \(lp, style: .relative)")
+                        .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                } else {
+                    Text("Noch kein Poll").font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                }
+                Spacer()
+                Button {
+                    Task { await state.emailPollingService.poll() }
+                } label: {
+                    Label("Jetzt prüfen", systemImage: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.teal)
+                }
+                .buttonStyle(.plain)
+                .disabled(polling.isPolling)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
         }
     }
 
