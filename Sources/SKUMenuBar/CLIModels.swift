@@ -483,6 +483,9 @@ struct AgentDefinition: Identifiable, Hashable {
     // Persona review context
     let associatedProjects: [String]        // project paths this persona is linked to
     let contextImages: [PersonaContextImage] // visual context for reviews
+    // Email routing
+    let emailDomain: String?    // e.g. "mueller-gmbh.de" — all senders from this domain
+    let emailAddress: String?   // e.g. "ceo@mueller-gmbh.de" — exact match, higher priority
 
     var isPersona: Bool { category == "persona" }
 
@@ -594,6 +597,9 @@ struct AgentDraft {
     // Persona review context
     var associatedProjects: [String] = []
     var contextImages: [PersonaContextImage] = []
+    // Email routing
+    var emailDomain: String = ""
+    var emailAddress: String = ""
 
     var isPersona: Bool { category == "persona" }
 
@@ -623,7 +629,46 @@ struct AgentDraft {
         tone         = agent.tone ?? "formal"
         associatedProjects = agent.associatedProjects
         contextImages      = agent.contextImages
+        emailDomain  = agent.emailDomain  ?? ""
+        emailAddress = agent.emailAddress ?? ""
     }
+}
+
+// MARK: - Customer Inquiry
+
+enum InquiryStatus: String, Codable {
+    case pending           // received, not yet analyzed
+    case analyzing         // Claude is analyzing
+    case waitingForCustomer // clarification email drafted, awaiting reply
+    case inProgress        // reply received, agent is working
+    case completed         // done, Linear updated
+    case blocked           // agent stuck, needs user intervention
+    case failed            // technical error
+}
+
+struct CustomerInquiry: Identifiable, Codable {
+    var id: UUID = UUID()
+    var messageId: String
+    var subject: String
+    var senderAddress: String
+    var senderName: String
+    var body: String
+    var receivedAt: Date
+    var matchedPersonaId: String?
+    var status: InquiryStatus = .pending
+    // Populated after Claude analysis
+    var priority: Int?          // 1=urgent, 2=high, 3=medium, 4=low
+    var analysisSummary: String?
+    var missingInfo: [String] = []
+    var suggestedLinearTitle: String?
+    // Populated after actions
+    var linearIssueId: String?
+    var linearIssueIdentifier: String?  // e.g. "ENG-42"
+    var draftReplyBody: String?
+    var completionSummary: String?
+    var errorMessage: String?
+    // Thread tracking for reply detection
+    var replyMessageIds: [String] = []
 }
 
 // MARK: - Persona Validation
@@ -914,6 +959,7 @@ enum HomeTileID: String, CaseIterable, Codable {
     case agents          = "agents"
     case tokenUsage      = "tokenUsage"
     case zeiterfassung   = "zeiterfassung"
+    case kundenanfragen  = "kundenanfragen"
 
     var displayName: String {
         switch self {
@@ -924,6 +970,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .agents:         return "Agents"
         case .tokenUsage:     return "Token-Verbrauch"
         case .zeiterfassung:  return "Zeiterfassung"
+        case .kundenanfragen: return "Kundenanfragen"
         }
     }
 
@@ -936,6 +983,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .agents:         return "cpu.fill"
         case .tokenUsage:     return "chart.bar.fill"
         case .zeiterfassung:  return "timer"
+        case .kundenanfragen: return "envelope.badge.fill"
         }
     }
 

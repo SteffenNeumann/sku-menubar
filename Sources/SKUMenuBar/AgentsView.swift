@@ -2206,6 +2206,24 @@ struct PersonaEditorSheet: View {
                         .controlSize(.small)
                     }
 
+                    // Email Routing section
+                    cardSection(icon: "envelope.badge.fill", title: "E-Mail-Routing") {
+                        Text("Eingehende E-Mails von dieser Adresse oder Domain werden automatisch an diese Persona geleitet und bearbeitet.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+
+                        pField("E-Mail-Adresse (exakt)", hint: "z. B. info@mueller-gmbh.de") {
+                            TextField("info@mueller-gmbh.de", text: $draft.emailAddress)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 13))
+                        }
+                        pField("Domain (alle Adressen)", hint: "z. B. mueller-gmbh.de") {
+                            TextField("mueller-gmbh.de", text: $draft.emailDomain)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 13))
+                        }
+                    }
+
                     // Context Images section
                     cardSection(icon: "photo.stack.fill", title: "Visueller Kontext") {
                         Text("Bilder mit Beschreibung — die Persona nutzt diesen Kontext bei Bewertungen (z. B. \"Das bist du\", \"Dein Studio\").")

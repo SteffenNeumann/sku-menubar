@@ -208,6 +208,43 @@ final class LinearService: ObservableObject {
         ])
     }
 
+    func updateIssueStatus(issueId: String, stateId: String) async throws {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        _ = try await session.callTool(name: "linear_update_issue", arguments: [
+            "issueId": issueId, "stateId": stateId
+        ])
+    }
+
+    func addComment(issueId: String, body: String) async throws {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        _ = try await session.callTool(name: "linear_create_comment", arguments: [
+            "issueId": issueId, "body": body
+        ])
+    }
+
+    /// Loads workflow states for a team. Returns cached states if available.
+    func loadIssueStates(teamId: String) async -> [LinearIssueState] {
+        do {
+            try await ensureConnected()
+            guard let session else { return [] }
+            let raw = try await session.callTool(name: "linear_get_issue_statuses", arguments: [
+                "teamId": teamId
+            ])
+            return parseIssueStates(from: raw)
+        } catch {
+            self.error = error.localizedDescription
+            sessionConnected = false
+            return []
+        }
+    }
+
+    /// Returns first state ID matching the given type ("backlog","started","completed","cancelled").
+    func stateId(for type: String, in states: [LinearIssueState]) -> String? {
+        states.first { $0.type == type }?.id
+    }
+
     func stopSession() {
         session?.stop()
         session = nil
@@ -330,6 +367,28 @@ final class LinearService: ObservableObject {
             guard let id  = d["id"]   as? String,
                   let nam = d["name"] as? String else { return nil }
             return LinearTeam(id: id, name: nam, key: (d["key"] as? String) ?? "")
+        }
+    }
+
+    private func parseIssueStates(from raw: String) -> [LinearIssueState] {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        var arr: [[String: Any]] = []
+        if let nodes = (json["workflowStates"] as? [String: Any])?["nodes"] as? [[String: Any]] {
+            arr = nodes
+        } else if let nodes = json["nodes"] as? [[String: Any]] {
+            arr = nodes
+        } else if let direct = json as? [String: Any], let id = direct["id"] as? String {
+            arr = [["id": id, "name": direct["name"] ?? "", "type": direct["type"] ?? "", "color": direct["color"] ?? ""]]
+        }
+        return arr.compactMap { node -> LinearIssueState? in
+            guard let id = node["id"] as? String else { return nil }
+            return LinearIssueState(
+                id: id,
+                name: node["name"] as? String ?? "",
+                type: node["type"] as? String ?? "backlog",
+                color: node["color"] as? String ?? "#888888"
+            )
         }
     }
 }

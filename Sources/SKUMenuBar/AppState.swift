@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
@@ -138,6 +139,11 @@ final class AppState: ObservableObject {
     let historyService = ChatHistoryService()
     lazy var agentService: AgentService = AgentService(cliService: cliService, appState: self)
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
+    lazy var emailPollingService: EmailPollingService = EmailPollingService()
+    lazy var customerInquiryWorkflow: CustomerInquiryWorkflow = {
+        let wf = CustomerInquiryWorkflow(cliService: cliService, agentService: agentService)
+        return wf
+    }()
 
     @Published var activeSessions: [ActiveCLISession] = []
     @Published var historySelectedProjectId: String? = nil   // set by sidebar recent-projects tap
@@ -237,6 +243,16 @@ final class AppState: ObservableObject {
             activeSessions = loadedSessions
             agentService.startScheduler()
             historyService.startWatching()
+            // Email automation: configure Linear + start polling
+            if let linearConfig = await self.cliService.getMCPServerConfig(name: "linear") {
+                let linearSvc = LinearService()
+                linearSvc.configure(config: linearConfig)
+                await self.customerInquiryWorkflow.configureLinear(linearSvc)
+            }
+            self.customerInquiryWorkflow.emailPollingService = self.emailPollingService
+            self.emailPollingService.start(workflow: self.customerInquiryWorkflow)
+            // Request notification permission once
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
     }
 

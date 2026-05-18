@@ -126,6 +126,7 @@ struct HomeView: View {
         case .agents:         agentsCard
         case .tokenUsage:     tokenUsageCard
         case .zeiterfassung:  zeiterfassungCard
+        case .kundenanfragen: kundenanfragenCard
         }
     }
 
@@ -877,6 +878,86 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
+    }
+
+    // MARK: - Kundenanfragen Card
+
+    private var kundenanfragenCard: some View {
+        let inquiries = state.customerInquiryWorkflow.recentInquiries
+        let pending   = inquiries.filter {
+            $0.status == .pending || $0.status == .analyzing || $0.status == .waitingForCustomer
+        }.count
+        let working   = inquiries.filter { $0.status == .inProgress }.count
+        let failed    = inquiries.filter { $0.status == .failed || $0.status == .blocked }.count
+
+        return HomeTile(title: "Kundenanfragen", icon: "envelope.badge.fill", iconColor: .teal, theme: theme) {
+            if inquiries.isEmpty {
+                VStack(spacing: 10) {
+                    emptyState(icon: "envelope", text: "Noch keine Anfragen.\nMail-Routing in einem Persona-Agent konfigurieren.")
+                    if state.emailPollingService.isPolling {
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.mini)
+                            Text("Prüfe Posteingang…").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        inquiryStat(value: "\(inquiries.count)", label: "Gesamt",   color: .teal)
+                        if pending  > 0 { inquiryStat(value: "\(pending)",  label: "Offen",    color: .orange) }
+                        if working  > 0 { inquiryStat(value: "\(working)",  label: "In Arbeit", color: .blue) }
+                        if failed   > 0 { inquiryStat(value: "\(failed)",   label: "Fehler",   color: .red) }
+                        Spacer()
+                        if state.emailPollingService.isPolling { ProgressView().controlSize(.mini) }
+                    }
+                    .padding(.horizontal, 12)
+                    Divider().opacity(0.2)
+                    VStack(spacing: 4) {
+                        ForEach(inquiries.prefix(4)) { inquiry in
+                            inquiryRow(inquiry)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func inquiryStat(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(color)
+            Text(label).font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+        }
+    }
+
+    private func inquiryRow(_ inquiry: CustomerInquiry) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(inquiryStatusColor(inquiry.status)).frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(inquiry.suggestedLinearTitle ?? inquiry.subject)
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(theme.primaryText).lineLimit(1)
+                Text(inquiry.senderAddress)
+                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText).lineLimit(1)
+            }
+            Spacer()
+            Text(inquiry.receivedAt, style: .relative)
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(theme.tertiaryText)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(theme.rowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func inquiryStatusColor(_ status: InquiryStatus) -> Color {
+        switch status {
+        case .pending, .analyzing:    return .orange
+        case .waitingForCustomer:     return .yellow
+        case .inProgress:             return .blue
+        case .completed:              return .green
+        case .blocked, .failed:       return .red
+        }
     }
 }
 
