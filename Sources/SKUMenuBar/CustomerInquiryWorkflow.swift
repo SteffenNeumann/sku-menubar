@@ -453,11 +453,6 @@ Customer reply:
         inquiry: CustomerInquiry,
         persona: AgentDefinition?
     ) async -> Result<EmailAnalysis, Error> {
-        guard !anthropicApiKey.isEmpty else {
-            return .failure(NSError(domain: "Workflow", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Kein Anthropic API Key — bitte in myClaude Einstellungen hinterlegen (console.anthropic.com → API Keys)"]))
-        }
-
         let personaCtx: String
         if let p = persona {
             personaCtx = """
