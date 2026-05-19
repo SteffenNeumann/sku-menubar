@@ -538,7 +538,8 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
                 teamId: linearTeamId,
                 title: title,
                 description: desc,
-                priority: inquiry.priority ?? 3
+                priority: inquiry.priority ?? 3,
+                projectId: projectId
             )
             log("[Inquiry] Linear createIssue raw: \(raw.prefix(500))")
             if let result = extractIssueId(from: raw) {

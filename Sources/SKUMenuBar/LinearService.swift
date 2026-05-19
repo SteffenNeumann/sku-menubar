@@ -201,12 +201,12 @@ final class LinearService: ObservableObject {
         }
     }
 
-    func createIssue(teamId: String, title: String, description: String, priority: Int = 0) async throws -> String {
+    func createIssue(teamId: String, title: String, description: String, priority: Int = 0, projectId: String? = nil) async throws -> String {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
-        return try await session.callTool(name: "linear_create_issue", arguments: [
-            "teamId": teamId, "title": title, "description": description, "priority": priority
-        ])
+        var args: [String: Any] = ["teamId": teamId, "title": title, "description": description, "priority": priority]
+        if let pid = projectId, !pid.isEmpty { args["projectId"] = pid }
+        return try await session.callTool(name: "linear_create_issue", arguments: args)
     }
 
     func updateIssueStatus(issueId: String, stateId: String) async throws {
@@ -229,25 +229,20 @@ final class LinearService: ObservableObject {
     func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
-        let raw = try await session.callTool(name: "linear_create_project_with_issues", arguments: [
+        _ = try await session.callTool(name: "linear_create_project_with_issues", arguments: [
             "teamIds": [teamId],
             "name": name,
             "description": description
         ])
-        if let data = raw.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let project = json["project"] as? [String: Any] ?? (json["projectCreate"] as? [String: Any])?["project"] as? [String: Any],
-           let id = project["id"] as? String {
-            return (id, (project["name"] as? String) ?? name)
+        // Response is plain text ("Project: <name>\nProject URL: ...") — no UUID available.
+        // Fetch the real project ID by listing projects and matching by name.
+        let listRaw = try await session.callTool(name: "linear_list_projects", arguments: [:])
+        let projectList = parseProjects(from: listRaw)
+        if let found = projectList.first(where: { $0.name == name }) {
+            return (found.id, found.name)
         }
-        for line in raw.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("Project:") || trimmed.hasPrefix("Name:") {
-                let val = trimmed.components(separatedBy: ":").dropFirst().joined(separator: ":").trimmingCharacters(in: .whitespaces)
-                if !val.isEmpty { return (val, name) }
-            }
-        }
-        return (raw.prefix(100).trimmingCharacters(in: .whitespacesAndNewlines), name)
+        // Fallback: return name as placeholder (issue will still be created in team, just unlinked)
+        return ("", name)
     }
 
     func loadIssueStates(teamId: String) async -> [LinearIssueState] {
