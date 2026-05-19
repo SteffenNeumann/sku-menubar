@@ -91,6 +91,7 @@ struct ChatView: View {
                     )
                     .opacity(state.selectedChatTabIndex == index ? 1 : 0)
                     .allowsHitTesting(state.selectedChatTabIndex == index)
+                    .zIndex(state.selectedChatTabIndex == index ? 1 : 0)
                     .environmentObject(state)
                 }
             }
@@ -259,6 +260,7 @@ struct SingleChatSessionView: View {
     @State private var diffPanelWidth: CGFloat = 500
     @State private var filePreviewNode: ExplorerNode? = nil
     @State private var changedFilePaths: Set<String> = []
+    @State private var dismissedChangedPaths: Set<String> = []
     @State private var filePreviewPanelWidth: CGFloat = 380
     @State private var inputBarHeight: CGFloat = 56
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
@@ -427,7 +429,10 @@ struct SingleChatSessionView: View {
                         },
                         onSelectNode: { node in
                             withAnimation(.spring(response: 0.3)) { filePreviewNode = node }
-                            if let n = node { changedFilePaths.remove(n.url.path) }
+                            if let n = node {
+                                changedFilePaths.remove(n.url.path)
+                                dismissedChangedPaths.insert(n.url.path)
+                            }
                         },
                         onClose: {
                             withAnimation(.spring(response: 0.3)) { showFilePanel = false }
@@ -681,7 +686,10 @@ struct SingleChatSessionView: View {
             for msg in messages {
                 guard let diff = msg.gitDiff else { continue }
                 for file in parseDiffFiles(diff) {
-                    changedFilePaths.insert(cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name)
+                    let path = cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name
+                    if !dismissedChangedPaths.contains(path) {
+                        changedFilePaths.insert(path)
+                    }
                 }
             }
         }
