@@ -568,6 +568,16 @@ struct SingleChatSessionView: View {
                         }
                     }
 
+                    // Sticky "Agent arbeitet"-Banner — zeigt laufenden Stream auch wenn
+                    // man hochgescrollt hat oder das neue Placeholder-Bubble noch leer ist
+                    if isStreaming {
+                        AgentRunningBanner(
+                            lastToolName: messages.last(where: { $0.isStreaming })?
+                                .toolCalls.last(where: { $0.result == nil })?.name,
+                            theme: theme
+                        )
+                    }
+
                     inputBar
                         .background(GeometryReader { geo in
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
@@ -813,6 +823,7 @@ struct SingleChatSessionView: View {
     // MARK: - Drop handling
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard isActive else { return false }   // nie in inaktive Tabs droppen
         var handled = false
         for provider in providers {
             // 1. Prefer file URL — works for Finder drops and image files
@@ -5148,6 +5159,47 @@ private struct TodoPanel: View {
         .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(
             isStreaming ? accentColor.opacity(0.2) : accentColor.opacity(0.12), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Agent Running Banner (sticky oberhalb InputBar, sichtbar unabhängig von Scroll-Position)
+
+private struct AgentRunningBanner: View {
+    let lastToolName: String?
+    let theme: AppTheme
+    @State private var pulse: Bool = false
+
+    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .scaleEffect(0.55)
+                .frame(width: 14, height: 14)
+
+            if let tool = lastToolName {
+                Text("Agent arbeitet · \(tool)…")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(accentColor.opacity(0.85))
+            } else {
+                Text("Agent arbeitet…")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(accentColor.opacity(0.85))
+            }
+
+            Spacer()
+
+            // Pulsierender Punkt als visuelles Signal
+            Circle()
+                .fill(accentColor.opacity(pulse ? 0.7 : 0.25))
+                .frame(width: 6, height: 6)
+                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(accentColor.opacity(0.07))
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(accentColor.opacity(0.2)), alignment: .top)
+        .onAppear { pulse = true }
     }
 }
 
