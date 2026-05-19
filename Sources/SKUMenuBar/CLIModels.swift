@@ -688,6 +688,8 @@ struct CustomerInquiry: Identifiable, Codable {
     var errorMessage: String?
     // Thread tracking for reply detection
     var replyMessageIds: [String] = []
+    // UI state
+    var isArchived: Bool = false
 }
 
 // MARK: - Persona Validation

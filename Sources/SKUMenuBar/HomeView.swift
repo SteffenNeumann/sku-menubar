@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var tmetricDraftTo:   Date   = Date()
     @State private var timerTick:        Date   = Date()
     @State private var selectedInquiry: CustomerInquiry?
+    @State private var inquiryFilter: InquiryStatus? = nil
 
     private var accentColor: Color { theme.accentText }
 
@@ -897,13 +898,27 @@ struct HomeView: View {
     // MARK: - Kundenanfragen Card
 
     private var kundenanfragenCard: some View {
-        let inquiries = state.customerInquiryWorkflow.recentInquiries
-        let pending   = inquiries.filter { $0.status == .pending || $0.status == .analyzing }.count
-        let waiting   = inquiries.filter { $0.status == .waitingForCustomer }.count
-        let working   = inquiries.filter { $0.status == .inProgress }.count
-        let done      = inquiries.filter { $0.status == .completed }.count
-        let failed    = inquiries.filter { $0.status == .failed || $0.status == .blocked }.count
+        let wf        = state.customerInquiryWorkflow
+        let all       = wf.recentInquiries
+        let visible   = all.filter { !$0.isArchived }
+        let archived  = all.filter { $0.isArchived }.count
+        let pending   = visible.filter { $0.status == .pending || $0.status == .analyzing }.count
+        let waiting   = visible.filter { $0.status == .waitingForCustomer }.count
+        let working   = visible.filter { $0.status == .inProgress }.count
+        let done      = visible.filter { $0.status == .completed }.count
+        let failed    = visible.filter { $0.status == .failed || $0.status == .blocked }.count
         let polling   = state.emailPollingService
+
+        let filtered: [CustomerInquiry] = {
+            switch inquiryFilter {
+            case .none:                return Array(visible.prefix(12))
+            case .pending, .analyzing: return visible.filter { $0.status == .pending || $0.status == .analyzing }
+            case .waitingForCustomer:  return visible.filter { $0.status == .waitingForCustomer }
+            case .inProgress:          return visible.filter { $0.status == .inProgress }
+            case .completed:           return visible.filter { $0.status == .completed }
+            case .failed, .blocked:    return visible.filter { $0.status == .failed || $0.status == .blocked }
+            }
+        }()
 
         return HomeTile(title: "Kundenanfragen", icon: "envelope.badge.fill", iconColor: .teal, theme: theme) {
             if let err = polling.lastError {
@@ -916,31 +931,51 @@ struct HomeView: View {
                 .padding(.horizontal, 8)
             }
 
-            if inquiries.isEmpty {
+            if visible.isEmpty && archived == 0 {
                 emptyState(icon: "envelope", text: "Noch keine Anfragen.\nMail-Routing in einem Persona-Agent konfigurieren.")
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    // Stats row
-                    HStack(spacing: 14) {
-                        inquiryStat(value: "\(inquiries.count)", label: "Gesamt",   color: .teal)
-                        if pending > 0 { inquiryStat(value: "\(pending)", label: "Neu",      color: .orange) }
-                        if waiting > 0 { inquiryStat(value: "\(waiting)", label: "Wartet",   color: .yellow) }
-                        if working > 0 { inquiryStat(value: "\(working)", label: "In Arbeit", color: .blue) }
-                        if done    > 0 { inquiryStat(value: "\(done)",    label: "Fertig",   color: .green) }
-                        if failed  > 0 { inquiryStat(value: "\(failed)",  label: "Fehler",   color: .red) }
-                        Spacer()
-                        if polling.isPolling { ProgressView().controlSize(.mini) }
+                    // Stats row — tappable filter chips
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            inquiryStatChip(value: "\(visible.count)", label: "Gesamt", color: .teal, filterVal: nil)
+                            if pending > 0 { inquiryStatChip(value: "\(pending)", label: "Neu",       color: .orange, filterVal: .analyzing) }
+                            if waiting > 0 { inquiryStatChip(value: "\(waiting)", label: "Wartet",    color: .yellow, filterVal: .waitingForCustomer) }
+                            if working > 0 { inquiryStatChip(value: "\(working)", label: "In Arbeit", color: .blue,   filterVal: .inProgress) }
+                            if done    > 0 { inquiryStatChip(value: "\(done)",    label: "Fertig",    color: .green,  filterVal: .completed) }
+                            if failed  > 0 { inquiryStatChip(value: "\(failed)",  label: "Fehler",    color: .red,    filterVal: .failed) }
+                            Spacer(minLength: 0)
+                            if polling.isPolling { ProgressView().controlSize(.mini).padding(.trailing, 4) }
+                        }
+                        .padding(.horizontal, 12)
                     }
-                    .padding(.horizontal, 12)
+
+                    if inquiryFilter != nil {
+                        HStack(spacing: 6) {
+                            Text("\(filtered.count) Ergebnis\(filtered.count == 1 ? "" : "se")")
+                                .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                            Button { inquiryFilter = nil } label: {
+                                Label("Filter aufheben", systemImage: "xmark.circle.fill")
+                                    .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 14)
+                    }
 
                     Divider().opacity(0.2)
 
-                    // Inquiry list with step detail
-                    VStack(spacing: 6) {
-                        ForEach(inquiries.prefix(6)) { inquiry in
+                    // Inquiry list
+                    VStack(spacing: 4) {
+                        ForEach(filtered) { inquiry in
                             inquiryDetailRow(inquiry)
                                 .contentShape(RoundedRectangle(cornerRadius: 10))
                                 .onTapGesture { selectedInquiry = inquiry }
+                        }
+                        if filtered.isEmpty {
+                            Text("Keine Einträge für diesen Filter.")
+                                .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                                .padding(.vertical, 8).frame(maxWidth: .infinity)
                         }
                     }
                     .padding(.horizontal, 8)
@@ -960,6 +995,15 @@ struct HomeView: View {
                 } else {
                     Text("Noch kein Poll").font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
                 }
+                if archived > 0 {
+                    Button {
+                        wf.deleteArchived()
+                    } label: {
+                        Text("\(archived) archiviert — Leeren")
+                            .font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
                 Spacer()
                 Button {
                     Task { await state.emailPollingService.poll() }
@@ -976,11 +1020,20 @@ struct HomeView: View {
         }
     }
 
-    private func inquiryStat(value: String, label: String, color: Color) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(color)
-            Text(label).font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+    private func inquiryStatChip(value: String, label: String, color: Color, filterVal: InquiryStatus?) -> some View {
+        let isActive = inquiryFilter == filterVal
+        return Button {
+            inquiryFilter = isActive ? nil : filterVal
+        } label: {
+            VStack(spacing: 2) {
+                Text(value).font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(color)
+                Text(label).font(.system(size: 10)).foregroundStyle(theme.tertiaryText)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(isActive ? color.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(isActive ? RoundedRectangle(cornerRadius: 8).strokeBorder(color.opacity(0.3), lineWidth: 1) : nil)
         }
+        .buttonStyle(.plain)
     }
 
     private func inquiryDetailRow(_ inquiry: CustomerInquiry) -> some View {
@@ -1024,46 +1077,62 @@ struct HomeView: View {
                         .foregroundStyle(p == 1 ? .red : p == 2 ? .orange : .secondary)
                     }
                 }
+                // Archive button for completed entries
+                if inquiry.status == .completed {
+                    Button {
+                        state.customerInquiryWorkflow.archive(inquiry)
+                    } label: {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Archivieren")
+                }
             }
 
-            // Phase progress steps
-            HStack(spacing: 0) {
-                inquiryPhaseStep("Eingang",   icon: "envelope.open.fill",    done: true, active: inquiry.status == .pending)
-                phaseConnector(done: inquiry.status != .pending)
-                inquiryPhaseStep("Analyse",   icon: "brain",                 done: phaseCompleted(inquiry, .analyzing), active: inquiry.status == .analyzing)
-                phaseConnector(done: phaseCompleted(inquiry, .analyzing))
-                inquiryPhaseStep("Linear",    icon: "arrow.triangle.2.circlepath", done: inquiry.linearIssueId != nil, active: inquiry.linearIssueId != nil && inquiry.status == .analyzing)
-                phaseConnector(done: inquiry.linearIssueId != nil)
-                inquiryPhaseStep(inquiry.missingInfo.isEmpty ? "Bearbeitung" : "Rückfrage",
-                                 icon: inquiry.missingInfo.isEmpty ? "gearshape.fill" : "questionmark.bubble.fill",
-                                 done: phaseCompleted(inquiry, .inProgress) || inquiry.status == .completed,
-                                 active: inquiry.status == .waitingForCustomer || inquiry.status == .inProgress)
-                phaseConnector(done: inquiry.status == .completed)
-                inquiryPhaseStep("Fertig",    icon: "checkmark.seal.fill",   done: inquiry.status == .completed, active: false)
-            }
-            .padding(.leading, 16)
+            if inquiry.status == .completed {
+                // Compact: just completion result — no phase pipeline
+                if let result = inquiry.completionSummary {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 10))
+                        Text(result).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(1)
+                    }
+                    .padding(.leading, 16)
+                }
+            } else {
+                // Full: phase pipeline + status detail
+                HStack(spacing: 0) {
+                    inquiryPhaseStep("Eingang",   icon: "envelope.open.fill",    done: true, active: inquiry.status == .pending)
+                    phaseConnector(done: inquiry.status != .pending)
+                    inquiryPhaseStep("Analyse",   icon: "brain",                 done: phaseCompleted(inquiry, .analyzing), active: inquiry.status == .analyzing)
+                    phaseConnector(done: phaseCompleted(inquiry, .analyzing))
+                    inquiryPhaseStep("Linear",    icon: "arrow.triangle.2.circlepath", done: inquiry.linearIssueId != nil, active: inquiry.linearIssueId != nil && inquiry.status == .analyzing)
+                    phaseConnector(done: inquiry.linearIssueId != nil)
+                    inquiryPhaseStep(inquiry.missingInfo.isEmpty ? "Bearbeitung" : "Rückfrage",
+                                     icon: inquiry.missingInfo.isEmpty ? "gearshape.fill" : "questionmark.bubble.fill",
+                                     done: phaseCompleted(inquiry, .inProgress) || inquiry.status == .completed,
+                                     active: inquiry.status == .waitingForCustomer || inquiry.status == .inProgress)
+                    phaseConnector(done: inquiry.status == .completed)
+                    inquiryPhaseStep("Fertig", icon: "checkmark.seal.fill", done: inquiry.status == .completed, active: false)
+                }
+                .padding(.leading, 16)
 
-            // Detail text (summary, error, or current action)
-            if inquiry.status == .failed || inquiry.status == .blocked, let err = inquiry.errorMessage {
-                HStack(spacing: 4) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.system(size: 10))
-                    Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                if inquiry.status == .failed || inquiry.status == .blocked, let err = inquiry.errorMessage {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.system(size: 10))
+                        Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                    }
+                    .padding(.leading, 16)
+                } else if inquiry.status == .waitingForCustomer, !inquiry.missingInfo.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill").foregroundStyle(.yellow).font(.system(size: 10))
+                        Text("Wartet auf: \(inquiry.missingInfo.joined(separator: ", "))").font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2)
+                    }
+                    .padding(.leading, 16)
+                } else if let summary = inquiry.analysisSummary {
+                    Text(summary).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2).padding(.leading, 16)
                 }
-                .padding(.leading, 16)
-            } else if inquiry.status == .waitingForCustomer, !inquiry.missingInfo.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock.fill").foregroundStyle(.yellow).font(.system(size: 10))
-                    Text("Wartet auf: \(inquiry.missingInfo.joined(separator: ", "))").font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2)
-                }
-                .padding(.leading, 16)
-            } else if let summary = inquiry.analysisSummary, inquiry.status != .completed {
-                Text(summary).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2).padding(.leading, 16)
-            } else if inquiry.status == .completed, let result = inquiry.completionSummary {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 10))
-                    Text(result).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(2)
-                }
-                .padding(.leading, 16)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)

@@ -68,12 +68,15 @@ final class CustomerInquiryWorkflow: ObservableObject {
     func processNewEmail(_ inquiry: CustomerInquiry) async {
         log("processNewEmail: \(inquiry.subject) from \(inquiry.senderAddress)")
         var inquiry = inquiry
-        inquiry.status = .analyzing
-        upsert(inquiry)
 
-        // Route to persona
-        let persona = routePersona(for: inquiry)
-        inquiry.matchedPersonaId = persona?.id
+        // Route first — skip entirely if no routing-enabled persona matches
+        guard let persona = routePersona(for: inquiry) else {
+            log("processNewEmail: no routing-enabled persona — skip \(inquiry.subject)")
+            return
+        }
+
+        inquiry.status = .analyzing
+        inquiry.matchedPersonaId = persona.id
         upsert(inquiry)
 
         // Analyze
@@ -130,7 +133,8 @@ final class CustomerInquiryWorkflow: ObservableObject {
         inquiry.errorMessage = nil
         upsert(inquiry)
 
-        let persona = routePersona(for: inquiry)
+        // Use originally matched persona (ignores routing enabled state — reprocess is user-triggered)
+        let persona = findPersonaById(inquiry.matchedPersonaId) ?? routePersona(for: inquiry)
         inquiry.matchedPersonaId = persona?.id
 
         // Re-analyze if no summary yet
@@ -195,7 +199,7 @@ Customer reply:
                                body: "**Antwort vom Kunden erhalten:**\n\n\(replyBody.prefix(2000))")
         await updateLinearStatus(issueId: inquiry.linearIssueId, to: "started")
 
-        let persona = routePersona(for: inquiry)
+        let persona = findPersonaById(inquiry.matchedPersonaId) ?? routePersona(for: inquiry)
         await executeTask(inquiry: &inquiry, persona: persona)
         notify(for: inquiry)
     }
@@ -368,6 +372,7 @@ Customer reply:
 
     func routePersona(for inquiry: CustomerInquiry) -> AgentDefinition? {
         guard let agents = agentService?.agents else { return nil }
+        // Only consider personas with routing explicitly enabled
         let personas = agents.filter { $0.isPersona && $0.emailRoutingEnabled }
         let addr   = inquiry.senderAddress.lowercased()
         let domain = addr.components(separatedBy: "@").last ?? ""
@@ -384,13 +389,25 @@ Customer reply:
             return !d.isEmpty && d == domain
         }) { return match }
 
-        // Priority 3: agent named "support"
-        if let match = agents.first(where: { $0.id.lowercased().contains("support") }) {
-            return match
-        }
+        // No match among routing-enabled personas → skip processing
+        return nil
+    }
 
-        // Priority 4: first agent
-        return agents.first
+    /// Looks up a persona by ID regardless of emailRoutingEnabled — used for reprocess/reply.
+    private func findPersonaById(_ id: String?) -> AgentDefinition? {
+        guard let id, let agents = agentService?.agents else { return nil }
+        return agents.first(where: { $0.id == id })
+    }
+
+    func archive(_ inquiry: CustomerInquiry) {
+        var updated = inquiry
+        updated.isArchived = true
+        upsert(updated)
+    }
+
+    func deleteArchived() {
+        recentInquiries.removeAll(where: { $0.isArchived })
+        persist()
     }
 
     // MARK: - LLM dispatch (Ollama → Anthropic API fallback)
