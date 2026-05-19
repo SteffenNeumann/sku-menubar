@@ -201,31 +201,38 @@ Customer reply:
     // MARK: - Phase 3: Autonomous task execution
 
     private func executeTask(inquiry: inout CustomerInquiry, persona: AgentDefinition?) async {
-        guard !anthropicApiKey.isEmpty else {
-            fail(&inquiry, "Kein Anthropic API Key konfiguriert")
+        guard let cli = cliService else {
+            fail(&inquiry, "CLI nicht verfügbar")
             return
         }
 
         let systemPrompt = buildExecutionPrompt(inquiry: inquiry, persona: persona)
         let userMessage   = buildExecutionMessage(inquiry: inquiry)
 
-        let modelId: String
+        let model: String?
         if let m = persona?.model, !m.isEmpty {
-            modelId = resolveModelId(m)
+            model = m
         } else {
-            modelId = "claude-sonnet-4-6-20250514"
+            model = "sonnet"
         }
 
         do {
-            log("executeTask: starting direct API call (model=\(modelId))")
-            let output = try await anthropicAPI.sendMessage(
-                apiKey: anthropicApiKey,
-                model: modelId,
+            log("executeTask: starting CLI (model=\(model ?? "default"))")
+            var output = ""
+            let stream = cli.send(
+                message: userMessage,
                 systemPrompt: systemPrompt,
-                userMessage: userMessage,
-                maxTokens: 8192
+                model: model,
+                workingDirectory: inquiry.repoPath,
+                skipPermissions: true,
+                maxTurns: 20
             )
-            log("executeTask: API completed, output length=\(output.count)")
+            for try await event in stream {
+                for c in event.message?.content ?? [] where c.type == "text" {
+                    output += c.text ?? ""
+                }
+            }
+            log("executeTask: CLI completed, output length=\(output.count)")
 
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             inquiry.completionSummary = String(trimmed.prefix(1000))
@@ -416,9 +423,9 @@ Customer reply:
         inquiry: CustomerInquiry,
         persona: AgentDefinition?
     ) async -> Result<EmailAnalysis, Error> {
-        guard !anthropicApiKey.isEmpty else {
+        guard let cli = cliService else {
             return .failure(NSError(domain: "Workflow", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Kein Anthropic API Key konfiguriert — bitte in Settings hinterlegen"]))
+                userInfo: [NSLocalizedDescriptionKey: "CLI nicht verfügbar"]))
         }
 
         let personaCtx: String
@@ -465,15 +472,21 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
 """
 
         do {
-            log("analyzeEmail: starting direct API call (model=haiku)")
-            let raw = try await anthropicAPI.sendMessage(
-                apiKey: anthropicApiKey,
-                model: "claude-haiku-4-5-20251001",
+            log("analyzeEmail: starting CLI (model=haiku)")
+            var raw = ""
+            let stream = cli.send(
+                message: userPrompt,
                 systemPrompt: system,
-                userMessage: userPrompt,
-                maxTokens: 1024
+                model: "haiku",
+                skipPermissions: true,
+                maxTurns: 1
             )
-            log("analyzeEmail: API completed, raw=\(raw.prefix(300))")
+            for try await event in stream {
+                for c in event.message?.content ?? [] where c.type == "text" {
+                    raw += c.text ?? ""
+                }
+            }
+            log("analyzeEmail: CLI completed, raw=\(raw.prefix(300))")
 
             let jsonStr: String
             if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
