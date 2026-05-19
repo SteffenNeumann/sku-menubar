@@ -226,6 +226,7 @@ struct SingleChatSessionView: View {
     @State private var inputText: String = ""
     @State private var currentSessionId: String?
     @State private var isStreaming: Bool = false
+    @State private var streamingStartTime: Date = Date()
     @State private var chatTimerTick: Date = Date()
     @State private var selectedModel: String = "claude-sonnet-4-6"
     @State private var selectedAgent: String = ""
@@ -572,8 +573,8 @@ struct SingleChatSessionView: View {
                     // man hochgescrollt hat oder das neue Placeholder-Bubble noch leer ist
                     if isStreaming {
                         AgentRunningBanner(
-                            lastToolName: messages.last(where: { $0.isStreaming })?
-                                .toolCalls.last(where: { $0.result == nil })?.name,
+                            message: messages.last(where: { $0.isStreaming }),
+                            startTime: streamingStartTime,
                             theme: theme
                         )
                     }
@@ -2518,7 +2519,7 @@ struct SingleChatSessionView: View {
         let agents = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
         guard !agents.isEmpty else { return }
 
-        isStreaming = true
+        isStreaming = true; streamingStartTime = Date()
 
         // Sequential orchestration: each agent receives the previous agents' outputs as context
         Task { @MainActor in
@@ -2850,7 +2851,7 @@ struct SingleChatSessionView: View {
         assistantMsg.model = selectedModel
         messages.append(assistantMsg)
         let idx = messages.count - 1
-        isStreaming = true
+        isStreaming = true; streamingStartTime = Date()
         isCompacting = true
 
         Task { @MainActor in
@@ -2999,7 +3000,7 @@ struct SingleChatSessionView: View {
         messages.append(assistantMsg)
         let assistantIndex = messages.count - 1
 
-        isStreaming = true
+        isStreaming = true; streamingStartTime = Date()
 
         // Auto-detect agent via trigger keywords if none is manually selected
         let triggerAgent: String? = autoTriggerAgent(for: text)?.id
@@ -5165,38 +5166,124 @@ private struct TodoPanel: View {
 // MARK: - Agent Running Banner (sticky oberhalb InputBar, sichtbar unabhängig von Scroll-Position)
 
 private struct AgentRunningBanner: View {
-    let lastToolName: String?
+    let message: ChatMessage?   // aktuelle Streaming-Message (kann nil/leer sein)
+    let startTime: Date
     let theme: AppTheme
     @State private var pulse: Bool = false
 
     private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
 
+    // Letztes noch laufendes Tool (kein Result)
+    private var activeTool: ToolCall? {
+        message?.toolCalls.last(where: { $0.result == nil })
+    }
+    // Letzte abgeschlossene Tools (max. 2) für Kontext
+    private var recentDone: [ToolCall] {
+        let done = message?.toolCalls.filter { $0.result != nil } ?? []
+        return Array(done.suffix(2))
+    }
+    // Erste Zeile des aktuell geschriebenen Texts
+    private var contentPreview: String? {
+        guard let c = message?.content, !c.isEmpty else { return nil }
+        let line = c.components(separatedBy: .newlines)
+            .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+        guard !line.isEmpty else { return nil }
+        return line.count > 90 ? String(line.prefix(90)) + "…" : line
+    }
+    private var hasToolData: Bool {
+        !(message?.toolCalls.isEmpty ?? true)
+    }
+
     var body: some View {
-        HStack(spacing: 7) {
-            ProgressView()
-                .scaleEffect(0.55)
-                .frame(width: 14, height: 14)
+        VStack(alignment: .leading, spacing: 0) {
+            // ── Kopfzeile ──────────────────────────────────────────
+            HStack(spacing: 7) {
+                ProgressView().scaleEffect(0.5).frame(width: 13, height: 13)
 
-            if let tool = lastToolName {
-                Text("Agent arbeitet · \(tool)…")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(accentColor.opacity(0.85))
-            } else {
-                Text("Agent arbeitet…")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(accentColor.opacity(0.85))
+                if let tool = activeTool {
+                    // Aktiver Tool-Name als primärer Status
+                    Group {
+                        Text("⟳ ").foregroundStyle(accentColor.opacity(0.6))
+                        + Text(tool.name)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(accentColor)
+                        + (tool.input.isEmpty ? Text("") :
+                            Text(" · " + tool.input).foregroundStyle(accentColor.opacity(0.6)))
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                } else if hasToolData {
+                    Text("Verarbeitet Ergebnisse…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(accentColor.opacity(0.75))
+                } else {
+                    Text("Agent analysiert…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(accentColor.opacity(0.75))
+                }
+
+                Spacer()
+
+                // Elapsed timer
+                TimelineView(.periodic(from: startTime, by: 1)) { tl in
+                    let s = max(0, Int(tl.date.timeIntervalSince(startTime)))
+                    let label = s < 60
+                        ? "\(s)s"
+                        : String(format: "%d:%02d", s / 60, s % 60)
+                    Text(label)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(accentColor.opacity(0.5))
+                }
+
+                Circle()
+                    .fill(accentColor.opacity(pulse ? 0.75 : 0.2))
+                    .frame(width: 6, height: 6)
+                    .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: pulse)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
 
-            Spacer()
-
-            // Pulsierender Punkt als visuelles Signal
-            Circle()
-                .fill(accentColor.opacity(pulse ? 0.7 : 0.25))
-                .frame(width: 6, height: 6)
-                .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+            // ── Detail-Zeile: letzte erledigte Steps + Content-Preview ──
+            if hasToolData || contentPreview != nil {
+                Divider().opacity(0.3)
+                HStack(spacing: 10) {
+                    // Abgeschlossene Steps (letzte 2)
+                    if !recentDone.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(recentDone) { tool in
+                                HStack(spacing: 3) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.green.opacity(0.6))
+                                    Text(tool.name)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(theme.secondaryText.opacity(0.5))
+                                }
+                            }
+                        }
+                    }
+                    // Content-Preview (Text den Agent gerade schreibt)
+                    if let preview = contentPreview {
+                        Text(preview)
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.secondaryText.opacity(0.55))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
+                    // Schritt-Zähler
+                    if let count = message?.toolCalls.count, count > 0 {
+                        let done = message?.toolCalls.filter { $0.result != nil }.count ?? 0
+                        Text("\(done)/\(count)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(accentColor.opacity(0.45))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
         .background(accentColor.opacity(0.07))
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(accentColor.opacity(0.2)), alignment: .top)
         .onAppear { pulse = true }
