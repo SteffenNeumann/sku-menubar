@@ -18,6 +18,8 @@ final class CustomerInquiryWorkflow: ObservableObject {
     weak var emailPollingService: EmailPollingService?
 
     var anthropicApiKey: String = ""
+    var ollamaBaseUrl:   String = "http://localhost:11434/v1"
+    var ollamaModel:     String = "llama3.2"
     private let anthropicAPI = AnthropicService()
 
     var linearTeamId: String = ""
@@ -201,31 +203,20 @@ Customer reply:
     // MARK: - Phase 3: Autonomous task execution
 
     private func executeTask(inquiry: inout CustomerInquiry, persona: AgentDefinition?) async {
-        guard !anthropicApiKey.isEmpty else {
-            fail(&inquiry, "Kein Anthropic API Key — bitte in myClaude Einstellungen hinterlegen (console.anthropic.com → API Keys)")
-            return
-        }
-
         let systemPrompt = buildExecutionPrompt(inquiry: inquiry, persona: persona)
         let userMessage   = buildExecutionMessage(inquiry: inquiry)
 
-        let modelId: String
+        let anthropicModelId: String
         if let m = persona?.model, !m.isEmpty {
-            modelId = resolveModelId(m)
+            anthropicModelId = resolveModelId(m)
         } else {
-            modelId = "claude-sonnet-4-6-20250514"
+            anthropicModelId = "claude-sonnet-4-6-20250514"
         }
 
         do {
-            log("executeTask: starting API call (model=\(modelId))")
-            let output = try await anthropicAPI.sendMessage(
-                apiKey: anthropicApiKey,
-                model: modelId,
-                systemPrompt: systemPrompt,
-                userMessage: userMessage,
-                maxTokens: 8192
-            )
-            log("executeTask: API completed, output length=\(output.count)")
+            log("executeTask: calling LLM (ollama or anthropic, model=\(anthropicModelId))")
+            let output = try await callLLM(system: systemPrompt, user: userMessage, model: anthropicModelId, maxTokens: 8192)
+            log("executeTask: LLM completed, output length=\(output.count)")
 
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             inquiry.completionSummary = String(trimmed.prefix(1000))
@@ -402,6 +393,52 @@ Customer reply:
         return agents.first
     }
 
+    // MARK: - LLM dispatch (Ollama → Anthropic API fallback)
+
+    /// Calls the configured LLM: Ollama if reachable, otherwise Anthropic Messages API.
+    private func callLLM(
+        system: String,
+        user: String,
+        model anthropicModel: String = "claude-haiku-4-5-20251001",
+        maxTokens: Int = 1024
+    ) async throws -> String {
+        // Try Ollama first (no API key needed, free, local)
+        let ollamaUrl = ollamaBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ollamaUrl.isEmpty && !ollamaModel.isEmpty {
+            // Quick reachability check (HEAD on /models)
+            let base = ollamaUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if let checkURL = URL(string: "\(base)/models") {
+                var req = URLRequest(url: checkURL, timeoutInterval: 2)
+                req.httpMethod = "HEAD"
+                if let _ = try? await URLSession.shared.data(for: req) {
+                    log("callLLM: using Ollama (\(ollamaModel))")
+                    return try await anthropicAPI.sendMessageOpenAI(
+                        baseURL: ollamaUrl,
+                        model: ollamaModel,
+                        systemPrompt: system,
+                        userMessage: user,
+                        maxTokens: maxTokens
+                    )
+                }
+            }
+        }
+        // Fallback: Anthropic Messages API
+        guard !anthropicApiKey.isEmpty else {
+            throw NSError(domain: "Workflow", code: -1, userInfo: [NSLocalizedDescriptionKey:
+                "Kein LLM verfügbar. Optionen:\n" +
+                "① Ollama installieren (brew install ollama && ollama serve && ollama pull llama3.2)\n" +
+                "② Anthropic API Key in myClaude Einstellungen hinterlegen (console.anthropic.com → API Keys)"])
+        }
+        log("callLLM: using Anthropic API (\(anthropicModel))")
+        return try await anthropicAPI.sendMessage(
+            apiKey: anthropicApiKey,
+            model: anthropicModel,
+            systemPrompt: system,
+            userMessage: user,
+            maxTokens: maxTokens
+        )
+    }
+
     // MARK: - Claude analysis (Phase 1 triage)
 
     private struct EmailAnalysis {
@@ -465,15 +502,9 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
 """
 
         do {
-            log("analyzeEmail: starting API call (model=haiku)")
-            let raw = try await anthropicAPI.sendMessage(
-                apiKey: anthropicApiKey,
-                model: "claude-haiku-4-5-20251001",
-                systemPrompt: system,
-                userMessage: userPrompt,
-                maxTokens: 1024
-            )
-            log("analyzeEmail: API completed, raw=\(raw.prefix(300))")
+            log("analyzeEmail: calling LLM (ollama or anthropic)")
+            let raw = try await callLLM(system: system, user: userPrompt, model: "claude-haiku-4-5-20251001", maxTokens: 1024)
+            log("analyzeEmail: LLM completed, raw=\(raw.prefix(300))")
 
             let jsonStr: String
             if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {

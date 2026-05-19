@@ -30,6 +30,9 @@ struct GitHubSettings: Codable {
     var autoCompactThreshold: Int = 100000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
     // TMetric time tracking
     var tmetricApiToken: String = ""
+    // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
+    var ollamaBaseUrl: String = "http://localhost:11434/v1"
+    var ollamaModel:   String = "llama3.2"
 
     init() {}
 
@@ -62,6 +65,8 @@ struct GitHubSettings: Codable {
         let savedThreshold = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold)) ?? 100000
         autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
+        ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
+        ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"
     }
 }
 

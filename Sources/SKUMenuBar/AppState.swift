@@ -106,7 +106,12 @@ final class AppState: ObservableObject {
 
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
-        didSet { persist(); reschedule(); customerInquiryWorkflow.anthropicApiKey = settings.anthropicApiKey }
+        didSet {
+            persist(); reschedule()
+            customerInquiryWorkflow.anthropicApiKey = settings.anthropicApiKey
+            customerInquiryWorkflow.ollamaBaseUrl   = settings.ollamaBaseUrl
+            customerInquiryWorkflow.ollamaModel     = settings.ollamaModel
+        }
     }
 
     // MARK: - Currency formatting
@@ -269,6 +274,8 @@ final class AppState: ObservableObject {
                 inquiryLog("Linear MCP config NOT found — issue creation disabled")
             }
             self.customerInquiryWorkflow.anthropicApiKey = self.settings.anthropicApiKey
+            self.customerInquiryWorkflow.ollamaBaseUrl   = self.settings.ollamaBaseUrl
+            self.customerInquiryWorkflow.ollamaModel     = self.settings.ollamaModel
             self.customerInquiryWorkflow.emailPollingService = self.emailPollingService
             self.emailPollingService.start(workflow: self.customerInquiryWorkflow)
             // Request notification permission once

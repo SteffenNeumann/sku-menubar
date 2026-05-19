@@ -202,11 +202,11 @@ struct SettingsFormView: View {
                                             }
                                         }
                                         VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("Messages API Key (für Kundenanfragen-Automation)")
+                                            fieldLabel("Messages API Key (optional, Fallback)")
                                             SecureField("sk-ant-api03-…", text: $draft.anthropicApiKey)
                                                 .textFieldStyle(.plain)
                                                 .styledInput(theme: theme)
-                                            Text("console.anthropic.com → API Keys · wird für E-Mail-Analyse + Agent-Ausführung benötigt")
+                                            Text("Nur nötig wenn kein Ollama läuft · console.anthropic.com → API Keys")
                                                 .font(.system(size: 11))
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
@@ -239,6 +239,35 @@ struct SettingsFormView: View {
                                 }
                             }
                         } // end GridRow 2
+
+                        // Row 2c: Ollama — full grid width
+                        GridRow(alignment: .top) {
+                            configSection(title: "Ollama (Lokales LLM)", icon: "cpu.fill",
+                                          hint: "Kostenlos · kein API-Key nötig · E-Mails bleiben auf dem Gerät · brew install ollama && ollama serve") {
+                                configCard {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            fieldLabel("Ollama Base URL")
+                                            TextField("http://localhost:11434/v1", text: $draft.ollamaBaseUrl)
+                                                .textFieldStyle(.plain)
+                                                .styledInput(theme: theme)
+                                            Text("Standard-Port 11434 · wird für Kundenanfragen-Triage verwendet (vor Anthropic API)")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            fieldLabel("Modell")
+                                            TextField("llama3.2", text: $draft.ollamaModel)
+                                                .textFieldStyle(.plain)
+                                                .styledInput(theme: theme)
+                                            Text("ollama pull llama3.2 · oder mistral, qwen2.5, phi4 etc.")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
+                                    }
+                                }
+                            }
+                        } // end GridRow 2c
 
                         // Row 2b: TMetric — full grid width
                         GridRow(alignment: .top) {

@@ -77,6 +77,56 @@ final class AnthropicService {
         return resp.content.compactMap(\.text).joined()
     }
 
+    // MARK: - OpenAI-compatible API (Ollama, LM Studio, etc.)
+    // baseURL e.g. "http://localhost:11434/v1"  — no API key required for Ollama
+
+    func sendMessageOpenAI(
+        baseURL: String,
+        model: String,
+        systemPrompt: String? = nil,
+        userMessage: String,
+        maxTokens: Int = 4096
+    ) async throws -> String {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(trimmed)/chat/completions") else {
+            throw APIError.badURL
+        }
+        var req = URLRequest(url: url, timeoutInterval: 120)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        var messages: [[String: String]] = []
+        if let sp = systemPrompt, !sp.isEmpty {
+            messages.append(["role": "system", "content": sp])
+        }
+        messages.append(["role": "user", "content": userMessage])
+
+        let body: [String: Any] = [
+            "model": model,
+            "messages": messages,
+            "max_tokens": maxTokens
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                .flatMap { ($0["error"] as? [String: Any])?["message"] as? String }
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(http.statusCode, msg)
+        }
+        struct OAIResponse: Decodable {
+            struct Choice: Decodable {
+                struct Message: Decodable { let content: String? }
+                let message: Message
+            }
+            let choices: [Choice]
+        }
+        let resp = try JSONDecoder().decode(OAIResponse.self, from: data)
+        return resp.choices.first?.message.content ?? ""
+    }
+
     // MARK: - Shared
 
     private func dateItems(start: Date, end: Date) -> [URLQueryItem] {
