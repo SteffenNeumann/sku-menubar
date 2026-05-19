@@ -227,6 +227,7 @@ struct SingleChatSessionView: View {
     @State private var currentSessionId: String?
     @State private var isStreaming: Bool = false
     @State private var streamingStartTime: Date = Date()
+    @State private var agentJustFinished: Bool = false
     @State private var chatTimerTick: Date = Date()
     @State private var selectedModel: String = "claude-sonnet-4-6"
     @State private var selectedAgent: String = ""
@@ -569,14 +570,21 @@ struct SingleChatSessionView: View {
                         }
                     }
 
-                    // Sticky "Agent arbeitet"-Banner — zeigt laufenden Stream auch wenn
-                    // man hochgescrollt hat oder das neue Placeholder-Bubble noch leer ist
+                    // Sticky Banner: "Agent arbeitet" (live) → "Fertig" (3s) → weg
                     if isStreaming {
                         AgentRunningBanner(
                             message: messages.last(where: { $0.isStreaming }),
                             startTime: streamingStartTime,
                             theme: theme
                         )
+                        .transition(.opacity)
+                    } else if agentJustFinished {
+                        AgentDoneBanner(
+                            duration: lastStreamDuration,
+                            stepCount: messages.last(where: { !$0.toolCalls.isEmpty })?.toolCalls.count,
+                            theme: theme
+                        )
+                        .transition(.opacity)
                     }
 
                     inputBar
@@ -691,9 +699,16 @@ struct SingleChatSessionView: View {
         if !isStreaming { tab.messages = messages }
         if isStreaming {
             streamingStartDate = Date()
+            agentJustFinished = false          // neuer Turn — "Fertig" sofort löschen
         } else if let start = streamingStartDate {
             lastStreamDuration = Date().timeIntervalSince(start)
             streamingStartDate = nil
+            // "Fertig"-Banner für 3 s zeigen, dann ausblenden
+            withAnimation(.easeIn(duration: 0.2)) { agentJustFinished = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                withAnimation(.easeOut(duration: 0.4)) { agentJustFinished = false }
+            }
         }
         if !isStreaming && isCompacting { finishCompact() }
         if !isStreaming && !selectedPersonaId.isEmpty && !isValidating {
@@ -5287,6 +5302,42 @@ private struct AgentRunningBanner: View {
         .background(accentColor.opacity(0.07))
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(accentColor.opacity(0.2)), alignment: .top)
         .onAppear { pulse = true }
+    }
+}
+
+// MARK: - Agent Done Banner (erscheint 3 s nach Ende des Streams, dann Fade-out)
+
+private struct AgentDoneBanner: View {
+    let duration: TimeInterval?
+    let stepCount: Int?
+    let theme: AppTheme
+
+    private var durationLabel: String {
+        guard let d = duration, d > 0 else { return "" }
+        let s = Int(d)
+        return s < 60 ? " · \(s)s" : String(format: " · %d:%02d", s / 60, s % 60)
+    }
+    private var stepsLabel: String {
+        guard let n = stepCount, n > 0 else { return "" }
+        return " · \(n) Schritte"
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.green.opacity(0.8))
+
+            Text("Fertig\(durationLabel)\(stepsLabel)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.green.opacity(0.75))
+
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .background(Color.green.opacity(0.07))
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.green.opacity(0.2)), alignment: .top)
     }
 }
 
