@@ -131,8 +131,9 @@ final class AgentService: ObservableObject {
         let priorities      = fields["priorities"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let dealbreakers    = fields["dealbreakers"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? []
         let tone            = fields["tone"].flatMap { $0.isEmpty ? nil : $0 }
-        let emailDomain     = fields["email_domain"].flatMap  { $0.isEmpty ? nil : $0 }
-        let emailAddress    = fields["email_address"].flatMap { $0.isEmpty ? nil : $0 }
+        let emailDomain          = fields["email_domain"].flatMap  { $0.isEmpty ? nil : $0 }
+        let emailAddress         = fields["email_address"].flatMap { $0.isEmpty ? nil : $0 }
+        let emailRoutingEnabled  = fields["email_routing_enabled"].map { $0.lowercased() != "false" } ?? true
         let associatedProjects = fields["associated_projects"].map {
             $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         } ?? []
@@ -195,7 +196,8 @@ final class AgentService: ObservableObject {
             associatedProjects: associatedProjects,
             contextImages: contextImages,
             emailDomain: emailDomain,
-            emailAddress: emailAddress
+            emailAddress: emailAddress,
+            emailRoutingEnabled: emailRoutingEnabled
         )
     }
 
@@ -227,6 +229,7 @@ final class AgentService: ObservableObject {
         }
         if !draft.emailAddress.isEmpty { lines.append("email_address: \(draft.emailAddress)") }
         if !draft.emailDomain.isEmpty  { lines.append("email_domain: \(draft.emailDomain)") }
+        if !draft.emailRoutingEnabled  { lines.append("email_routing_enabled: false") }
         lines.append("---")
         if !draft.promptBody.isEmpty {
             lines.append("")

@@ -368,7 +368,7 @@ Customer reply:
 
     func routePersona(for inquiry: CustomerInquiry) -> AgentDefinition? {
         guard let agents = agentService?.agents else { return nil }
-        let personas = agents.filter { $0.isPersona }
+        let personas = agents.filter { $0.isPersona && $0.emailRoutingEnabled }
         let addr   = inquiry.senderAddress.lowercased()
         let domain = addr.components(separatedBy: "@").last ?? ""
 

@@ -486,6 +486,7 @@ struct AgentDefinition: Identifiable, Hashable {
     // Email routing
     let emailDomain: String?    // e.g. "mueller-gmbh.de" — all senders from this domain
     let emailAddress: String?   // e.g. "ceo@mueller-gmbh.de" — exact match, higher priority
+    let emailRoutingEnabled: Bool  // false = Automatik pausiert
 
     var isPersona: Bool { category == "persona" }
 
@@ -600,6 +601,7 @@ struct AgentDraft {
     // Email routing
     var emailDomain: String = ""
     var emailAddress: String = ""
+    var emailRoutingEnabled: Bool = true
 
     var isPersona: Bool { category == "persona" }
 
@@ -629,8 +631,9 @@ struct AgentDraft {
         tone         = agent.tone ?? "formal"
         associatedProjects = agent.associatedProjects
         contextImages      = agent.contextImages
-        emailDomain  = agent.emailDomain  ?? ""
-        emailAddress = agent.emailAddress ?? ""
+        emailDomain          = agent.emailDomain  ?? ""
+        emailAddress         = agent.emailAddress ?? ""
+        emailRoutingEnabled  = agent.emailRoutingEnabled
     }
 }
 

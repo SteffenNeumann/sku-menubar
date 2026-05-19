@@ -2208,19 +2208,35 @@ struct PersonaEditorSheet: View {
 
                     // Email Routing section
                     cardSection(icon: "envelope.badge.fill", title: "E-Mail-Routing") {
-                        Text("Eingehende E-Mails von dieser Adresse oder Domain werden automatisch an diese Persona geleitet und bearbeitet.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText)
-
-                        pField("E-Mail-Adresse (exakt)", hint: "z. B. info@mueller-gmbh.de") {
-                            TextField("info@mueller-gmbh.de", text: $draft.emailAddress)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 13))
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Automatik aktiv")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text("Eingehende E-Mails werden automatisch analysiert und bearbeitet.")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $draft.emailRoutingEnabled)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
                         }
-                        pField("Domain (alle Adressen)", hint: "z. B. mueller-gmbh.de") {
-                            TextField("mueller-gmbh.de", text: $draft.emailDomain)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 13))
+
+                        if draft.emailRoutingEnabled {
+                            pField("E-Mail-Adresse (exakt)", hint: "z. B. info@mueller-gmbh.de") {
+                                TextField("info@mueller-gmbh.de", text: $draft.emailAddress)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 13))
+                            }
+                            pField("Domain (alle Adressen)", hint: "z. B. mueller-gmbh.de") {
+                                TextField("mueller-gmbh.de", text: $draft.emailDomain)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 13))
+                            }
+                        } else {
+                            Text("Automatik pausiert — E-Mails werden nicht verarbeitet.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.orange)
                         }
                     }
 
