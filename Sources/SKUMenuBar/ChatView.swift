@@ -3232,6 +3232,10 @@ struct SingleChatSessionView: View {
                     if let sid = event.sessionId {
                         currentSessionId = sid
                     }
+                    // Sauberes Ende markieren (kein Fehler)
+                    if event.isError != true {
+                        messages[assistantIndex].finishedCleanly = true
+                    }
 
                     // Handle error result (e.g. rate-limit / usage-limit)
                     if event.isError == true {
@@ -4644,7 +4648,7 @@ struct MessageBubbleView: View {
                 streamingDots
             }
 
-            if !message.isStreaming && (message.inputTokens > 0 || message.costUsd != nil) {
+            if !message.isStreaming && message.role == .assistant {
                 tokenFooter
             }
         }
@@ -4805,18 +4809,39 @@ struct MessageBubbleView: View {
 
     private var tokenFooter: some View {
         HStack(spacing: 8) {
+            // Abschluss-Status — immer sichtbar für assistant-Messages
+            if message.finishedCleanly {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green.opacity(0.65))
+                Text("Fertig")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.green.opacity(0.6))
+            } else {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange.opacity(0.6))
+                Text("Unterbrochen")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange.opacity(0.55))
+            }
+
             if message.inputTokens > 0 {
+                Text("·")
+                    .foregroundStyle(theme.tertiaryText)
                 Label("\(message.inputTokens) in", systemImage: "arrow.down")
                     .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 Label("\(message.outputTokens) out", systemImage: "arrow.up")
                     .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
             }
             if let cost = message.costUsd, cost > 0 {
+                Text("·")
+                    .foregroundStyle(theme.tertiaryText)
                 Text(String(format: "$%.4f", cost))
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.tertiaryText)
             }
         }
-        .padding(.top, 2)
+        .padding(.top, 4)
     }
 
     // MARK: - Git Diff Badge (opens side panel)
