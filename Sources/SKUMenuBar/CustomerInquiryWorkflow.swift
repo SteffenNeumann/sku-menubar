@@ -503,7 +503,7 @@ From: \(inquiry.senderName) <\(inquiry.senderAddress)>
 
             let jsonStr: String
             if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
-                jsonStr = String(raw[start.lowerBound...end.upperBound])
+                jsonStr = String(raw[start.lowerBound...end.lowerBound])  // lowerBound = index OF "}", not past it
             } else { jsonStr = raw }
 
             struct AnalysisJSON: Decodable {
