@@ -178,19 +178,13 @@ struct SettingsFormView: View {
                             }
 
                             configSection(title: "Claude (Anthropic Admin API)", icon: "cpu",
-                                          hint: "Admin Key · Org-ID aus den Anthropic Organization-Einstellungen") {
+                                          hint: "Admin Key aus den Anthropic Organization-Einstellungen · für Usage-Tracking") {
                                 configCard {
                                     VStack(alignment: .leading, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("Admin Key")
-                                            SecureField("sk-ant-admin01-…", text: $draft.anthropicAdminKey)
-                                                .textFieldStyle(.plain)
-                                                .styledInput(theme: theme)
-                                        }
                                         HStack(alignment: .top, spacing: 12) {
                                             VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Organization ID")
-                                                TextField("936e48e3-…", text: $draft.anthropicOrgId)
+                                                fieldLabel("Admin Key")
+                                                SecureField("sk-ant-admin01-…", text: $draft.anthropicAdminKey)
                                                     .textFieldStyle(.plain)
                                                     .styledInput(theme: theme)
                                             }

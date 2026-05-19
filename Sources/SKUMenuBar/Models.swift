@@ -11,7 +11,6 @@ struct GitHubSettings: Codable {
     var intervalSeconds: Int = 300
     // Claude / Anthropic
     var anthropicAdminKey: String = ""
-    var anthropicOrgId:    String = ""
     var anthropicApiKey:   String = ""   // Messages API key (sk-ant-api03-…) for inquiry automation
     // Currency
     var currency: String = "USD"       // "USD" | "EUR"
@@ -47,7 +46,6 @@ struct GitHubSettings: Codable {
         budget            = (try? c.decodeIfPresent(Double.self, forKey: .budget))           ?? 10.0
         intervalSeconds   = (try? c.decodeIfPresent(Int.self,    forKey: .intervalSeconds))  ?? 300
         anthropicAdminKey = (try? c.decodeIfPresent(String.self, forKey: .anthropicAdminKey)) ?? ""
-        anthropicOrgId    = (try? c.decodeIfPresent(String.self, forKey: .anthropicOrgId))   ?? ""
         anthropicApiKey   = (try? c.decodeIfPresent(String.self, forKey: .anthropicApiKey))  ?? ""
         currency          = (try? c.decodeIfPresent(String.self, forKey: .currency))         ?? "USD"
         eurRate           = (try? c.decodeIfPresent(Double.self, forKey: .eurRate))          ?? 0.92
