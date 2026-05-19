@@ -806,7 +806,17 @@ struct HomeView: View {
                             .padding(.bottom, 4)
                         }
 
-                        Spacer(minLength: 0)
+                        // ── Dot-Timeline (nur Heute) ──────────────────────
+                        if state.tmetricPeriod == .today && !state.tmetricIsCustomRange
+                            && !state.tmetricTimelineEntries.isEmpty {
+                            Divider().padding(.vertical, 6)
+                            TMetricDotTimeline(
+                                entries:     state.tmetricTimelineEntries,
+                                summaries:   state.tmetricProjects,
+                                chartColors: chartColors,
+                                now:         timerTick
+                            )
+                        }
 
                         // ── Footer ────────────────────────────────────────
                         HStack {
@@ -1660,5 +1670,127 @@ private struct InquiryDetailSheet: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.rowBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - TMetric Dot-Timeline
+
+private struct TMetricDotTimeline: View {
+    let entries:    [TMetricTimelineEntry]
+    let summaries:  [TMetricProjectSummary]
+    let chartColors: [Color]
+    let now:        Date
+
+    @Environment(\.appTheme) var theme
+
+    private static let hourFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
+
+    private var sorted: [TMetricTimelineEntry] { entries.sorted { $0.start < $1.start } }
+
+    private var timelineStart: Date { sorted.first?.start ?? now }
+    private var timelineEnd:   Date { max(now, sorted.compactMap(\.end).max() ?? now) }
+    private var totalRange: Double  { max(1.0, timelineEnd.timeIntervalSince(timelineStart)) }
+
+    private func frac(_ d: Date) -> Double {
+        max(0, min(1, d.timeIntervalSince(timelineStart) / totalRange))
+    }
+    private func colorFor(_ entry: TMetricTimelineEntry) -> Color {
+        let idx = summaries.firstIndex(where: { $0.id == entry.projectId }) ?? 0
+        return chartColors[idx % chartColors.count]
+    }
+
+    private var hourMarks: [Date] {
+        let cal = Calendar.current
+        var comps = cal.dateComponents([.year, .month, .day, .hour], from: timelineStart)
+        comps.hour = (comps.hour ?? 0) + 1
+        comps.minute = 0; comps.second = 0
+        guard var d = cal.date(from: comps) else { return [] }
+        var marks: [Date] = []
+        while d <= timelineEnd {
+            marks.append(d)
+            d = d.addingTimeInterval(3600)
+        }
+        return marks
+    }
+
+    var body: some View {
+        if !sorted.isEmpty {
+            VStack(spacing: 3) {
+                // ── Chips + Track ───────────────────────────────────────
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    ZStack(alignment: .topLeading) {
+                        // Track background
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color.white.opacity(0.07))
+                            .frame(width: w, height: 20)
+                            .offset(y: 22)
+
+                        ForEach(sorted) { entry in
+                            let color   = colorFor(entry)
+                            let x       = CGFloat(frac(entry.start)) * w
+                            let endDate = entry.end ?? now
+                            let segW    = max(4, CGFloat(frac(endDate)) * w - x)
+                            let isRunning = entry.end == nil
+                            let dur     = max(0, Int(endDate.timeIntervalSince(entry.start)))
+                            let h = dur / 3600; let m = (dur % 3600) / 60
+                            let durStr  = h > 0 ? "\(h)h \(m)m" : "\(m)m"
+
+                            // Segment bar
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(color.opacity(isRunning ? 1.0 : 0.78))
+                                .frame(width: segW, height: 20)
+                                .offset(x: x, y: 22)
+
+                            // Running glow at right edge
+                            if isRunning {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(
+                                        LinearGradient(colors: [color.opacity(0), color.opacity(0.4)],
+                                                       startPoint: .leading, endPoint: .trailing)
+                                    )
+                                    .frame(width: min(segW, 30), height: 20)
+                                    .offset(x: x + segW - min(segW, 30), y: 22)
+                            }
+
+                            // Chip above segment
+                            if segW > 40 {
+                                let namePrefix = segW > 90 ? String(entry.projectName.prefix(10)) : ""
+                                let label = isRunning
+                                    ? "▶ \(durStr)"
+                                    : (namePrefix.isEmpty ? durStr : "\(namePrefix)  \(durStr)")
+                                Text(label)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(color)
+                                    .lineLimit(1)
+                                    .offset(x: x + 4, y: 5)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 44)
+
+                // ── Time axis ───────────────────────────────────────────
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    ZStack(alignment: .topLeading) {
+                        ForEach(hourMarks.indices, id: \.self) { i in
+                            let x = CGFloat(frac(hourMarks[i])) * w
+                            Rectangle()
+                                .fill(Color.white.opacity(0.15))
+                                .frame(width: 1, height: 4)
+                                .offset(x: x)
+                            Text(Self.hourFmt.string(from: hourMarks[i]))
+                                .font(.system(size: 9).monospacedDigit())
+                                .foregroundStyle(theme.tertiaryText)
+                                .offset(x: max(0, x - 13), y: 5)
+                        }
+                    }
+                }
+                .frame(height: 16)
+            }
+        }
     }
 }

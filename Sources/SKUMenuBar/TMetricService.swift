@@ -125,10 +125,19 @@ private struct TMetricMe: Codable {
 
 // MARK: - Public Output
 
+struct TMetricTimelineEntry: Identifiable {
+    let id: Int
+    let projectId: Int
+    let projectName: String
+    let start: Date
+    let end: Date?  // nil = running
+}
+
 struct TMetricFetchResult {
-    let summaries: [TMetricProjectSummary]
-    let debugRaw:  String
-    let userId:    Int?
+    let summaries:       [TMetricProjectSummary]
+    let timelineEntries: [TMetricTimelineEntry]
+    let debugRaw:        String
+    let userId:          Int?
 }
 
 struct TMetricProjectSummary: Identifiable, Equatable {
@@ -367,10 +376,26 @@ enum TMetricService {
         let extractedUserId = allEntries.compactMap { $0.userId }.first
         NSLog("[TMetric] extractedUserId=\(String(describing: extractedUserId))")
 
+        let timelineEntries: [TMetricTimelineEntry] = filtered.compactMap { e in
+            guard let id = e.id,
+                  let startStr = e.startTime,
+                  let start = localFmt.date(from: startStr) ?? ISO8601DateFormatter().date(from: startStr)
+            else { return nil }
+            let end = e.endTime.flatMap { localFmt.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }
+            return TMetricTimelineEntry(
+                id: id,
+                projectId:   e.project?.id   ?? 0,
+                projectName: e.project?.name ?? "Ohne Projekt",
+                start: start,
+                end:   end
+            )
+        }.sorted { $0.start < $1.start }
+
         return TMetricFetchResult(
-            summaries: aggregate(entries: filtered, now: now),
-            debugRaw:  firstRaw,
-            userId:    extractedUserId
+            summaries:       aggregate(entries: filtered, now: now),
+            timelineEntries: timelineEntries,
+            debugRaw:        firstRaw,
+            userId:          extractedUserId
         )
     }
 
