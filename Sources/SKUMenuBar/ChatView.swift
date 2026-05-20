@@ -4400,7 +4400,7 @@ struct FilePreviewPanel: View {
             HStack(spacing: 6) {
                 Image(systemName: node.icon)
                     .font(.system(size: 12))
-                    .foregroundStyle(node.iconColor)
+                    .foregroundStyle(node.iconColor(theme: theme))
                 Text(node.name)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
@@ -4495,7 +4495,7 @@ struct FilePreviewPanel: View {
                 VStack(spacing: 8) {
                     Image(systemName: node.icon)
                         .font(.system(size: 32))
-                        .foregroundStyle(node.iconColor.opacity(0.4))
+                        .foregroundStyle(node.iconColor(theme: theme).opacity(0.4))
                     Text("Keine Vorschau verfügbar")
                         .font(.system(size: 14))
                         .foregroundStyle(theme.tertiaryText)
@@ -4727,7 +4727,7 @@ struct ChatFilePanelRow: View {
                     .frame(width: 26, height: 26)
                 Image(systemName: node.icon)
                     .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? accentColor : node.iconColor)
+                    .foregroundStyle(isSelected ? accentColor : node.iconColor(theme: theme))
                 // Badge: green "+" for new file, orange dot for modified
                 if isNew {
                     ZStack {
@@ -4814,9 +4814,7 @@ struct MessageBubbleView: View {
     private var sourceColor: Color {
         guard resolvedSource == .copilot else { return accentColor }
         // Darker burnt-amber for light/medium backgrounds (orange alone fails WCAG contrast)
-        return (theme.isLight || theme.isMedium)
-            ? Color(red: 0.72, green: 0.35, blue: 0.0)
-            : .orange
+        return theme.statusOrange
     }
 
     private var modelLabel: String {
@@ -5203,11 +5201,7 @@ private struct ResearchAnimationView: View {
     @Environment(\.appTheme) var theme
 
     /// Darker burnt-amber on light/medium backgrounds for WCAG contrast; bright orange on dark.
-    private var searchColor: Color {
-        (theme.isLight || theme.isMedium)
-            ? Color(red: 0.72, green: 0.35, blue: 0.0)
-            : Color.orange
-    }
+    private var searchColor: Color { theme.statusOrange }
     private var bgOpacity: Double { (theme.isLight || theme.isMedium) ? 0.13 : 0.08 }
 
     var body: some View {
@@ -5396,7 +5390,7 @@ private struct TodoPanel: View {
                              ? "\(todos.count) Aufgaben abgeschlossen"
                              : "\(completedCount)/\(todos.count) erledigt")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isStreaming ? accentColor : allDone ? .green.opacity(0.7) : accentColor)
+                        .foregroundStyle(isStreaming ? accentColor : allDone ? theme.statusGreen.opacity(0.7) : accentColor)
 
                     Spacer()
 
@@ -5703,6 +5697,7 @@ private struct PickerRowView: View {
 }
 
 private struct OrchRowView: View {
+    @Environment(\.appTheme) private var theme
     let label: String
     let selected: Bool
     let accent: Color
@@ -5719,10 +5714,10 @@ private struct OrchRowView: View {
             HStack(spacing: 8) {
                 Image(systemName: selected ? "checkmark.square.fill" : (label == "Auswahl aufheben" ? "xmark.circle" : "square"))
                     .font(.system(size: 14))
-                    .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : secondary))
+                    .foregroundStyle(label == "Auswahl aufheben" ? theme.statusRed.opacity(0.7) : (selected || hovered ? accent : secondary))
                 Text(label)
                     .font(.system(size: 14))
-                    .foregroundStyle(label == "Auswahl aufheben" ? .red.opacity(0.7) : (selected || hovered ? accent : fg))
+                    .foregroundStyle(label == "Auswahl aufheben" ? theme.statusRed.opacity(0.7) : (selected || hovered ? accent : fg))
                 Spacer()
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -5977,10 +5972,10 @@ private struct PersonaValidationBanner: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label("Überzeugt", systemImage: "hand.thumbsup.fill")
                                     .font(.system(size: 10, weight: .bold)).kerning(0.3)
-                                    .foregroundStyle(Color.green.opacity(0.8))
+                                    .foregroundStyle(theme.statusGreen.opacity(0.8))
                                 ForEach(result.strengths, id: \.self) { s in
                                     HStack(alignment: .top, spacing: 5) {
-                                        Text("·").foregroundStyle(Color.green.opacity(0.6))
+                                        Text("·").foregroundStyle(theme.statusGreen.opacity(0.6))
                                         Text(s).font(.system(size: 11)).foregroundStyle(theme.secondaryText)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
@@ -5994,10 +5989,10 @@ private struct PersonaValidationBanner: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label("Fehlt / stört", systemImage: "hand.thumbsdown.fill")
                                     .font(.system(size: 10, weight: .bold)).kerning(0.3)
-                                    .foregroundStyle(Color.orange.opacity(0.8))
+                                    .foregroundStyle(theme.statusOrange.opacity(0.8))
                                 ForEach(result.weaknesses, id: \.self) { w in
                                     HStack(alignment: .top, spacing: 5) {
-                                        Text("·").foregroundStyle(Color.orange.opacity(0.6))
+                                        Text("·").foregroundStyle(theme.statusOrange.opacity(0.6))
                                         Text(w).font(.system(size: 11)).foregroundStyle(theme.secondaryText)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }

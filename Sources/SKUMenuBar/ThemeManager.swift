@@ -84,6 +84,13 @@ struct AppTheme: Identifiable, Equatable, Codable {
         return Color(white: 0.50)
     }
 
+    // MARK: Semantic status colors — WCAG AA on every background
+    // System .green/.orange/.red are invisible on medium/light themes (same luminance).
+    // Dark variants provide ≥ 4.5:1 contrast on all non-dark backgrounds.
+    var statusGreen:  Color { (isLight || isMedium) ? Color(r: 16,  g: 70,  b: 30,  a: 1) : .green }
+    var statusOrange: Color { (isLight || isMedium) ? Color(r: 128, g: 42,  b: 0,   a: 1) : .orange }
+    var statusRed:    Color { (isLight || isMedium) ? Color(r: 140, g: 10,  b: 5,   a: 1) : .red }
+
     // Base window background — glow themes use deep-space blue, others use their own bgTop
     var windowBg: Color {
         if isLight {
