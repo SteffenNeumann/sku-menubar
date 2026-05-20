@@ -261,6 +261,7 @@ struct SingleChatSessionView: View {
     @State private var diffPanelWidth: CGFloat = 500
     @State private var filePreviewNode: ExplorerNode? = nil
     @State private var changedFilePaths: Set<String> = []
+    @State private var newFilePaths: Set<String> = []
     @State private var dismissedChangedPaths: Set<String> = []
     @State private var filePreviewPanelWidth: CGFloat = 380
     @State private var inputBarHeight: CGFloat = 56
@@ -423,6 +424,7 @@ struct SingleChatSessionView: View {
                     ChatFilePanel(
                         rootPath: workingDirectory ?? NSHomeDirectory(),
                         changedPaths: changedFilePaths,
+                        newPaths: newFilePaths,
                         onInsertPath: { path in
                             if inputText.isEmpty { inputText = path }
                             else { inputText += " \(path)" }
@@ -432,6 +434,7 @@ struct SingleChatSessionView: View {
                             withAnimation(.spring(response: 0.3)) { filePreviewNode = node }
                             if let n = node {
                                 changedFilePaths.remove(n.url.path)
+                                newFilePaths.remove(n.url.path)
                                 dismissedChangedPaths.insert(n.url.path)
                             }
                         },
@@ -690,6 +693,7 @@ struct SingleChatSessionView: View {
                     let path = cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name
                     if !dismissedChangedPaths.contains(path) {
                         changedFilePaths.insert(path)
+                        if file.isNew { newFilePaths.insert(path) }
                     }
                 }
             }
@@ -3880,6 +3884,7 @@ class ResizeDragNSView: NSView {
 struct ChatFilePanel: View {
     let rootPath: String
     var changedPaths: Set<String> = []
+    var newPaths: Set<String> = []
     let onInsertPath: (String) -> Void
     let onSelectNode: (ExplorerNode?) -> Void
     let onClose: () -> Void
@@ -4030,6 +4035,7 @@ struct ChatFilePanel: View {
                                     showHidden: showHidden || !searchText.isEmpty,
                                     depth: 0,
                                     changedPaths: changedPaths,
+                                    newPaths: newPaths,
                                     onSelect: selectNode,
                                     onInsert: { onInsertPath($0.url.path) }
                                 )
@@ -4607,6 +4613,7 @@ struct ChatFilePanelRow: View {
     let showHidden: Bool
     let depth: Int
     var changedPaths: Set<String> = []
+    var newPaths: Set<String> = []
     let onSelect: (ExplorerNode) -> Void
     let onInsert: (ExplorerNode) -> Void
 
@@ -4633,6 +4640,7 @@ struct ChatFilePanelRow: View {
                         showHidden: showHidden,
                         depth: depth + 1,
                         changedPaths: changedPaths,
+                        newPaths: newPaths,
                         onSelect: onSelect,
                         onInsert: onInsert
                     )
@@ -4650,6 +4658,7 @@ struct ChatFilePanelRow: View {
     }
 
     private var isChanged: Bool { !node.isDirectory && changedPaths.contains(node.url.path) }
+    private var isNew: Bool { !node.isDirectory && newPaths.contains(node.url.path) }
 
     private func startSubDirWatcher() {
         guard node.isDirectory else { return }
@@ -4690,8 +4699,18 @@ struct ChatFilePanelRow: View {
                 Image(systemName: node.icon)
                     .font(.system(size: 13))
                     .foregroundStyle(isSelected ? accentColor : node.iconColor)
-                // Orange badge dot if file was changed by agent
-                if isChanged {
+                // Badge: green "+" for new file, orange dot for modified
+                if isNew {
+                    ZStack {
+                        Circle()
+                            .fill(Color(red: 0.18, green: 0.72, blue: 0.42))
+                            .frame(width: 11, height: 11)
+                        Text("+")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .offset(x: 9, y: -9)
+                } else if isChanged {
                     Circle()
                         .fill(Color.orange)
                         .frame(width: 7, height: 7)
@@ -4699,8 +4718,8 @@ struct ChatFilePanelRow: View {
                 }
             }
             Text(node.name)
-                .font(.system(size: 14, weight: isChanged ? .semibold : .medium))
-                .foregroundStyle(isChanged ? Color.orange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText))
+                .font(.system(size: 14, weight: (isChanged || isNew) ? .semibold : .medium))
+                .foregroundStyle(isNew ? Color(red: 0.18, green: 0.72, blue: 0.42) : (isChanged ? Color.orange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText)))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
@@ -5117,6 +5136,8 @@ struct DiffFile {
     let lines: [String]
     var additions: Int { lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count }
     var deletions: Int { lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count }
+    var isNew: Bool { lines.contains { $0.hasPrefix("new file mode") } }
+    var isDeleted: Bool { lines.contains { $0.hasPrefix("deleted file mode") } }
 }
 
 func parseDiffFiles(_ diff: String) -> [DiffFile] {
