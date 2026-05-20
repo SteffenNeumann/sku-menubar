@@ -144,7 +144,6 @@ struct LinearView: View {
 
             PanelResizeHandle(width: $colWidthProject, minWidth: 140, maxWidth: 320, growsRight: true)
                 .frame(width: 1)
-                .background(theme.cardBorder.opacity(0.5))
 
             // Col 2 — Issues
             issueColumn
@@ -152,7 +151,6 @@ struct LinearView: View {
 
             PanelResizeHandle(width: $colWidthIssue, minWidth: 220, maxWidth: 500, growsRight: true)
                 .frame(width: 1)
-                .background(theme.cardBorder.opacity(0.5))
 
             // Col 3 — Detail
             detailColumn
