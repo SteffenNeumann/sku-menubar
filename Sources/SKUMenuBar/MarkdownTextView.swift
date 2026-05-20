@@ -342,11 +342,11 @@ struct MarkdownTextView: View {
             HStack(spacing: 6) {
                 Text("diff")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.orange.opacity(0.85))
+                    .foregroundStyle(theme.statusOrange.opacity(0.85))
                 Text("+\(additions)")
-                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.green)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(theme.statusGreen)
                 Text("-\(deletions)")
-                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.red)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(theme.statusRed)
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
@@ -384,12 +384,12 @@ struct MarkdownTextView: View {
         let isMeta   = line.hasPrefix("diff") || line.hasPrefix("index")
                     || line.hasPrefix("---") || line.hasPrefix("+++")
 
-        let bg: Color = isAdd    ? .green.opacity(isDark ? 0.18 : 0.12)
-                      : isRemove ? .red.opacity(isDark ? 0.18 : 0.12)
+        let bg: Color = isAdd    ? theme.statusGreen.opacity(isDark ? 0.18 : 0.12)
+                      : isRemove ? theme.statusRed.opacity(isDark ? 0.18 : 0.12)
                       : isHunk   ? Color(white: isDark ? 0.15 : 0.88)
                       : .clear
-        let fg: Color = isAdd    ? .green
-                      : isRemove ? .red
+        let fg: Color = isAdd    ? theme.statusGreen
+                      : isRemove ? theme.statusRed
                       : isHunk   ? Color(red: 0.4, green: 0.6, blue: 0.95)
                       : isMeta   ? Color(white: isDark ? 0.5 : 0.55)
                       : isDark ? Color.white.opacity(0.85) : Color.black.opacity(0.8)

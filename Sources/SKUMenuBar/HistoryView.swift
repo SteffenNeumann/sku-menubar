@@ -280,8 +280,8 @@ struct HistoryView: View {
                     let totalOut = sessionMessages.reduce(0) { $0 + $1.outputTokens }
                     HStack(spacing: 10) {
                         statBadge("\(sessionMessages.count)", icon: "message", color: accentColor)
-                        statBadge("\(totalIn)↓", icon: "arrow.down", color: .green)
-                        statBadge("\(totalOut)↑", icon: "arrow.up", color: .orange)
+                        statBadge("\(totalIn)↓", icon: "arrow.down", color: theme.statusGreen)
+                        statBadge("\(totalOut)↑", icon: "arrow.up", color: theme.statusOrange)
                     }
                 }
 
@@ -345,12 +345,12 @@ struct HistoryView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(msg.toolCalls) { tc in
                             HStack(spacing: 4) {
-                                Image(systemName: "wrench.fill").font(.system(size: 11)).foregroundStyle(.orange)
-                                Text(tc.name).font(.system(size: 13, design: .monospaced)).foregroundStyle(.orange.opacity(0.8))
+                                Image(systemName: "wrench.fill").font(.system(size: 11)).foregroundStyle(theme.statusOrange)
+                                Text(tc.name).font(.system(size: 13, design: .monospaced)).foregroundStyle(theme.statusOrange.opacity(0.8))
                             }
                         }
                     }
-                    .padding(8).background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(8).background(theme.statusOrange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 } else if !msg.content.isEmpty {
                     Text(msg.content)
                         .font(.system(size: 14))

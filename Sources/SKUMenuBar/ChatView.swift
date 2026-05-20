@@ -945,18 +945,18 @@ struct SingleChatSessionView: View {
                 HStack(spacing: 4) {
                     if tab.tmetricIsTimerRunning {
                         Circle()
-                            .fill(Color.green)
+                            .fill(theme.statusGreen)
                             .frame(width: 6, height: 6)
                             .scaleEffect(chatTimerTick.timeIntervalSince1970.truncatingRemainder(dividingBy: 2) < 1 ? 1.0 : 0.65)
                             .animation(.easeInOut(duration: 0.5), value: chatTimerTick)
                     } else {
                         Image(systemName: "clock")
                             .font(.system(size: 10))
-                            .foregroundStyle(tab.tmetricTimerError != nil ? .red : theme.tertiaryText)
+                            .foregroundStyle(tab.tmetricTimerError != nil ? theme.statusRed : theme.tertiaryText)
                     }
                     Text(tab.tmetricProjectName.isEmpty ? "Projekt wählen" : tab.tmetricProjectName)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(tab.tmetricIsTimerRunning ? .green : (tab.tmetricTimerError != nil ? .red : theme.secondaryText))
+                        .foregroundStyle(tab.tmetricIsTimerRunning ? theme.statusGreen : (tab.tmetricTimerError != nil ? theme.statusRed : theme.secondaryText))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: 130)
@@ -971,21 +971,21 @@ struct SingleChatSessionView: View {
             if tab.tmetricIsTimerRunning, let start = tab.tmetricTimerStart {
                 Text(tmetricElapsed(from: start))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.statusGreen)
             }
             if let pid = tab.tmetricProjectId,
                let summary = state.tmetricProjects.first(where: { $0.id == pid }),
                summary.totalSeconds > 0 {
                 Text("· \(summary.formattedDuration)")
                     .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(tab.tmetricIsTimerRunning ? Color.green.opacity(0.7) : theme.tertiaryText)
+                    .foregroundStyle(tab.tmetricIsTimerRunning ? theme.statusGreen.opacity(0.7) : theme.tertiaryText)
             }
 
             // Error (visible, not just tooltip)
             if let err = tab.tmetricTimerError {
                 Text(err.prefix(40))
                     .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.statusRed)
                     .lineLimit(1)
                     .onTapGesture { tab.tmetricTimerError = nil }
             }
@@ -998,7 +998,7 @@ struct SingleChatSessionView: View {
                 } label: {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 9))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.statusRed)
                 }
                 .buttonStyle(.plain)
                 .help("Timer stoppen")
@@ -1018,8 +1018,8 @@ struct SingleChatSessionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(
-            tab.tmetricIsTimerRunning ? Color.green.opacity(0.08)
-            : (tab.tmetricTimerError != nil ? Color.red.opacity(0.08) : theme.rowBg),
+            tab.tmetricIsTimerRunning ? theme.statusGreen.opacity(0.08)
+            : (tab.tmetricTimerError != nil ? theme.statusRed.opacity(0.08) : theme.rowBg),
             in: Capsule()
         )
         .help(tab.tmetricTimerError ?? (tab.tmetricIsTimerRunning ? "Timer läuft" : ""))
@@ -1132,7 +1132,7 @@ struct SingleChatSessionView: View {
         let displayText = isLong && !errorExpanded ? String(text.prefix(120)) + "…" : text
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(theme.statusRed)
                     .padding(.top, 1)
                 Text(displayText)
                     .font(.system(size: 14))
@@ -1145,7 +1145,7 @@ struct SingleChatSessionView: View {
                     errorExpanded.toggle()
                 }
                 .font(.system(size: 13))
-                .foregroundStyle(.red.opacity(0.8))
+                .foregroundStyle(theme.statusRed.opacity(0.8))
                 .buttonStyle(.plain)
             }
 
@@ -1154,10 +1154,10 @@ struct SingleChatSessionView: View {
                 Divider().opacity(0.3)
                 if loginSucceeded {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.statusGreen)
                         Text("Login erfolgreich — neue Nachricht senden.")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
@@ -1193,8 +1193,8 @@ struct SingleChatSessionView: View {
             }
         }
         .padding(10)
-        .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.red.opacity(0.25), lineWidth: 0.5))
+        .background(theme.statusRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.statusRed.opacity(0.25), lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 6)
     }
@@ -1313,9 +1313,9 @@ struct SingleChatSessionView: View {
             let contextWindow    = (matchedModel?.contextK ?? 200) * 1000
             let isWarning        = totalIn >= contextWindow / 2
             let isCritical       = totalIn >= contextWindow
-            let tokenColor: Color = isCritical ? .red : (isWarning ? .orange : theme.secondaryText)
+            let tokenColor: Color = isCritical ? theme.statusRed : (isWarning ? theme.statusOrange : theme.secondaryText)
             let progress: Double  = min(1.0, Double(totalIn) / Double(contextWindow))
-            let arcColor: Color   = isCritical ? .red : (isWarning ? .orange : .green)
+            let arcColor: Color   = isCritical ? theme.statusRed : (isWarning ? theme.statusOrange : theme.statusGreen)
             let pct = Int(progress * 100)
             let progressHelp: String = isCritical
                 ? "Kontext voll (\(pct)%) — Compact dringend empfohlen"
@@ -1373,14 +1373,14 @@ struct SingleChatSessionView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 5)
-            .background(isCritical ? Color.red.opacity(0.05) : theme.windowBg)
+            .background(isCritical ? theme.statusRed.opacity(0.05) : theme.windowBg)
             .help("Session-Tokens: \(totalIn) Input · \(totalOut) Output · Kontext: \(contextWindow / 1000)k")
         }
     }
 
     @ViewBuilder
     private func compactButton(isCritical: Bool) -> some View {
-        let tint: Color = isCritical ? .red : .orange
+        let tint: Color = isCritical ? theme.statusRed : theme.statusOrange
         Button { compactSession() } label: {
             HStack(spacing: 3) {
                 Image(systemName: "scissors")
@@ -1402,7 +1402,7 @@ struct SingleChatSessionView: View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.statusOrange)
             Text("Kontext-Limit fast erreicht — Zusammenfassung empfohlen.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.secondaryText)
@@ -1416,7 +1416,7 @@ struct SingleChatSessionView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.orange, in: RoundedRectangle(cornerRadius: 5))
+                    .background(theme.statusOrange, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
             Button {
@@ -1430,8 +1430,8 @@ struct SingleChatSessionView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
-        .overlay(Rectangle().fill(Color.orange.opacity(0.25)).frame(height: 0.5), alignment: .top)
+        .background(theme.statusOrange.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
+        .overlay(Rectangle().fill(theme.statusOrange.opacity(0.25)).frame(height: 0.5), alignment: .top)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -1512,7 +1512,7 @@ struct SingleChatSessionView: View {
                         // Avoid reading messages.isEmpty in inputBar — use isStreaming + inputText instead
                         Image(systemName: "trash")
                             .font(.system(size: 13))
-                            .foregroundStyle((!inputText.isEmpty || !isStreaming) ? .red.opacity(0.75) : theme.tertiaryText.opacity(0.4))
+                            .foregroundStyle((!inputText.isEmpty || !isStreaming) ? theme.statusRed.opacity(0.75) : theme.tertiaryText.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                     .help("Chat leeren")
@@ -1522,7 +1522,7 @@ struct SingleChatSessionView: View {
                     } label: {
                         Image(systemName: isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
                             .font(.system(size: 20))
-                            .foregroundStyle(isStreaming ? Color.red : (canSend ? accentColor : theme.tertiaryText.opacity(0.4)))
+                            .foregroundStyle(isStreaming ? theme.statusRed : (canSend ? accentColor : theme.tertiaryText.opacity(0.4)))
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend && !isStreaming)
@@ -1608,14 +1608,14 @@ struct SingleChatSessionView: View {
                 }()
                 if disabledCount > 0 {
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.down.circle.fill").foregroundStyle(.green)
+                        Image(systemName: "arrow.down.circle.fill").foregroundStyle(theme.statusGreen)
                         Text("~\(disabledCount * 7)k Tokens gespart")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.green.opacity(0.06))
+                    .background(theme.statusGreen.opacity(0.06))
                 }
             }
             .modifier(panelStyle)
@@ -1790,7 +1790,7 @@ struct SingleChatSessionView: View {
                     if disabledCount > 0 {
                         Text("~\(tokenSavings)k ↓")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                     }
                 }
                 .padding(.leading, 4)
@@ -1825,10 +1825,10 @@ struct SingleChatSessionView: View {
                     } label: {
                         Text("Kein MCP")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(activeMCPIds == Set(["__none__"]) ? .red : theme.tertiaryText)
+                            .foregroundStyle(activeMCPIds == Set(["__none__"]) ? theme.statusRed : theme.tertiaryText)
                             .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(activeMCPIds == Set(["__none__"]) ? Color.red.opacity(0.10) : theme.cardBg, in: Capsule())
-                            .overlay(Capsule().strokeBorder(activeMCPIds == Set(["__none__"]) ? Color.red.opacity(0.4) : theme.cardBorder, lineWidth: 0.5))
+                            .background(activeMCPIds == Set(["__none__"]) ? theme.statusRed.opacity(0.10) : theme.cardBg, in: Capsule())
+                            .overlay(Capsule().strokeBorder(activeMCPIds == Set(["__none__"]) ? theme.statusRed.opacity(0.4) : theme.cardBorder, lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1864,7 +1864,7 @@ struct SingleChatSessionView: View {
         } label: {
             HStack(spacing: 4) {
                 Circle()
-                    .fill(effectiveActive ? .green : theme.tertiaryText.opacity(0.3))
+                    .fill(effectiveActive ? theme.statusGreen : theme.tertiaryText.opacity(0.3))
                     .frame(width: 5, height: 5)
                 Text(server.name)
                     .font(.system(size: 12, weight: effectiveActive ? .medium : .regular))
@@ -2158,11 +2158,11 @@ struct SingleChatSessionView: View {
                 Text(currentRouteSource.label)
                     .font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(currentRouteSource == .copilot ? .orange : accentColor)
+            .foregroundStyle(currentRouteSource == .copilot ? theme.statusOrange : accentColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(
-                (currentRouteSource == .copilot ? Color.orange : accentColor).opacity(0.10),
+                (currentRouteSource == .copilot ? theme.statusOrange : accentColor).opacity(0.10),
                 in: Capsule()
             )
             .help("Aktuelle Routing-Quelle")
@@ -3714,10 +3714,10 @@ struct SingleChatSessionView: View {
 
                 Text("+\(added)")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.statusGreen)
                 Text("-\(removed)")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.statusRed)
 
                 // Copy diff
                 Button {
@@ -3815,12 +3815,12 @@ struct SingleChatSessionView: View {
         let isHunk   = line.hasPrefix("@@")
         let isMeta   = line.hasPrefix("diff") || line.hasPrefix("index") || line.hasPrefix("---") || line.hasPrefix("+++")
 
-        let bg: Color = isAdd    ? .green.opacity(0.12)
-                      : isRemove ? .red.opacity(0.12)
+        let bg: Color = isAdd    ? theme.statusGreen.opacity(0.12)
+                      : isRemove ? theme.statusRed.opacity(0.12)
                       : isHunk   ? Color(white: theme.isLight ? 0.82 : 0.15)
                       : .clear
-        let fg: Color = isAdd    ? .green
-                      : isRemove ? .red
+        let fg: Color = isAdd    ? theme.statusGreen
+                      : isRemove ? theme.statusRed
                       : isHunk   ? .blue.opacity(0.7)
                       : isMeta   ? theme.tertiaryText
                       : theme.primaryText
@@ -4741,14 +4741,14 @@ struct ChatFilePanelRow: View {
                     .offset(x: 9, y: -9)
                 } else if isChanged {
                     Circle()
-                        .fill(Color.orange)
+                        .fill(theme.statusOrange)
                         .frame(width: 7, height: 7)
                         .offset(x: 9, y: -9)
                 }
             }
             Text(node.name)
                 .font(.system(size: 14, weight: (isChanged || isNew) ? .semibold : .medium))
-                .foregroundStyle(isNew ? Color(red: 0.18, green: 0.72, blue: 0.42) : (isChanged ? Color.orange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText)))
+                .foregroundStyle(isNew ? Color(red: 0.18, green: 0.72, blue: 0.42) : (isChanged ? theme.statusOrange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText)))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
@@ -4953,10 +4953,10 @@ struct MessageBubbleView: View {
             // Header row: icon + tool name + command summary
             HStack(spacing: 5) {
                 Image(systemName: tool.name == "Bash" ? "terminal.fill" : "wrench.and.screwdriver.fill")
-                    .font(.system(size: 11)).foregroundStyle(.orange)
+                    .font(.system(size: 11)).foregroundStyle(theme.statusOrange)
                 Text(tool.name)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.orange.opacity(0.85))
+                    .foregroundStyle(theme.statusOrange.opacity(0.85))
                 if !tool.input.isEmpty {
                     Text(tool.input)
                         .font(.system(size: 12, design: .monospaced))
@@ -4967,11 +4967,11 @@ struct MessageBubbleView: View {
                 Spacer()
                 if tool.result != nil {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
+                        .font(.system(size: 11)).foregroundStyle(theme.statusGreen.opacity(0.7))
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            .background(theme.statusOrange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
 
             // Output block (shown when expanded)
             if toolsExpanded, let result = tool.result, !result.isEmpty {
@@ -5014,10 +5014,10 @@ struct MessageBubbleView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11)).foregroundStyle(.green.opacity(0.7))
+                            .font(.system(size: 11)).foregroundStyle(theme.statusGreen.opacity(0.7))
                         Text("\(tools.count) Schritte abgeschlossen")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.green.opacity(0.75))
+                            .foregroundStyle(theme.statusGreen.opacity(0.75))
                         Text("· \(label)")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(theme.secondaryText.opacity(0.45))
@@ -5033,7 +5033,7 @@ struct MessageBubbleView: View {
                             .foregroundStyle(theme.tertiaryText.opacity(0.5))
                     }
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                    .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
 
@@ -5046,7 +5046,7 @@ struct MessageBubbleView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(.green.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
+                            .background(theme.statusGreen.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
                     }
                     .buttonStyle(.plain)
                     .help("Claude nach dem Ergebnis fragen")
@@ -5089,17 +5089,17 @@ struct MessageBubbleView: View {
             if message.finishedCleanly {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.green.opacity(0.65))
+                    .foregroundStyle(theme.statusGreen.opacity(0.65))
                 Text("Fertig")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.green.opacity(0.6))
+                    .foregroundStyle(theme.statusGreen.opacity(0.6))
             } else {
                 Image(systemName: "xmark.circle")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange.opacity(0.6))
+                    .foregroundStyle(theme.statusOrange.opacity(0.6))
                 Text("Unterbrochen")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange.opacity(0.55))
+                    .foregroundStyle(theme.statusOrange.opacity(0.55))
             }
 
             if message.inputTokens > 0 {
@@ -5139,10 +5139,10 @@ struct MessageBubbleView: View {
                     .foregroundStyle(theme.primaryText)
                 Text("+\(added)")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.statusGreen)
                 Text("-\(removed)")
                     .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(theme.statusRed)
                 Spacer()
                 Image(systemName: "sidebar.right")
                     .font(.system(size: 12))
@@ -5325,7 +5325,7 @@ private struct LivePlanView: View {
                         if isDone {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 10))
-                                .foregroundStyle(.green.opacity(0.7))
+                                .foregroundStyle(theme.statusGreen.opacity(0.7))
                         } else if isCurrent {
                             ProgressView().scaleEffect(0.4).frame(width: 10, height: 10)
                         } else {
@@ -5382,7 +5382,7 @@ private struct TodoPanel: View {
                     } else if allDone {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(.green.opacity(0.8))
+                            .foregroundStyle(theme.statusGreen.opacity(0.8))
                     } else {
                         Image(systemName: "list.bullet.clipboard")
                             .font(.system(size: 12))
@@ -5444,7 +5444,7 @@ private struct TodoPanel: View {
                                 if todo.isCompleted {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 11))
-                                        .foregroundStyle(.green.opacity(0.7))
+                                        .foregroundStyle(theme.statusGreen.opacity(0.7))
                                 } else if todo.isActive {
                                     ProgressView()
                                         .scaleEffect(0.4)
@@ -5573,7 +5573,7 @@ private struct AgentRunningBanner: View {
                                 HStack(spacing: 3) {
                                     Image(systemName: "checkmark.circle.fill")
                                         .font(.system(size: 9))
-                                        .foregroundStyle(.green.opacity(0.6))
+                                        .foregroundStyle(theme.statusGreen.opacity(0.6))
                                     Text(tool.name)
                                         .font(.system(size: 10, design: .monospaced))
                                         .foregroundStyle(theme.secondaryText.opacity(0.5))
@@ -5629,18 +5629,18 @@ private struct AgentDoneBanner: View {
         HStack(spacing: 7) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 12))
-                .foregroundStyle(.green.opacity(0.8))
+                .foregroundStyle(theme.statusGreen.opacity(0.8))
 
             Text("Fertig\(durationLabel)\(stepsLabel)")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.green.opacity(0.75))
+                .foregroundStyle(theme.statusGreen.opacity(0.75))
 
             Spacer()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
-        .background(Color.green.opacity(0.07))
-        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.green.opacity(0.2)), alignment: .top)
+        .background(theme.statusGreen.opacity(0.07))
+        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(theme.statusGreen.opacity(0.2)), alignment: .top)
     }
 }
 
@@ -5893,7 +5893,7 @@ private struct PersonaValidationBanner: View {
     var body: some View {
         VStack(spacing: 0) {
             // Top divider
-            Rectangle().fill(result.verdict.color.opacity(0.30)).frame(height: 1)
+            Rectangle().fill(result.verdict.color(theme: theme).opacity(0.30)).frame(height: 1)
 
             // Header row (always visible)
             HStack(spacing: 8) {
@@ -5911,10 +5911,10 @@ private struct PersonaValidationBanner: View {
 
                 // Score badge
                 ZStack {
-                    Circle().fill(result.scoreColor.opacity(0.18)).frame(width: 30, height: 30)
+                    Circle().fill(result.scoreColor(theme: theme).opacity(0.18)).frame(width: 30, height: 30)
                     Text("\(result.score)")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(result.scoreColor)
+                        .foregroundStyle(result.scoreColor(theme: theme))
                 }
 
                 // Verdict chip
@@ -5924,10 +5924,10 @@ private struct PersonaValidationBanner: View {
                     Text(result.verdict.label)
                         .font(.system(size: 11, weight: .semibold))
                 }
-                .foregroundStyle(result.verdict.color)
+                .foregroundStyle(result.verdict.color(theme: theme))
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(result.verdict.color.opacity(0.12), in: Capsule())
-                .overlay(Capsule().strokeBorder(result.verdict.color.opacity(0.3), lineWidth: 0.5))
+                .background(result.verdict.color(theme: theme).opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(result.verdict.color(theme: theme).opacity(0.3), lineWidth: 0.5))
 
                 Spacer()
 
@@ -5954,7 +5954,7 @@ private struct PersonaValidationBanner: View {
                 .help("Bewertung schließen")
             }
             .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(result.verdict.color.opacity(0.05))
+            .background(result.verdict.color(theme: theme).opacity(0.05))
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.spring(response: 0.3)) { expanded.toggle() }
@@ -6058,13 +6058,13 @@ private struct PersonaValidationBanner: View {
                             if fixSent {
                                 Label("Gesendet", systemImage: "checkmark.circle.fill")
                                     .font(.system(size: 11))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(theme.statusGreen)
                             }
                         }
                     }
                 }
                 .padding(.horizontal, 14).padding(.bottom, 10).padding(.top, 4)
-                .background(result.verdict.color.opacity(0.04))
+                .background(result.verdict.color(theme: theme).opacity(0.04))
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }

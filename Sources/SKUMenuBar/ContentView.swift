@@ -92,8 +92,8 @@ struct DashboardView: View {
         return state.settings.budget > 0 ? min(1, state.claudeMonthCost / state.settings.budget) : 0
     }
     private var remainPct: Double { state.settings.budget > 0 ? state.remain / state.settings.budget : 1 }
-    private func consumedColor(_ p: Double) -> Color { p > 0.9 ? .red : p > 0.75 ? .orange : accentColor }
-    private func remainColor(_ p: Double) -> Color   { p < 0.2 ? .red : p < 0.4 ? .orange : .green }
+    private func consumedColor(_ p: Double) -> Color { p > 0.9 ? theme.statusRed : p > 0.75 ? theme.statusOrange : accentColor }
+    private func remainColor(_ p: Double) -> Color   { p < 0.2 ? theme.statusRed : p < 0.4 ? theme.statusOrange : theme.statusGreen }
 
     // MARK: - Copilot chart data (from historicalMonths)
 
@@ -204,19 +204,19 @@ struct DashboardView: View {
                     Spacer()
                     HStack(spacing: 10) {
                         HStack(spacing: 4) {
-                            Circle().fill(state.errorMsg != nil ? Color.red : Color.green)
+                            Circle().fill(state.errorMsg != nil ? theme.statusRed : theme.statusGreen)
                                 .frame(width: 6, height: 6)
                             Text(state.errorMsg != nil ? "FEHLER" : "LIVE")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(state.errorMsg != nil ? Color.red : Color.green)
+                                .foregroundStyle(state.errorMsg != nil ? theme.statusRed : theme.statusGreen)
                                 .kerning(0.8)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(state.errorMsg != nil ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
+                                .fill(state.errorMsg != nil ? theme.statusRed.opacity(0.1) : theme.statusGreen.opacity(0.1))
                                 .overlay(RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(state.errorMsg != nil ? Color.red.opacity(0.4) : Color.green.opacity(0.4), lineWidth: 1))
+                                    .strokeBorder(state.errorMsg != nil ? theme.statusRed.opacity(0.4) : theme.statusGreen.opacity(0.4), lineWidth: 1))
                         )
                         Button {
                             withAnimation(.linear(duration: 0.6)) { refreshRotation += 360 }
@@ -242,12 +242,12 @@ struct DashboardView: View {
                 // Error banner
                 if let err = state.errorMsg {
                     HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.statusOrange)
                         Text(err).font(.system(size: 13)).foregroundStyle(theme.primaryText).lineLimit(3)
                     }
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.1))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)))
+                    .background(RoundedRectangle(cornerRadius: 10).fill(theme.statusOrange.opacity(0.1))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.statusOrange.opacity(0.3), lineWidth: 1)))
                 }
 
                 // -- KPI Cards --

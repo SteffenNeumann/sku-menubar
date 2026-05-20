@@ -144,7 +144,7 @@ struct BudgetBarsView: View {
                 VStack(alignment: .trailing, spacing: 3) {
                     Image(systemName: todayPct < 0.75 ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                         .font(.system(size: 18))
-                        .foregroundStyle(todayPct < 0.75 ? .green : .orange)
+                        .foregroundStyle(todayPct < 0.75 ? theme.statusGreen : theme.statusOrange)
                     Text(todayPct < 0.75 ? "unter Limit" : "über Limit")
                         .font(.system(size: 11))
                         .foregroundStyle(theme.tertiaryText)
@@ -180,11 +180,11 @@ struct BudgetBarsView: View {
     // MARK: - Color helpers
 
     private func consumedColor(_ pct: Double) -> Color {
-        pct > 0.9 ? .red : pct > 0.75 ? .orange : .blue
+        pct > 0.9 ? theme.statusRed : pct > 0.75 ? theme.statusOrange : .blue
     }
 
     private func remainColor(_ pct: Double) -> Color {
-        pct < 0.2 ? .red : pct < 0.4 ? .orange : .green
+        pct < 0.2 ? theme.statusRed : pct < 0.4 ? theme.statusOrange : theme.statusGreen
     }
 
     private func fmt(_ v: Double) -> String { state.fmt(v) }

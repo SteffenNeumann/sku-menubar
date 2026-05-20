@@ -560,14 +560,14 @@ struct CodeReviewView: View {
             if let err = errorMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.statusRed)
                     Text(err)
                         .font(.system(size: 11))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.statusRed)
                     Spacer()
                 }
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.red.opacity(0.08))
+                .background(theme.statusRed.opacity(0.08))
             }
 
             // Apply toolbar (only after review completed)
@@ -576,17 +576,17 @@ struct CodeReviewView: View {
                     if applySuccess {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                         Text("Änderungen gespeichert")
                             .font(.system(size: 11))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                     } else if let err = applyError {
                         Image(systemName: "exclamationmark.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.statusOrange)
                         Text(err)
                             .font(.system(size: 11))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.statusOrange)
                             .lineLimit(1)
                     }
                     Spacer()
@@ -824,7 +824,7 @@ struct CodeReviewView: View {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.up.circle")
                     .font(.system(size: 9))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(theme.statusGreen)
                 Text("\(formatTokens(outputTokens)) Output")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(theme.secondaryText)

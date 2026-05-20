@@ -717,11 +717,11 @@ enum ValidationVerdict: String, Codable {
         }
     }
 
-    var color: Color {
+    func color(theme: AppTheme) -> Color {
         switch self {
-        case .approved:       return .green
-        case .revisionNeeded: return .orange
-        case .rejected:       return .red
+        case .approved:       return theme.statusGreen
+        case .revisionNeeded: return theme.statusOrange
+        case .rejected:       return theme.statusRed
         }
     }
 }
@@ -738,11 +738,11 @@ struct PersonaValidationResult: Identifiable {
     let recommendation: String
     let createdAt: Date
 
-    var scoreColor: Color {
+    func scoreColor(theme: AppTheme) -> Color {
         switch score {
-        case 8...10: return .green
-        case 5...7:  return .orange
-        default:     return .red
+        case 8...10: return theme.statusGreen
+        case 5...7:  return theme.statusOrange
+        default:     return theme.statusRed
         }
     }
 }
@@ -768,11 +768,11 @@ struct PersonaFileReview: Identifiable {
     let summary: String
     let createdAt: Date
 
-    var ratingColor: Color {
+    func ratingColor(theme: AppTheme) -> Color {
         switch rating {
-        case 8...10: return .green
-        case 5...7:  return .orange
-        default:     return .red
+        case 8...10: return theme.statusGreen
+        case 5...7:  return theme.statusOrange
+        default:     return theme.statusRed
         }
     }
 }
@@ -790,11 +790,11 @@ enum ScheduledTaskStatus: String, Codable {
         }
     }
 
-    var color: Color {
+    func color(theme: AppTheme) -> Color {
         switch self {
-        case .running: return .orange
-        case .success: return .green
-        case .failed:  return .red
+        case .running: return theme.statusOrange
+        case .success: return theme.statusGreen
+        case .failed:  return theme.statusRed
         }
     }
 
@@ -881,11 +881,11 @@ enum MCPStatus: Hashable {
         }
     }
 
-    var color: Color {
+    func color(theme: AppTheme) -> Color {
         switch self {
-        case .connected:  return .green
-        case .needsAuth:  return .orange
-        case .error:      return .red
+        case .connected:  return theme.statusGreen
+        case .needsAuth:  return theme.statusOrange
+        case .error:      return theme.statusRed
         case .unknown:    return .gray
         }
     }

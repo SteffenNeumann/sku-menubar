@@ -349,22 +349,22 @@ private struct SessionStatusView: View {
                 let isParseError = err.hasPrefix("Could not decode") || err.hasPrefix("Parse")
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: isParseError ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(isParseError ? .orange : .red)
+                        .foregroundStyle(isParseError ? theme.statusOrange : theme.statusRed)
                         .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(isParseError ? "Agent-Antwort konnte nicht als JSON gelesen werden" : "Fehler")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(isParseError ? .orange : .red)
+                            .foregroundStyle(isParseError ? theme.statusOrange : theme.statusRed)
                         Text(err.prefix(200))
                             .font(.system(size: 10))
-                            .foregroundStyle(isParseError ? .orange.opacity(0.8) : .red.opacity(0.8))
+                            .foregroundStyle(isParseError ? theme.statusOrange.opacity(0.8) : theme.statusRed.opacity(0.8))
                             .lineLimit(3)
                             .textSelection(.enabled)
                     }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background((isParseError ? Color.orange : Color.red).opacity(0.07))
+                .background((isParseError ? theme.statusOrange : theme.statusRed).opacity(0.07))
             }
 
             Divider().opacity(0.15)
@@ -691,9 +691,9 @@ private struct SessionStatusView: View {
     private func verdictPill(_ verdict: CritiqueVerdict) -> some View {
         let (label, color): (String, Color) = {
             switch verdict {
-            case .approve:     return ("✓ Approved", .green)
-            case .revise:      return ("↻ Überarbeiten", .orange)
-            case .rejectFinal: return ("✗ Abgelehnt", .red)
+            case .approve:     return ("✓ Approved", theme.statusGreen)
+            case .revise:      return ("↻ Überarbeiten", theme.statusOrange)
+            case .rejectFinal: return ("✗ Abgelehnt", theme.statusRed)
             }
         }()
         return Text(label)
@@ -715,8 +715,8 @@ private struct SessionStatusView: View {
 
     private func severityColor(_ severity: IssueSeverity) -> Color {
         switch severity {
-        case .blocker: return .red
-        case .major:   return .orange
+        case .blocker: return theme.statusRed
+        case .major:   return theme.statusOrange
         case .minor:   return Color(red: 0.9, green: 0.75, blue: 0.2)
         }
     }
@@ -768,9 +768,9 @@ private struct SessionStatusView: View {
         switch session.phase {
         case .critic:      return .purple
         case .designer:    return accentColor
-        case .implementor: return .orange
-        case .converged:   return .green
-        case .escalation:  return .orange
+        case .implementor: return theme.statusOrange
+        case .converged:   return theme.statusGreen
+        case .escalation:  return theme.statusOrange
         default:           return theme.secondaryText
         }
     }
@@ -815,7 +815,7 @@ private struct SessionStatusView: View {
                     onFileUpdated(session.currentFileContent)
                     onClose()
                 }
-                .buttonStyle(ConvergenceButtonStyle(color: .green))
+                .buttonStyle(ConvergenceButtonStyle(color: theme.statusGreen))
                 Button("↻ Weitere Runde") {
                     session.phase = .idle
                     session.start()
@@ -862,12 +862,12 @@ private struct SnapshotRow: View {
                         if blockers > 0 {
                             Text("\(blockers)B")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(theme.statusRed)
                         }
                         if majors > 0 {
                             Text("\(majors)M")
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(theme.statusOrange)
                         }
                     }
                     Spacer()
@@ -904,9 +904,9 @@ private struct SnapshotRow: View {
     private func verdictBadge(_ verdict: CritiqueVerdict) -> some View {
         let (label, color): (String, Color) = {
             switch verdict {
-            case .approve:     return ("✓", .green)
-            case .revise:      return ("↻", .orange)
-            case .rejectFinal: return ("✗", .red)
+            case .approve:     return ("✓", theme.statusGreen)
+            case .revise:      return ("↻", theme.statusOrange)
+            case .rejectFinal: return ("✗", theme.statusRed)
             }
         }()
         Text(label)

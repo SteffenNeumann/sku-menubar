@@ -19,7 +19,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     // Light/dark variant flag
     let isLight: Bool
 
-    // Medium-tone themes (mid-grey range, ~96–140 brightness) — need dark text like light themes
+    // Medium-tone themes (mid-grey range) — need dark text like light themes
     var isMedium: Bool { ["slate", "pewter"].contains(id) }
 
     // Computed accent colors using Mirror's opacity scale
@@ -28,6 +28,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var accentHover:        Color { Color(r: acR, g: acG, b: acB, a: 0.20) }
     var accentStrong:       Color { Color(r: acR, g: acG, b: acB, a: 0.60) }
     var accentFull:         Color { Color(r: acR, g: acG, b: acB, a: 1.00) }
+    var accentIcon:         Color { (isLight || isMedium) ? accentText : accentFull }
     var accentText:         Color { Color(r: acTextR, g: acTextG, b: acTextB, a: 1.0) }
     var accentBorder:       Color { Color(r: acR, g: acG, b: acB, a: 0.30) }
     var accentBorderStrong: Color { Color(r: acR, g: acG, b: acB, a: 0.40) }
@@ -71,8 +72,17 @@ struct AppTheme: Identifiable, Equatable, Codable {
 
     // Primary text — medium themes get dark text like light themes for sufficient contrast
     var primaryText:   Color { (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95) }
-    var secondaryText: Color { (isLight || isMedium) ? Color(white: 0.25) : Color(white: 0.60) }
-    var tertiaryText:  Color { (isLight || isMedium) ? Color(white: 0.42) : Color(white: 0.50) }
+    var secondaryText: Color {
+        if isLight || isMedium { return Color(white: 0.25) }
+        if (bgTopR + bgTopG + bgTopB) / 3.0 > 55 { return Color(white: 0.78) }
+        return Color(white: 0.60)
+    }
+    var tertiaryText:  Color {
+        if isLight { return Color(white: 0.42) }
+        if isMedium { return Color(white: 0.35) }
+        if (bgTopR + bgTopG + bgTopB) / 3.0 > 55 { return Color(white: 0.66) }
+        return Color(white: 0.50)
+    }
 
     // Base window background — glow themes use deep-space blue, others use their own bgTop
     var windowBg: Color {
@@ -191,7 +201,7 @@ extension AppTheme {
         bgBotR: 8,   bgBotG: 8,   bgBotB: 11,  bgBotA: 1.0,
         glowEnabled: false,
         acR: 124, acG: 124, acB: 138,
-        acTextR: 124, acTextG: 124, acTextB: 138,
+        acTextR: 145, acTextG: 145, acTextB: 160,
         isLight: false
     )
     // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
@@ -290,7 +300,7 @@ extension AppTheme {
         bgBotR: 18,  bgBotG: 20,  bgBotB: 22,  bgBotA: 1.0,
         glowEnabled: false,
         acR: 108, acG: 150, acB: 180,
-        acTextR: 108, acTextG: 150, acTextB: 180, // #6C96B4 — lesbar auf dunklem Charcoal
+        acTextR: 128, acTextG: 170, acTextB: 200,
         isLight: false
     )
     static let stone = AppTheme(

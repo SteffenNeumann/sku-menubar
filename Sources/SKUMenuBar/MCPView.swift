@@ -442,7 +442,7 @@ struct MCPView: View {
             // Profile feedback banner
             if let msg = profileFeedback {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.statusGreen)
                     Text(msg).font(.system(size: 13)).foregroundStyle(theme.primaryText)
                     Spacer()
                     Button { profileFeedback = nil } label: {
@@ -545,12 +545,12 @@ struct MCPView: View {
         HStack(spacing: 12) {
             statusMetricCard(
                 icon: "antenna.radiowaves.left.and.right",
-                iconColor: .green,
+                iconColor: theme.statusGreen,
                 showLive: true,
                 header: "ACTIVE STATUS",
                 value: String(format: "%02d", connectedCount),
                 valueLabel: "Nodes",
-                valueColor: .green,
+                valueColor: theme.statusGreen,
                 footnote: connectedCount > 0 ? "All critical systems nominal" : "No active nodes"
             )
             statusMetricCard(
@@ -592,10 +592,10 @@ struct MCPView: View {
                 Spacer()
                 if showLive {
                     HStack(spacing: 4) {
-                        Circle().fill(.green).frame(width: 6, height: 6)
+                        Circle().fill(theme.statusGreen).frame(width: 6, height: 6)
                         Text("LIVE")
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                             .tracking(1)
                     }
                 }
@@ -780,7 +780,7 @@ struct MCPView: View {
     private func latencyColor(_ status: MCPStatus) -> Color {
         switch status {
         case .connected:  return theme.secondaryText
-        case .needsAuth:  return .orange
+        case .needsAuth:  return theme.statusOrange
         case .error:      return Color(red: 1.0, green: 0.35, blue: 0.3)
         case .unknown:    return theme.tertiaryText
         }
@@ -799,7 +799,7 @@ struct MCPView: View {
     private func healthStatusColor(for server: MCPServer) -> Color {
         switch server.status {
         case .connected:  return Color(red: 0.13, green: 0.65, blue: 0.30)
-        case .needsAuth:  return .orange
+        case .needsAuth:  return theme.statusOrange
         case .error:      return Color(red: 1.0, green: 0.35, blue: 0.3)
         case .unknown:    return theme.tertiaryText
         }
@@ -980,9 +980,9 @@ struct MCPView: View {
     private func logStatusBadge(_ status: MCPLogEntry.MCPLogStatus) -> some View {
         let (label, color): (String, Color) = {
             switch status {
-            case .success:   return ("OK", .green)
+            case .success:   return ("OK", theme.statusGreen)
             case .error:     return ("ERROR", Color(red: 1.0, green: 0.35, blue: 0.3))
-            case .retriable: return ("WARN", .orange)
+            case .retriable: return ("WARN", theme.statusOrange)
             case .pending:   return ("INFO", Color(red: 0.2, green: 0.7, blue: 1.0))
             }
         }()
@@ -1407,7 +1407,7 @@ struct AddMCPServerSheet: View {
                                 Image(systemName: "key.fill").font(.system(size: 10))
                                 Text("API-Key").font(.system(size: 11))
                             }
-                            .foregroundStyle(.orange.opacity(0.8))
+                            .foregroundStyle(theme.statusOrange.opacity(0.8))
                         }
                     }
                     Text(entry.description)
@@ -1650,10 +1650,10 @@ struct AddMCPServerSheet: View {
                 if let err = errorMsg {
                     Text(err)
                         .font(.system(size: 13))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(theme.statusRed)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                        .background(theme.statusRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 }
 
                 // How To section
@@ -1692,7 +1692,7 @@ struct AddMCPServerSheet: View {
                         if let err = aiError {
                             Text(err)
                                 .font(.system(size: 12))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(theme.statusRed)
                                 .lineLimit(2)
                         }
                         Spacer()

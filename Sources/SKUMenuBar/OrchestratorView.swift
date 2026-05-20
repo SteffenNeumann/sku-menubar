@@ -593,7 +593,7 @@ struct OrchestratorView: View {
             HStack(spacing: 8) {
                 ZStack {
                     Circle()
-                        .fill(subtask.isDone ? Color.green.opacity(0.2) : accentColor.opacity(0.15))
+                        .fill(subtask.isDone ? theme.statusGreen.opacity(0.2) : accentColor.opacity(0.15))
                         .frame(width: 32, height: 32)
                     if subtask.isStreaming {
                         ProgressView().scaleEffect(0.65)
@@ -601,8 +601,8 @@ struct OrchestratorView: View {
                         Image(systemName: subtask.isDone ? "checkmark"
                               : subtask.error != nil ? "exclamationmark" : "clock")
                             .font(.system(size: 14))
-                            .foregroundStyle(subtask.isDone ? .green
-                                             : subtask.error != nil ? .red : accentColor)
+                            .foregroundStyle(subtask.isDone ? theme.statusGreen
+                                             : subtask.error != nil ? theme.statusRed : accentColor)
                     }
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -613,14 +613,14 @@ struct OrchestratorView: View {
                          : subtask.isStreaming ? "Läuft..."
                          : subtask.error != nil ? "Fehler" : "Wartet")
                         .font(.system(size: 11))
-                        .foregroundStyle(subtask.isDone ? .green
+                        .foregroundStyle(subtask.isDone ? theme.statusGreen
                                          : subtask.isStreaming ? accentColor
-                                         : subtask.error != nil ? .red : theme.tertiaryText)
+                                         : subtask.error != nil ? theme.statusRed : theme.tertiaryText)
                 }
                 Spacer()
                 if let err = subtask.error {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red).font(.system(size: 14))
+                        .foregroundStyle(theme.statusRed).font(.system(size: 14))
                         .help(err)
                 }
             }
@@ -753,9 +753,9 @@ struct OrchestratorView: View {
         switch s {
         case .pending:  return theme.tertiaryText
         case .running:  return accentColor
-        case .done:     return .green
+        case .done:     return theme.statusGreen
         case .skipped:  return theme.tertiaryText
-        case .error:    return .red
+        case .error:    return theme.statusRed
         }
     }
 
@@ -788,7 +788,7 @@ struct OrchestratorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.seal.fill")
-                            .foregroundStyle(.green).font(.system(size: 14))
+                            .foregroundStyle(theme.statusGreen).font(.system(size: 14))
                         Text("FINALES ERGEBNIS")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(theme.tertiaryText)
@@ -839,7 +839,7 @@ struct OrchestratorView: View {
                             HStack(spacing: 8) {
                                 // Agent status dot
                                 Circle()
-                                    .fill(subtask.error != nil ? Color.red : Color.green)
+                                    .fill(subtask.error != nil ? theme.statusRed : theme.statusGreen)
                                     .frame(width: 7, height: 7)
                                 // Agent name — prominent
                                 Text(subtask.agentName)

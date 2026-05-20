@@ -2127,13 +2127,13 @@ struct PersonaReviewOverlay: View {
                                         HStack(spacing: 3) {
                                             ForEach(0..<10, id: \.self) { i in
                                                 Circle()
-                                                    .fill(i < r.rating ? r.ratingColor : theme.cardBorder)
+                                                    .fill(i < r.rating ? r.ratingColor(theme: theme) : theme.cardBorder)
                                                     .frame(width: 8, height: 8)
                                             }
                                         }
                                         Text("\(r.rating)/10")
                                             .font(.system(size: 13, weight: .bold))
-                                            .foregroundStyle(r.ratingColor)
+                                            .foregroundStyle(r.ratingColor(theme: theme))
                                     }
                                     Text(r.summary)
                                         .font(.system(size: 12))

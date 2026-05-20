@@ -191,7 +191,7 @@ struct StatisticsDashboardSection: View {
                 }
                 if overBudgetCount > 0 {
                     Label("\(overBudgetCount)× über Budget", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12)).foregroundStyle(.orange)
+                        .font(.system(size: 12)).foregroundStyle(theme.statusOrange)
                 }
             }
 
@@ -201,10 +201,10 @@ struct StatisticsDashboardSection: View {
                 summaryMetric(label: "Ø/MONAT", value: fmt(avgMonthly), valueColor: theme.secondaryText, icon: nil)
                 Divider().frame(height: 36).opacity(0.25)
                 summaryMetric(label: "HÖCHSTER MONAT", value: peakMonth.map(\.shortName) ?? "–",
-                              valueColor: .orange, icon: "arrow.up.right")
+                              valueColor: theme.statusOrange, icon: "arrow.up.right")
                 Divider().frame(height: 36).opacity(0.25)
                 summaryMetric(label: "GÜNSTIGSTER", value: cheapestMonth.map(\.shortName) ?? "–",
-                              valueColor: .green, icon: "arrow.down.right")
+                              valueColor: theme.statusGreen, icon: "arrow.down.right")
             }
         }
         .padding(14)
@@ -243,7 +243,7 @@ struct StatisticsDashboardSection: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 } else if state.settings.budget > 0 {
                     HStack(spacing: 4) {
-                        Rectangle().fill(Color.red.opacity(0.55)).frame(width: 12, height: 2)
+                        Rectangle().fill(theme.statusRed.opacity(0.55)).frame(width: 12, height: 2)
                         Text("Budget \(fmt(state.settings.budget))").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                     }
                 }
@@ -333,7 +333,7 @@ struct StatisticsDashboardSection: View {
                     }
                     Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.secondaryText)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? .red : .green).lineLimit(1).minimumScaleFactor(0.6)
+                        Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? theme.statusRed : theme.statusGreen).lineLimit(1).minimumScaleFactor(0.6)
                         Spacer()
                         let recent = Array(activeMonths.sorted { $0.month < $1.month }.suffix(4))
                         let maxV = recent.map { $0.total + claudeCostForMonth($0.id) }.max() ?? 1
@@ -347,8 +347,8 @@ struct StatisticsDashboardSection: View {
                         }.frame(height: 28, alignment: .bottom)
                     }
                     HStack(spacing: 4) {
-                        Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 11, weight: .bold)).foregroundStyle(isUp ? .red : .green)
-                        Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 12, weight: .medium)).foregroundStyle(isUp ? .red : .green)
+                        Image(systemName: isUp ? "arrow.up" : "arrow.down").font(.system(size: 11, weight: .bold)).foregroundStyle(isUp ? theme.statusRed : theme.statusGreen)
+                        Text(String(format: "%.0f%% %@", td.pct, isUp ? "Anstieg" : "Rückgang")).font(.system(size: 12, weight: .medium)).foregroundStyle(isUp ? theme.statusRed : theme.statusGreen)
                     }
                 }
                 .padding(14)
@@ -361,7 +361,7 @@ struct StatisticsDashboardSection: View {
 
             // Adherence section
             if let ad = adherenceData {
-                let rateColor: Color = ad.rate >= 0.8 ? .green : ad.rate >= 0.5 ? .orange : .red
+                let rateColor: Color = ad.rate >= 0.8 ? theme.statusGreen : ad.rate >= 0.5 ? theme.statusOrange : theme.statusRed
                 VStack(alignment: .leading, spacing: 12) {
                     Text("BUDGET-EINHALTUNG").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
                     HStack(spacing: 14) {
@@ -369,7 +369,7 @@ struct StatisticsDashboardSection: View {
                             Circle().stroke(theme.cardBorder, lineWidth: 8)
                             Circle().trim(from: 0, to: ad.rate)
                                 .stroke(AngularGradient(
-                                    colors: ad.rate >= 0.8 ? [.green, .teal] : ad.rate >= 0.5 ? [.orange, .yellow] : [.red, .orange],
+                                    colors: ad.rate >= 0.8 ? [theme.statusGreen, .teal] : ad.rate >= 0.5 ? [theme.statusOrange, .yellow] : [theme.statusRed, theme.statusOrange],
                                     center: .center), style: StrokeStyle(lineWidth: 8, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                                 .animation(.spring(response: 0.7, dampingFraction: 0.8), value: ad.rate)
@@ -407,7 +407,7 @@ struct StatisticsDashboardSection: View {
     private func barGradient(for month: MonthlyUsage, combined: Double) -> LinearGradient {
         let over = state.settings.budget > 0 && combined > state.settings.budget
         return over
-            ? LinearGradient(colors: [.red.opacity(0.45), .orange.opacity(0.85)],   startPoint: .bottom, endPoint: .top)
+            ? LinearGradient(colors: [theme.statusRed.opacity(0.45), theme.statusOrange.opacity(0.85)],   startPoint: .bottom, endPoint: .top)
             : LinearGradient(colors: [.purple.opacity(0.45), .indigo.opacity(0.9)], startPoint: .bottom, endPoint: .top)
     }
 

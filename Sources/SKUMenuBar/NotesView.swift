@@ -390,14 +390,14 @@ struct NotesView: View {
                                         .fill(theme.cardBorder)
                                         .frame(height: 3)
                                     RoundedRectangle(cornerRadius: 2)
-                                        .fill(doneCount == total ? Color.green : accentColor)
+                                        .fill(doneCount == total ? theme.statusGreen : accentColor)
                                         .frame(width: geo.size.width * (total > 0 ? CGFloat(doneCount) / CGFloat(total) : 0), height: 3)
                                 }
                             }
                             .frame(height: 3)
                             Text("\(doneCount)/\(total)")
                                 .font(.system(size: 9))
-                                .foregroundStyle(doneCount == total ? .green : theme.tertiaryText)
+                                .foregroundStyle(doneCount == total ? theme.statusGreen : theme.tertiaryText)
                                 .monospacedDigit()
                         }
                     } else if note.type == .note, !note.body.isEmpty {
@@ -658,7 +658,7 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: note.done ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 16))
-                        .foregroundStyle(note.done ? .green : theme.tertiaryText)
+                        .foregroundStyle(note.done ? theme.statusGreen : theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .help(note.done ? "Als offen markieren" : "Als erledigt markieren")
@@ -876,7 +876,7 @@ struct TagManagerSheet: View {
                 Button { deleteTag(tag) } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 11))
-                        .foregroundStyle(.red.opacity(0.65))
+                        .foregroundStyle(theme.statusRed.opacity(0.65))
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)

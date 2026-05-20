@@ -490,9 +490,9 @@ private struct AgentBaseballCard: View {
 
                 // Status dot – top right
                 Circle()
-                    .fill(agent.isActive ? Color.green : Color.gray.opacity(0.6))
+                    .fill(agent.isActive ? theme.statusGreen : Color.gray.opacity(0.6))
                     .frame(width: 8, height: 8)
-                    .shadow(color: agent.isActive ? .green.opacity(0.7) : .clear, radius: 4)
+                    .shadow(color: agent.isActive ? theme.statusGreen.opacity(0.7) : .clear, radius: 4)
                     .padding(.top, 11).padding(.trailing, 11)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -684,7 +684,7 @@ private struct AgentBaseballCard: View {
             if isRunning {
                 let preview = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let snippet = preview.isEmpty ? "Arbeitet…" : String(preview.prefix(120))
-                return ("circle.fill", snippet, .green)
+                return ("circle.fill", snippet, theme.statusGreen)
             }
             switch lastStatus {
             case .success:
@@ -692,9 +692,9 @@ private struct AgentBaseballCard: View {
             case .failed:
                 let errMsg = lastError.flatMap { $0.isEmpty ? nil : String($0.prefix(140)) }
                     ?? "Fehler beim letzten Lauf"
-                return ("xmark.circle.fill", errMsg, .red)
+                return ("xmark.circle.fill", errMsg, theme.statusRed)
             case .running:
-                return ("circle.fill", "Läuft…", .green)
+                return ("circle.fill", "Läuft…", theme.statusGreen)
             case nil:
                 return ("minus.circle", "Noch nie ausgeführt", theme.secondaryText.opacity(0.35))
             }
@@ -732,7 +732,7 @@ private struct AgentBaseballCard: View {
                 if isRunning {
                     // Pulsing green ring
                     Circle()
-                        .stroke(Color.green.opacity(0.35), lineWidth: 6)
+                        .stroke(theme.statusGreen.opacity(0.35), lineWidth: 6)
                         .frame(width: 22, height: 22)
                         .scaleEffect(isRunning ? 1.3 : 1.0)
                         .opacity(isRunning ? 0 : 1)
@@ -740,8 +740,8 @@ private struct AgentBaseballCard: View {
                 }
                 Image(systemName: isRunning ? "stop.circle.fill" : "play.circle")
                     .font(.system(size: 13, weight: isHovered || isRunning ? .semibold : .regular))
-                    .foregroundStyle(isRunning ? Color.green : (isHovered ? accentColor : theme.secondaryText.opacity(0.55)))
-                    .shadow(color: isRunning ? Color.green.opacity(0.9) : (isHovered ? accentColor.opacity(0.85) : .clear), radius: 6)
+                    .foregroundStyle(isRunning ? theme.statusGreen : (isHovered ? accentColor : theme.secondaryText.opacity(0.55)))
+                    .shadow(color: isRunning ? theme.statusGreen.opacity(0.9) : (isHovered ? accentColor.opacity(0.85) : .clear), radius: 6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -984,7 +984,7 @@ struct AgentsView: View {
                 let (cols, rowGap, gridWidth) = tableLayout(for: gridProxy.size.width - 128)
                 VStack(spacing: 0) {
                     if !activeAgents.isEmpty {
-                        agentSectionHeader(title: "Aktive Agents", count: activeAgents.count, color: .green, gridWidth: gridWidth)
+                        agentSectionHeader(title: "Aktive Agents", count: activeAgents.count, color: theme.statusGreen, gridWidth: gridWidth)
                         LazyVGrid(columns: cols, spacing: rowGap) {
                             ForEach(activeAgents) { agent in agentCard(agent) }
                         }
@@ -1179,20 +1179,20 @@ struct AgentsView: View {
                 // Count badge
                 if selectedTab == .workers {
                     HStack(spacing: 5) {
-                        Circle().fill(Color.green).frame(width: 7, height: 7)
-                            .shadow(color: .green.opacity(0.6), radius: 4)
+                        Circle().fill(theme.statusGreen).frame(width: 7, height: 7)
+                            .shadow(color: theme.statusGreen.opacity(0.6), radius: 4)
                         VStack(alignment: .leading, spacing: 0) {
                             Text("\(activeAgents.count)")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(theme.primaryText)
                             Text("ONLINE")
                                 .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(Color.green).kerning(0.5)
+                                .foregroundStyle(theme.statusGreen).kerning(0.5)
                         }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.green.opacity(0.35), lineWidth: 0.5))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.statusGreen.opacity(0.35), lineWidth: 0.5))
                 } else {
                     HStack(spacing: 5) {
                         Image(systemName: "person.2.fill")
@@ -1637,7 +1637,7 @@ private struct PersonaCard: View {
                         HStack(spacing: 4) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Color.red.opacity(0.5))
+                                .foregroundStyle(theme.statusRed.opacity(0.5))
                             Text("DEALBREAKER")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText.opacity(0.6)).kerning(0.5)
@@ -1646,10 +1646,10 @@ private struct PersonaCard: View {
                             ForEach(persona.dealbreakers.prefix(3), id: \.self) { d in
                                 Text(d)
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(Color.red.opacity(0.75))
+                                    .foregroundStyle(theme.statusRed.opacity(0.75))
                                     .padding(.horizontal, 7).padding(.vertical, 2)
-                                    .background(Color.red.opacity(0.08), in: Capsule())
-                                    .overlay(Capsule().strokeBorder(Color.red.opacity(0.25), lineWidth: 0.5))
+                                    .background(theme.statusRed.opacity(0.08), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(theme.statusRed.opacity(0.25), lineWidth: 0.5))
                             }
                         }
                     }
@@ -1666,17 +1666,17 @@ private struct PersonaCard: View {
                         ProgressView().controlSize(.mini)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 10)).foregroundStyle(.green)
+                            .font(.system(size: 10)).foregroundStyle(theme.statusGreen)
                     }
                     Text(learningStatus ?? "Analysiere…")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isOk ? Color.green : personaColor)
+                        .foregroundStyle(isOk ? theme.statusGreen : personaColor)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background((isOk ? Color.green : personaColor).opacity(0.08))
-                .overlay(Rectangle().frame(height: 0.5).foregroundStyle((isOk ? Color.green : personaColor).opacity(0.25)), alignment: .top)
+                .background((isOk ? theme.statusGreen : personaColor).opacity(0.08))
+                .overlay(Rectangle().frame(height: 0.5).foregroundStyle((isOk ? theme.statusGreen : personaColor).opacity(0.25)), alignment: .top)
             }
 
             // Action bar
@@ -1857,13 +1857,13 @@ private struct EmailLearningSheet: View {
                     if let err = errorMessage {
                         HStack(spacing: 8) {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.red)
-                            Text(err).font(.system(size: 13)).foregroundStyle(.red)
+                                .foregroundStyle(theme.statusRed)
+                            Text(err).font(.system(size: 13)).foregroundStyle(theme.statusRed)
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
+                        .background(theme.statusRed.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.statusRed.opacity(0.2), lineWidth: 0.5))
                     }
 
                     // Result
@@ -1871,7 +1871,7 @@ private struct EmailLearningSheet: View {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 6) {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 14)).foregroundStyle(.green)
+                                    .font(.system(size: 14)).foregroundStyle(theme.statusGreen)
                                 Text("Analyse abgeschlossen — in Memory gespeichert")
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(theme.primaryText)
@@ -1910,8 +1910,8 @@ private struct EmailLearningSheet: View {
                             }
                         }
                         .padding(16)
-                        .background(Color.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.green.opacity(0.2), lineWidth: 0.5))
+                        .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.statusGreen.opacity(0.2), lineWidth: 0.5))
                     }
                 }
                 .padding(20)
@@ -1960,7 +1960,7 @@ private struct EmailLearningSheet: View {
             if !emailText.isEmpty {
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12)).foregroundStyle(.green)
+                        .font(.system(size: 12)).foregroundStyle(theme.statusGreen)
                     Text("Datei geladen — \(emailText.count) Zeichen")
                         .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                 }
@@ -2068,10 +2068,10 @@ struct PersonaEditorSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let errorMessage, !errorMessage.isEmpty {
                         Text(errorMessage)
-                            .font(.system(size: 13, weight: .medium)).foregroundStyle(.red)
+                            .font(.system(size: 13, weight: .medium)).foregroundStyle(theme.statusRed)
                             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5))
+                            .background(theme.statusRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.statusRed.opacity(0.2), lineWidth: 0.5))
                     }
 
                     // Identity section
@@ -2236,7 +2236,7 @@ struct PersonaEditorSheet: View {
                         } else {
                             Text("Automatik pausiert — E-Mails werden nicht verarbeitet.")
                                 .font(.system(size: 12))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(theme.statusOrange)
                         }
                     }
 
@@ -2525,13 +2525,13 @@ private struct AgentEditorSheet: View {
                     if let errorMessage, !errorMessage.isEmpty {
                         Text(errorMessage)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(theme.statusRed)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                            .background(theme.statusRed.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(Color.red.opacity(0.2), lineWidth: 0.5)
+                                    .strokeBorder(theme.statusRed.opacity(0.2), lineWidth: 0.5)
                             )
                     }
 
@@ -2808,7 +2808,7 @@ private struct AgentEditorSheet: View {
                                 if let aiError {
                                     Text(aiError)
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(theme.statusRed)
                                 }
 
                                 HStack {

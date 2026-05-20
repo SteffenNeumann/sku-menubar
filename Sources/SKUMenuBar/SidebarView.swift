@@ -251,8 +251,8 @@ struct SidebarView: View {
 
     private var liveDot: some View {
         ZStack {
-            Circle().fill(.green.opacity(0.3)).frame(width: 8, height: 8)
-            Circle().fill(.green).frame(width: 5, height: 5)
+            Circle().fill(theme.statusGreen.opacity(0.3)).frame(width: 8, height: 8)
+            Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
         }
     }
 
@@ -290,14 +290,14 @@ struct SidebarView: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 7))
+                .background(theme.statusOrange.opacity(0.85), in: RoundedRectangle(cornerRadius: 7))
             }
 
             if let lastProvider {
                 HStack(spacing: 5) {
                     Image(systemName: lastProvider.icon)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(lastProvider == .copilot ? .orange : accentColor)
+                        .foregroundStyle(lastProvider == .copilot ? theme.statusOrange : accentColor)
                     Text("Letzte Antwort: \(lastProvider.label)")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
@@ -396,7 +396,7 @@ struct SidebarView: View {
                             label: "Current session",
                             detail: rateLimitCountdown(expiry),
                             pct: rateLimitProgress(expiry),
-                            color: .red,
+                            color: theme.statusRed,
                             resetLabel: nil
                         )
                     }

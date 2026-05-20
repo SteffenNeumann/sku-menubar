@@ -152,17 +152,17 @@ struct HomeView: View {
                 if !state.activeSessions.isEmpty {
                     HStack(spacing: 6) {
                         ZStack {
-                            Circle().fill(.green.opacity(0.25)).frame(width: 10, height: 10)
-                            Circle().fill(.green).frame(width: 6, height: 6)
+                            Circle().fill(theme.statusGreen.opacity(0.25)).frame(width: 10, height: 10)
+                            Circle().fill(theme.statusGreen).frame(width: 6, height: 6)
                         }
                         Text("\(state.activeSessions.count) aktiv")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(theme.statusGreen)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(.green.opacity(0.10), in: Capsule())
-                    .overlay(Capsule().strokeBorder(.green.opacity(0.25), lineWidth: 1))
+                    .background(theme.statusGreen.opacity(0.10), in: Capsule())
+                    .overlay(Capsule().strokeBorder(theme.statusGreen.opacity(0.25), lineWidth: 1))
                 }
 
                 Button {
@@ -257,7 +257,7 @@ struct HomeView: View {
         let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
         let weekTokens     = state.localWeekTokens
         let weekPct: Double = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
-        let barColor: Color = weekPct > 0.9 ? .red : weekPct > 0.7 ? .orange : theme.accentFull
+        let barColor: Color = weekPct > 0.9 ? theme.statusRed : weekPct > 0.7 ? theme.statusOrange : theme.accentIcon
 
         return HomeTile(title: "Kosten Heute", icon: "eurosign.circle.fill", iconColor: .orange, theme: theme) {
             VStack(alignment: .leading, spacing: 14) {
@@ -392,8 +392,8 @@ struct HomeView: View {
                             } label: {
                                 HStack(spacing: 10) {
                                     ZStack {
-                                        Circle().fill(.green.opacity(0.20)).frame(width: 8, height: 8)
-                                        Circle().fill(.green).frame(width: 5, height: 5)
+                                        Circle().fill(theme.statusGreen.opacity(0.20)).frame(width: 8, height: 8)
+                                        Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
                                     }
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(session.cwdDisplay)
@@ -414,7 +414,7 @@ struct HomeView: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 7)
-                                .background(Color.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+                                .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
                                 .contentShape(RoundedRectangle(cornerRadius: 9))
                             }
                             .buttonStyle(.plain)
@@ -445,7 +445,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 16) {
                         agentStat(value: "\(agents.count)", label: "Gesamt", color: .purple)
-                        agentStat(value: "\(activeAgents.count)", label: "Aktiv", color: .green)
+                        agentStat(value: "\(activeAgents.count)", label: "Aktiv", color: theme.statusGreen)
                     }
 
                     Divider().opacity(0.3)
@@ -464,10 +464,10 @@ struct HomeView: View {
                                 if agent.isActive {
                                     Text("aktiv")
                                         .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(theme.statusGreen)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(.green.opacity(0.12), in: Capsule())
+                                        .background(theme.statusGreen.opacity(0.12), in: Capsule())
                                 }
                             }
                         }
@@ -483,7 +483,7 @@ struct HomeView: View {
                             .foregroundStyle(theme.accentText)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 6)
-                            .background(theme.accentFull.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                            .background(theme.accentIcon.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                             .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
@@ -539,7 +539,7 @@ struct HomeView: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(theme.isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
                             Capsule()
-                                .fill(theme.accentFull)
+                                .fill(theme.accentIcon)
                                 .frame(width: geo.size.width * max(0.02, ratio))
                                 .animation(.spring(response: 0.5), value: ratio)
                         }
@@ -720,9 +720,9 @@ struct HomeView: View {
                                                         Text("\(Int(abs(trend * 100)))%")
                                                             .font(.system(size: 9, weight: .semibold).monospacedDigit())
                                                     }
-                                                    .foregroundStyle(trend >= 0 ? Color.green : Color.orange)
+                                                    .foregroundStyle(trend >= 0 ? theme.statusGreen : theme.statusOrange)
                                                     .padding(.horizontal, 5).padding(.vertical, 2)
-                                                    .background((trend >= 0 ? Color.green : Color.orange).opacity(0.12), in: Capsule())
+                                                    .background((trend >= 0 ? theme.statusGreen : theme.statusOrange).opacity(0.12), in: Capsule())
                                                 }
                                                 Text(p.formattedDuration)
                                                     .font(.system(size: 13, weight: .bold).monospacedDigit())
@@ -923,11 +923,11 @@ struct HomeView: View {
         return HomeTile(title: "Kundenanfragen", icon: "envelope.badge.fill", iconColor: .teal, theme: theme) {
             if let err = polling.lastError {
                 HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.system(size: 11))
-                    Text(err).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(theme.statusOrange).font(.system(size: 11))
+                    Text(err).font(.system(size: 11)).foregroundStyle(theme.statusOrange).lineLimit(2)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .background(theme.statusOrange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 8)
             }
 
@@ -939,11 +939,11 @@ struct HomeView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             inquiryStatChip(value: "\(visible.count)", label: "Gesamt", color: .teal, filterVal: nil)
-                            if pending > 0 { inquiryStatChip(value: "\(pending)", label: "Neu",       color: .orange, filterVal: .analyzing) }
+                            if pending > 0 { inquiryStatChip(value: "\(pending)", label: "Neu",       color: theme.statusOrange, filterVal: .analyzing) }
                             if waiting > 0 { inquiryStatChip(value: "\(waiting)", label: "Wartet",    color: .yellow, filterVal: .waitingForCustomer) }
                             if working > 0 { inquiryStatChip(value: "\(working)", label: "In Arbeit", color: .blue,   filterVal: .inProgress) }
-                            if done    > 0 { inquiryStatChip(value: "\(done)",    label: "Fertig",    color: .green,  filterVal: .completed) }
-                            if failed  > 0 { inquiryStatChip(value: "\(failed)",  label: "Fehler",    color: .red,    filterVal: .failed) }
+                            if done    > 0 { inquiryStatChip(value: "\(done)",    label: "Fertig",    color: theme.statusGreen,  filterVal: .completed) }
+                            if failed  > 0 { inquiryStatChip(value: "\(failed)",  label: "Fehler",    color: theme.statusRed,    filterVal: .failed) }
                             Spacer(minLength: 0)
                             if polling.isPolling { ProgressView().controlSize(.mini).padding(.trailing, 4) }
                         }
@@ -1074,7 +1074,7 @@ struct HomeView: View {
                             Text(["", "Dringend", "Hoch", "Mittel", "Niedrig"][min(p, 4)])
                                 .font(.system(size: 9, weight: .medium))
                         }
-                        .foregroundStyle(p == 1 ? .red : p == 2 ? .orange : .secondary)
+                        .foregroundStyle(p == 1 ? theme.statusRed : p == 2 ? theme.statusOrange : .secondary)
                     }
                 }
                 // Archive button for completed entries
@@ -1095,7 +1095,7 @@ struct HomeView: View {
                 // Compact: just completion result — no phase pipeline
                 if let result = inquiry.completionSummary {
                     HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 10))
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.statusGreen).font(.system(size: 10))
                         Text(result).font(.system(size: 10)).foregroundStyle(theme.secondaryText).lineLimit(1)
                     }
                     .padding(.leading, 16)
@@ -1120,8 +1120,8 @@ struct HomeView: View {
 
                 if inquiry.status == .failed || inquiry.status == .blocked, let err = inquiry.errorMessage {
                     HStack(spacing: 4) {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.system(size: 10))
-                        Text(err).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(theme.statusRed).font(.system(size: 10))
+                        Text(err).font(.system(size: 10)).foregroundStyle(theme.statusRed).lineLimit(2)
                     }
                     .padding(.leading, 16)
                 } else if inquiry.status == .waitingForCustomer, !inquiry.missingInfo.isEmpty {
@@ -1177,11 +1177,11 @@ struct HomeView: View {
 
     private func inquiryStatusColor(_ status: InquiryStatus) -> Color {
         switch status {
-        case .pending, .analyzing:    return .orange
+        case .pending, .analyzing:    return theme.statusOrange
         case .waitingForCustomer:     return .yellow
         case .inProgress:             return .blue
-        case .completed:              return .green
-        case .blocked, .failed:       return .red
+        case .completed:              return theme.statusGreen
+        case .blocked, .failed:       return theme.statusRed
         }
     }
 }
@@ -1672,8 +1672,8 @@ private struct InquiryDetailSheet: View {
                     if let err = inq.errorMessage {
                         detailSection("Fehler") {
                             HStack(spacing: 6) {
-                                Image(systemName: "xmark.octagon.fill").foregroundStyle(.red).font(.system(size: 12))
-                                Text(err).font(.system(size: 12)).foregroundStyle(.red)
+                                Image(systemName: "xmark.octagon.fill").foregroundStyle(theme.statusRed).font(.system(size: 12))
+                                Text(err).font(.system(size: 12)).foregroundStyle(theme.statusRed)
                             }
                         }
                     }
@@ -1696,13 +1696,13 @@ private struct InquiryDetailSheet: View {
     private func statusBadge(_ inq: CustomerInquiry) -> some View {
         let (label, color): (String, Color) = {
             switch inq.status {
-            case .pending:            return ("Neu", .orange)
-            case .analyzing:          return ("Analyse…", .orange)
+            case .pending:            return ("Neu", theme.statusOrange)
+            case .analyzing:          return ("Analyse…", theme.statusOrange)
             case .waitingForCustomer: return ("Wartet auf Kunde", .yellow)
             case .inProgress:         return ("In Bearbeitung", .blue)
-            case .completed:          return ("Abgeschlossen", .green)
-            case .blocked:            return ("Blockiert", .red)
-            case .failed:             return ("Fehler", .red)
+            case .completed:          return ("Abgeschlossen", theme.statusGreen)
+            case .blocked:            return ("Blockiert", theme.statusRed)
+            case .failed:             return ("Fehler", theme.statusRed)
             }
         }()
         return Text(label)
@@ -1715,8 +1715,8 @@ private struct InquiryDetailSheet: View {
     private func priorityBadge(_ p: Int) -> some View {
         let (label, color): (String, Color) = {
             switch p {
-            case 1: return ("Dringend", .red)
-            case 2: return ("Hoch", .orange)
+            case 1: return ("Dringend", theme.statusRed)
+            case 2: return ("Hoch", theme.statusOrange)
             case 3: return ("Mittel", .secondary)
             default: return ("Niedrig", .secondary)
             }

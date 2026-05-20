@@ -293,7 +293,7 @@ struct SettingsFormView: View {
                                     VStack(alignment: .leading, spacing: 12) {
                                         HStack(spacing: 10) {
                                             Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
-                                                .toggleStyle(AccentToggleStyle(accentColor: theme.accentFull))
+                                                .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
                                                 .font(.system(size: 14))
                                                 .foregroundStyle(theme.primaryText)
                                             Spacer()
@@ -388,7 +388,7 @@ struct SettingsFormView: View {
                                 HStack(spacing: 8) {
                                     if let access = hasDocumentsAccess {
                                         Circle()
-                                            .fill(access ? Color.green : Color.orange)
+                                            .fill(access ? theme.statusGreen : theme.statusOrange)
                                             .frame(width: 8, height: 8)
                                         Text(access
                                              ? "Zugriff auf ~/Documents vorhanden"
