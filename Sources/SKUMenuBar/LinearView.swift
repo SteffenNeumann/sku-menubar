@@ -401,109 +401,144 @@ struct LinearView: View {
 
     private var issueFilterBar: some View {
         VStack(spacing: 0) {
-            // Search
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
-                TextField("Suchen…", text: $searchText)
-                    .font(.system(size: 12))
-                    .textFieldStyle(.plain)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.tertiaryText)
+            HStack(spacing: 8) {
+                // Search field
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                    TextField("Suchen…", text: $searchText)
+                        .font(.system(size: 12))
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
-
-            // Combined filter chips — Priority + Status in one row
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
-                    filterChip(label: "Alle", isActive: filterPriority == nil && filterStatus == nil) {
+                // Priority dropdown
+                Menu {
+                    Button {
                         filterPriority = nil
-                        filterStatus = nil
-                    }
-                    ForEach(LinearPriority.allCases, id: \.rawValue) { p in
-                        filterChip(label: p.label, icon: p.icon, iconColor: p.color,
-                                   isActive: filterPriority == p) {
-                            filterPriority = (filterPriority == p) ? nil : p
+                    } label: {
+                        HStack {
+                            Text("Alle")
+                            if filterPriority == nil { Image(systemName: "checkmark") }
                         }
                     }
-
-                    // Thin vertical divider
-                    Rectangle().fill(theme.cardBorder).frame(width: 1, height: 14)
-                        .padding(.horizontal, 3)
-
-                    ForEach(availableStatuses, id: \.id) { st in
-                        statusFilterChip(st)
+                    Divider()
+                    ForEach(LinearPriority.allCases, id: \.rawValue) { p in
+                        Button {
+                            filterPriority = (filterPriority == p) ? nil : p
+                        } label: {
+                            HStack {
+                                Image(systemName: p.icon)
+                                Text(p.label)
+                                if filterPriority == p { Image(systemName: "checkmark") }
+                            }
+                        }
                     }
+                } label: {
+                    HStack(spacing: 3) {
+                        if let p = filterPriority {
+                            Image(systemName: p.icon)
+                                .font(.system(size: 9))
+                                .foregroundStyle(p.color)
+                            Text(p.label)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                        } else {
+                            Image(systemName: "flag")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Priorität")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(filterPriority != nil ? theme.primaryText.opacity(0.08) : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(theme.cardBorder.opacity(0.6), lineWidth: 0.5)
+                            )
+                    )
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                // Status dropdown
+                Menu {
+                    Button {
+                        filterStatus = nil
+                    } label: {
+                        HStack {
+                            Text("Alle")
+                            if filterStatus == nil { Image(systemName: "checkmark") }
+                        }
+                    }
+                    Divider()
+                    ForEach(availableStatuses, id: \.id) { st in
+                        Button {
+                            filterStatus = (filterStatus == st.id) ? nil : st.id
+                        } label: {
+                            HStack {
+                                Text(st.name)
+                                if filterStatus == st.id { Image(systemName: "checkmark") }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        if let activeStatus = availableStatuses.first(where: { $0.id == filterStatus }) {
+                            LinearStateIcon(type: activeStatus.type, color: activeStatus.displayColor, size: 10)
+                            Text(activeStatus.name)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                        } else {
+                            Image(systemName: "circle.dotted")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Status")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(filterStatus != nil ? theme.primaryText.opacity(0.08) : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(theme.cardBorder.opacity(0.6), lineWidth: 0.5)
+                            )
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+
+                Spacer()
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
 
             Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
         }
         .background(theme.windowBg)
-    }
-
-    private func filterChip(label: String, icon: String? = nil, iconColor: Color = .secondary,
-                             isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 9))
-                        .foregroundStyle(iconColor)
-                }
-                Text(label)
-                    .font(.system(size: 10, weight: isActive ? .semibold : .medium))
-                    .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isActive ? theme.primaryText.opacity(0.08) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(isActive ? theme.cardBorder : Color.clear, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func statusFilterChip(_ st: LinearIssueState) -> some View {
-        let isActive = filterStatus == st.id
-        return Button {
-            filterStatus = isActive ? nil : st.id
-        } label: {
-            HStack(spacing: 4) {
-                LinearStateIcon(type: st.type, color: st.displayColor, size: 10)
-                Text(st.name)
-                    .font(.system(size: 10, weight: isActive ? .semibold : .medium))
-                    .foregroundStyle(isActive ? theme.primaryText : theme.tertiaryText)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isActive ? theme.primaryText.opacity(0.08) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(isActive ? theme.cardBorder : Color.clear, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private var availableStatuses: [LinearIssueState] {
