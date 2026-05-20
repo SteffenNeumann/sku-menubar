@@ -60,6 +60,33 @@ printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
 
 ---
 
+## ✅ Pflicht-Abschluss nach jeder Session / jedem Feature
+
+**Nach dem erfolgreichen Deploy immer diese 3 Punkte erledigen — ohne Ausnahme:**
+
+### 1. Working Tree sauber
+```bash
+git status   # muss zeigen: "nothing to commit, working tree clean"
+git worktree list   # darf nur den main-Worktree zeigen
+```
+Uncommittete Änderungen → committen. Veraltete Worktrees → `git worktree remove --force <pfad>` + `git worktree prune`.
+
+### 2. Commit & Push
+```bash
+git log --oneline -3   # letzter Commit ist der aktuelle Stand
+git push               # origin/main ist synchron
+```
+
+### 3. Memory aktualisieren
+Die relevante Memory-Datei in `~/.claude/projects/-Users-steffen-Documents-GitHub-sku-menubar/memory/` aktualisieren:
+- Neues Feature → passende `project_*.md` anlegen oder ergänzen
+- Neue Konvention oder Feedback → passende `feedback_*.md` anlegen oder ergänzen
+- Index `MEMORY.md` aktualisieren (neuer Eintrag mit Link und Kurztext)
+
+**Reihenfolge:** Deploy → Cleanup → Memory → fertig.
+
+---
+
 ## Projekt-Übersicht
 
 - **App-Name**: myClaude (früher SKUMenuBar)
