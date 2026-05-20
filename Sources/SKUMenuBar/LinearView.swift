@@ -498,7 +498,7 @@ struct LinearView: View {
 
                 Divider()
 
-                // Description
+                // Description — rendered as Markdown
                 if !issue.description.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Beschreibung")
@@ -506,10 +506,7 @@ struct LinearView: View {
                             .foregroundStyle(theme.tertiaryText)
                             .textCase(.uppercase)
                             .kerning(0.5)
-                        Text(issue.description)
-                            .font(.system(size: 13))
-                            .foregroundStyle(theme.primaryText)
-                            .textSelection(.enabled)
+                        MarkdownTextView(text: issue.description)
                     }
                     .padding(16)
                     Divider()
@@ -636,20 +633,36 @@ struct LinearStatusPill: View {
     let state: LinearIssueState
     @Environment(\.appTheme) var theme
 
+    /// SF Symbol that matches Linear's status type icons
+    private var icon: String {
+        switch state.type {
+        case "backlog":    return "circle.dotted"
+        case "unstarted":  return "circle"
+        case "started":    return "circle.lefthalf.filled"
+        case "completed":  return "checkmark.circle.fill"
+        case "cancelled":  return "xmark.circle"
+        default:           return "circle"
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 3) {
-            Circle()
-                .fill(state.displayColor)
-                .frame(width: 6, height: 6)
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(state.displayColor)
             Text(state.name)
-                .font(.system(size: 10))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(state.displayColor)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(
             RoundedRectangle(cornerRadius: 4)
-                .fill(state.displayColor.opacity(0.12))
+                .fill(state.displayColor.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(state.displayColor.opacity(0.25), lineWidth: 0.5)
+                )
         )
     }
 }
