@@ -214,7 +214,8 @@ final class LinearService: ObservableObject {
     func createIssue(teamId: String, title: String, description: String, priority: Int = 0, projectId: String? = nil) async throws -> String {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
-        var args: [String: Any] = ["teamId": teamId, "title": title, "description": description, "priority": priority]
+        let desc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        var args: [String: Any] = ["teamId": teamId, "title": title, "description": desc.isEmpty ? " " : desc, "priority": priority]
         if let pid = projectId, !pid.isEmpty { args["projectId"] = pid }
         return try await session.callTool(name: "linear_create_issue", arguments: args)
     }
