@@ -4054,20 +4054,24 @@ struct ChatFilePanel: View {
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.tertiaryText)
                 TextField("Dateiname suchen…", text: $searchText)
                     .font(.system(size: 12))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(theme.primaryText)
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.tertiaryText)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
+            .padding(.horizontal, 8)
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
@@ -6134,11 +6138,11 @@ struct InlineSearchBar: View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .foregroundStyle(theme.tertiaryText)
             TextField(placeholder, text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
-                .foregroundStyle(Color(nsColor: .labelColor))
+                .foregroundStyle(theme.primaryText)
                 .focused($focused)
                 .frame(width: width)
                 .onSubmit { advance(+1) }
@@ -6146,11 +6150,11 @@ struct InlineSearchBar: View {
                 Text(matchCount > 0 ? "\(currentMatch + 1)/\(matchCount)" : "0")
                     .font(.system(size: 10, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(matchCount > 0 ? accentColor : Color(nsColor: .systemRed))
+                    .foregroundStyle(matchCount > 0 ? accentColor : theme.statusRed)
                 Button { advance(-1) } label: {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
+                        .foregroundStyle(matchCount > 0 ? theme.primaryText : theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .disabled(matchCount == 0)
@@ -6159,7 +6163,7 @@ struct InlineSearchBar: View {
                 Button { advance(+1) } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(matchCount > 0 ? Color(nsColor: .labelColor) : Color(nsColor: .tertiaryLabelColor))
+                        .foregroundStyle(matchCount > 0 ? theme.primaryText : theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .disabled(matchCount == 0)
@@ -6171,18 +6175,18 @@ struct InlineSearchBar: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .foregroundStyle(theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .help("Suche zurücksetzen")
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(theme.cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                .stroke(theme.cardBorder, lineWidth: 0.5)
         )
         .onKeyPress(.escape) {
             query = ""
