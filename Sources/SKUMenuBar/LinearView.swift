@@ -117,11 +117,18 @@ struct LinearView: View {
     @State private var filterPriority: LinearPriority?
     @State private var filterStatus: String?
     @State private var searchText = ""
-    @State private var colWidthProject: CGFloat = 200
-    @State private var colWidthIssue: CGFloat = 300
+    @State private var colWidthProject: CGFloat = 220
+    @State private var colWidthIssue: CGFloat = 340
     @State private var showNewIssueSheet = false
     @State private var configured = false
     @State private var hoveredIssueId: String?
+    @State private var showStatusPopover = false
+    @State private var showPriorityPopover = false
+    @State private var isEditingTitle = false
+    @State private var editedTitle = ""
+    @State private var newCommentText = ""
+    @State private var isLoadingComments = false
+    @State private var collapsedStatusGroups: Set<String> = []
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -215,8 +222,19 @@ struct LinearView: View {
                     } else if service.projects.isEmpty && !service.isLoading {
                         emptyPlaceholder("Keine Projekte", icon: "folder")
                     } else {
-                        ForEach(service.projects) { project in
-                            projectRow(project)
+                        ForEach(groupedProjects, id: \.header) { group in
+                            Text(group.header.uppercased())
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                                .kerning(0.3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .padding(.top, group.header == groupedProjects.first?.header ? 4 : 12)
+                                .padding(.bottom, 2)
+
+                            ForEach(group.projects) { project in
+                                projectRow(project)
+                            }
                         }
                     }
                 }
@@ -290,10 +308,10 @@ struct LinearView: View {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(theme.primaryText.opacity(0.06))
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(Color(red: 0.35, green: 0.50, blue: 0.98).opacity(0.5))
+                                .fill(Color(red: 0.95, green: 0.65, blue: 0.15).opacity(0.7))
                                 .frame(width: geo.size.width * (completedFrac + inProgressFrac))
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(Color(red: 0.20, green: 0.75, blue: 0.45))
+                                .fill(Color(red: 0.12, green: 0.62, blue: 0.35))
                                 .frame(width: geo.size.width * completedFrac)
                         }
                     }
@@ -355,16 +373,24 @@ struct LinearView: View {
             }
 
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     if selectedProject == nil {
                         emptyPlaceholder("Projekt auswählen", icon: "sidebar.left")
                     } else {
-                        let visible = filteredIssues
-                        if visible.isEmpty {
+                        let grouped = groupedFilteredIssues
+                        if grouped.isEmpty {
                             emptyPlaceholder("Keine Issues", icon: "tray")
                         } else {
-                            ForEach(visible) { issue in
-                                issueRow(issue)
+                            ForEach(grouped, id: \.state.id) { group in
+                                Section {
+                                    if !collapsedStatusGroups.contains(group.state.id) {
+                                        ForEach(group.issues) { issue in
+                                            issueRow(issue)
+                                        }
+                                    }
+                                } header: {
+                                    statusGroupHeader(group.state, count: group.issues.count)
+                                }
                             }
                         }
                     }
@@ -397,11 +423,12 @@ struct LinearView: View {
 
             Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
 
-            // Priority filter
+            // Combined filter chips — Priority + Status in one row
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
-                    filterChip(label: "Alle", isActive: filterPriority == nil) {
+                    filterChip(label: "Alle", isActive: filterPriority == nil && filterStatus == nil) {
                         filterPriority = nil
+                        filterStatus = nil
                     }
                     ForEach(LinearPriority.allCases, id: \.rawValue) { p in
                         filterChip(label: p.label, icon: p.icon, iconColor: p.color,
@@ -409,25 +436,17 @@ struct LinearView: View {
                             filterPriority = (filterPriority == p) ? nil : p
                         }
                     }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-            }
 
-            Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+                    // Thin vertical divider
+                    Rectangle().fill(theme.cardBorder).frame(width: 1, height: 14)
+                        .padding(.horizontal, 3)
 
-            // Status filter with state icons
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
-                    filterChip(label: "Alle", isActive: filterStatus == nil) {
-                        filterStatus = nil
-                    }
                     ForEach(availableStatuses, id: \.id) { st in
                         statusFilterChip(st)
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.vertical, 4)
             }
 
             Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
@@ -500,6 +519,12 @@ struct LinearView: View {
         return result.sorted { (order[$0.type] ?? 5) < (order[$1.type] ?? 5) }
     }
 
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
     private func issueRow(_ issue: LinearIssue) -> some View {
         let isSelected = selectedIssue?.id == issue.id
         let isHovered = hoveredIssueId == issue.id
@@ -515,45 +540,50 @@ struct LinearView: View {
                     LinearStateIcon(type: "unstarted", color: theme.tertiaryText, size: 16)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 5) {
-                        Text(issue.identifier)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-
-                        // Priority indicator
-                        Image(systemName: issue.priority.icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(issue.priority.color)
-                    }
+                VStack(alignment: .leading, spacing: 3) {
+                    // Title first — primary element
                     Text(issue.title)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                         .strikethrough(issue.state?.isCompleted ?? false, color: theme.tertiaryText)
+
+                    // Identifier + Priority — secondary
+                    HStack(spacing: 5) {
+                        Text(issue.identifier)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText)
+                        Image(systemName: issue.priority.icon)
+                            .font(.system(size: 9))
+                            .foregroundStyle(issue.priority.color)
+                    }
                 }
 
                 Spacer(minLength: 0)
 
-                // Avatar initials
-                if let assignee = issue.assigneeName {
-                    Text(assignee.components(separatedBy: " ").compactMap(\.first).prefix(2).map(String.init).joined())
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(theme.tertiaryText)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(theme.primaryText.opacity(0.07)))
+                VStack(alignment: .trailing, spacing: 4) {
+                    // Avatar initials
+                    if let assignee = issue.assigneeName {
+                        Text(assignee.components(separatedBy: " ").compactMap(\.first).prefix(2).map(String.init).joined())
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(theme.tertiaryText)
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(theme.primaryText.opacity(0.07)))
+                    }
+                    // Updated-at timestamp
+                    if let updated = issue.updatedAt {
+                        Text(Self.relativeFormatter.localizedString(for: updated, relativeTo: Date()))
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .background(
                 isSelected ? linearPurple.opacity(0.10)
                 : isHovered ? theme.primaryText.opacity(0.03) : Color.clear
             )
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
-                    .padding(.leading, 38)
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -586,14 +616,8 @@ struct LinearView: View {
                 // Header with identifier badge + actions
                 HStack(spacing: 6) {
                     Text(issue.identifier)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(theme.tertiaryText)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(theme.primaryText.opacity(0.05))
-                        )
                     Spacer()
 
                     // Agent button as colored pill
@@ -627,13 +651,32 @@ struct LinearView: View {
                 }
                 .padding(16)
 
-                // Title — prominent
-                Text(issue.title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                    .strikethrough(issue.state?.isCompleted ?? false)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
+                // Title — prominent, double-click to edit
+                if isEditingTitle {
+                    TextField("Titel", text: $editedTitle)
+                        .font(.system(size: 17, weight: .semibold))
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(theme.primaryText)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
+                        .onSubmit {
+                            commitTitleEdit(issueId: issue.id)
+                        }
+                        .onExitCommand {
+                            isEditingTitle = false
+                        }
+                } else {
+                    Text(issue.title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .strikethrough(issue.state?.isCompleted ?? false)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
+                        .onTapGesture(count: 2) {
+                            editedTitle = issue.title
+                            isEditingTitle = true
+                        }
+                }
 
                 // Properties grid with subtle dividers
                 propertiesSection(issue)
@@ -641,43 +684,158 @@ struct LinearView: View {
                 Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
                     .padding(.vertical, 2)
 
-                // Description — rendered as Markdown
+                // Description — rendered as Markdown (no label, like Linear)
                 if !issue.description.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Beschreibung")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(theme.tertiaryText)
-
-                        MarkdownTextView(text: issue.description)
-                    }
-                    .padding(16)
+                    MarkdownTextView(text: issue.description)
+                        .padding(16)
                 }
+
+                Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
+
+                // Activity / Comments
+                commentsSection(issue: issue)
             }
         }
+    }
+
+    // MARK: - Comments Section
+
+    @ViewBuilder
+    private func commentsSection(issue: LinearIssue) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Aktivität")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+
+            if let comments = service.comments[issue.id], !comments.isEmpty {
+                ForEach(comments) { comment in
+                    commentRow(comment)
+                }
+            } else if isLoadingComments {
+                HStack { Spacer(); ProgressView().scaleEffect(0.7); Spacer() }
+                    .padding(.vertical, 8)
+            } else if service.comments[issue.id] != nil {
+                Text("Keine Kommentare")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+
+            // New comment input
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Kommentar schreiben…", text: $newCommentText, axis: .vertical)
+                    .font(.system(size: 12))
+                    .lineLimit(1...5)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                    )
+
+                Button {
+                    guard !newCommentText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    let text = newCommentText
+                    newCommentText = ""
+                    Task {
+                        try? await service.addComment(issueId: issue.id, body: text)
+                        await service.loadComments(issueId: issue.id, identifier: issue.identifier)
+                    }
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty
+                                         ? theme.tertiaryText : linearPurple)
+                        .frame(width: 30, height: 30)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(theme.primaryText.opacity(0.05)))
+                }
+                .buttonStyle(.plain)
+                .disabled(newCommentText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(16)
+        .task(id: issue.id) {
+            isLoadingComments = true
+            await service.loadComments(issueId: issue.id, identifier: issue.identifier)
+            isLoadingComments = false
+        }
+    }
+
+    private func commentRow(_ comment: LinearComment) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(comment.authorName.components(separatedBy: " ").compactMap(\.first).prefix(2).map(String.init).joined())
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(width: 20, height: 20)
+                    .background(Circle().fill(theme.primaryText.opacity(0.08)))
+                Text(comment.authorName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                if let date = comment.createdAt {
+                    Text(Self.relativeFormatter.localizedString(for: date, relativeTo: Date()))
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Spacer()
+            }
+            MarkdownTextView(text: comment.body)
+                .padding(.leading, 26)
+        }
+        .padding(.vertical, 6)
     }
 
     // MARK: - Properties Section (Linear-style grid)
 
     private func propertiesSection(_ issue: LinearIssue) -> some View {
         VStack(spacing: 0) {
+            // Status — clickable with popover
             propertyRow(label: "Status") {
                 if let st = issue.state {
-                    HStack(spacing: 5) {
-                        LinearStateIcon(type: st.type, color: st.displayColor, size: 14)
-                        Text(st.name)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(theme.primaryText)
+                    Button {
+                        showStatusPopover = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            LinearStateIcon(type: st.type, color: st.displayColor, size: 14)
+                            Text(st.name)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(theme.primaryText.opacity(0.04)))
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showStatusPopover, arrowEdge: .bottom) {
+                        statusPopoverContent(issue: issue)
                     }
                 }
             }
+
+            // Priority — clickable with popover
             propertyRow(label: "Priorität") {
-                HStack(spacing: 5) {
-                    Image(systemName: issue.priority.icon)
-                        .font(.system(size: 11))
-                        .foregroundStyle(issue.priority.color)
-                    Text(issue.priority.label)
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.primaryText)
+                Button {
+                    showPriorityPopover = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: issue.priority.icon)
+                            .font(.system(size: 11))
+                            .foregroundStyle(issue.priority.color)
+                        Text(issue.priority.label)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(theme.primaryText.opacity(0.04)))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showPriorityPopover, arrowEdge: .bottom) {
+                    priorityPopoverContent(issue: issue)
                 }
             }
             if let assignee = issue.assigneeName {
@@ -711,6 +869,30 @@ struct LinearView: View {
                     }
                 }
             }
+            if let dueDate = issue.dueDate {
+                propertyRow(label: "Fällig") {
+                    HStack(spacing: 5) {
+                        Image(systemName: dueDate < Date() ? "exclamationmark.circle.fill" : "calendar")
+                            .font(.system(size: 11))
+                            .foregroundStyle(dueDate < Date() ? .red : theme.secondaryText)
+                        Text(dueDate, style: .date)
+                            .font(.system(size: 12))
+                            .foregroundStyle(dueDate < Date() ? .red : theme.primaryText)
+                    }
+                }
+            }
+            if let cycleName = issue.cycleName {
+                propertyRow(label: "Cycle") {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.secondaryText)
+                        Text(cycleName)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                }
+            }
             if let created = issue.createdAt {
                 propertyRow(label: "Erstellt") {
                     Text(created, style: .date)
@@ -728,13 +910,115 @@ struct LinearView: View {
             Text(label)
                 .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
-                .frame(width: 90, alignment: .leading)
+                .frame(width: 72, alignment: .leading)
             content()
             Spacer()
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.cardBorder.opacity(0.2)).frame(height: 0.5)
+        }
+    }
+
+    // MARK: - Popovers
+
+    @ViewBuilder
+    private func statusPopoverContent(issue: LinearIssue) -> some View {
+        let team = service.teams.first { $0.id == issue.teamId }
+        let states = team?.states ?? []
+        let order = ["backlog": 0, "unstarted": 1, "started": 2, "completed": 3, "cancelled": 4]
+        let ordered = states.sorted { (order[$0.type] ?? 5) < (order[$1.type] ?? 5) }
+
+        VStack(spacing: 2) {
+            ForEach(ordered) { st in
+                Button {
+                    Task {
+                        try? await service.updateIssueStatus(issueId: issue.id, stateId: st.id)
+                        await refreshCurrentIssue()
+                        showStatusPopover = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        LinearStateIcon(type: st.type, color: st.displayColor, size: 14)
+                        Text(st.name)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                        Spacer()
+                        if issue.state?.id == st.id {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(linearPurple)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 180)
+    }
+
+    @ViewBuilder
+    private func priorityPopoverContent(issue: LinearIssue) -> some View {
+        VStack(spacing: 2) {
+            ForEach(LinearPriority.allCases, id: \.rawValue) { p in
+                Button {
+                    Task {
+                        try? await service.updateIssuePriority(issueId: issue.id, priority: p.rawValue)
+                        await refreshCurrentIssue()
+                        showPriorityPopover = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: p.icon)
+                            .font(.system(size: 11))
+                            .foregroundStyle(p.color)
+                            .frame(width: 16)
+                        Text(p.label)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                        Spacer()
+                        if issue.priority == p {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(linearPurple)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 160)
+    }
+
+    // MARK: - Inline Edit Helpers
+
+    private func commitTitleEdit(issueId: String) {
+        let newTitle = editedTitle.trimmingCharacters(in: .whitespaces)
+        guard !newTitle.isEmpty else {
+            isEditingTitle = false
+            return
+        }
+        Task {
+            try? await service.updateIssueTitle(issueId: issueId, title: newTitle)
+            await refreshCurrentIssue()
+            isEditingTitle = false
+        }
+    }
+
+    private func refreshCurrentIssue() async {
+        if let projId = selectedProject?.id {
+            await service.loadIssues(projectId: projId)
+            if let currentId = selectedIssue?.id {
+                selectedIssue = service.issues[projId]?.first { $0.id == currentId }
+            }
         }
     }
 
@@ -767,7 +1051,37 @@ struct LinearView: View {
         state.pendingNavigateToChat = true
     }
 
-    // MARK: - Filtered Issues
+    // MARK: - Grouped Projects
+
+    private var groupedProjects: [(header: String, projects: [LinearProject])] {
+        let stateLabels: [(key: String, label: String)] = [
+            ("inProgress", "In Progress"),
+            ("planned", "Planned"),
+            ("paused", "Paused"),
+            ("completed", "Completed"),
+            ("cancelled", "Cancelled")
+        ]
+
+        var groups: [(String, [LinearProject])] = []
+        var usedIds = Set<String>()
+
+        for (key, label) in stateLabels {
+            let matching = service.projects.filter { $0.state == key && !usedIds.contains($0.id) }
+            if !matching.isEmpty {
+                groups.append((label, matching))
+                matching.forEach { usedIds.insert($0.id) }
+            }
+        }
+
+        let ungrouped = service.projects.filter { !usedIds.contains($0.id) }
+        if !ungrouped.isEmpty {
+            groups.append(("Sonstige", ungrouped))
+        }
+
+        return groups
+    }
+
+    // MARK: - Filtered & Grouped Issues
 
     private var filteredIssues: [LinearIssue] {
         let all = selectedProject.flatMap { service.issues[$0.id] } ?? []
@@ -779,6 +1093,55 @@ struct LinearView: View {
                 || issue.identifier.localizedCaseInsensitiveContains(searchText)
             return matchesPriority && matchesStatus && matchesSearch
         }
+    }
+
+    private var groupedFilteredIssues: [(state: LinearIssueState, issues: [LinearIssue])] {
+        let issues = filteredIssues
+        let order = ["backlog": 0, "unstarted": 1, "started": 2, "completed": 3, "cancelled": 4]
+
+        var groups: [String: (state: LinearIssueState, issues: [LinearIssue])] = [:]
+        for issue in issues {
+            let key = issue.state?.type ?? "unstarted"
+            let st = issue.state ?? LinearIssueState(id: "unknown", name: "Unknown", type: "unstarted", color: "#aaa")
+            if groups[key] != nil {
+                groups[key]!.issues.append(issue)
+            } else {
+                groups[key] = (state: st, issues: [issue])
+            }
+        }
+        return groups.values.sorted { (order[$0.state.type] ?? 5) < (order[$1.state.type] ?? 5) }
+    }
+
+    private func statusGroupHeader(_ st: LinearIssueState, count: Int) -> some View {
+        let isCollapsed = collapsedStatusGroups.contains(st.id)
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isCollapsed {
+                    collapsedStatusGroups.remove(st.id)
+                } else {
+                    collapsedStatusGroups.insert(st.id)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(width: 12)
+                LinearStateIcon(type: st.type, color: st.displayColor, size: 12)
+                Text(st.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+                Text("\(count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(theme.windowBg)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Reusable subviews

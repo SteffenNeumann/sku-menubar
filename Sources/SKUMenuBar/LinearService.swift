@@ -73,6 +73,8 @@ struct LinearIssue: Identifiable {
     let labels: [String]
     let createdAt: Date?
     let updatedAt: Date?
+    let dueDate: Date?
+    let cycleName: String?
     let url: String
 }
 
@@ -113,6 +115,13 @@ struct LinearTeam: Identifiable {
     var states: [LinearIssueState] = []
 }
 
+struct LinearComment: Identifiable {
+    let id: String
+    let body: String
+    let authorName: String
+    let createdAt: Date?
+}
+
 // MARK: - Linear Service
 
 @MainActor
@@ -121,6 +130,7 @@ final class LinearService: ObservableObject {
     @Published var projects: [LinearProject] = []
     @Published var issues: [String: [LinearIssue]] = [:]   // keyed by projectId
     @Published var teams: [LinearTeam] = []
+    @Published var comments: [String: [LinearComment]] = [:]  // keyed by issueId
     @Published var isLoading = false
     @Published var error: String?
 
@@ -218,12 +228,81 @@ final class LinearService: ObservableObject {
         ])
     }
 
+    func updateIssuePriority(issueId: String, priority: Int) async throws {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        _ = try await session.callTool(name: "linear_bulk_update_issues", arguments: [
+            "issueIds": [issueId],
+            "update": ["priority": priority]
+        ])
+    }
+
+    func updateIssueTitle(issueId: String, title: String) async throws {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        _ = try await session.callTool(name: "linear_bulk_update_issues", arguments: [
+            "issueIds": [issueId],
+            "update": ["title": title]
+        ])
+    }
+
     func addComment(issueId: String, body: String) async throws {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
         _ = try await session.callTool(name: "linear_create_comment", arguments: [
             "issueId": issueId, "body": body
         ])
+    }
+
+    func loadComments(issueId: String, identifier: String) async {
+        do {
+            try await ensureConnected()
+            guard let session else { throw LinearError.notConfigured }
+            let raw = try await session.callTool(name: "linear_search_issues_by_identifier", arguments: [
+                "identifiers": [identifier]
+            ])
+            comments[issueId] = parseComments(from: raw)
+        } catch {
+            // Comments are non-critical — don't set global error
+        }
+    }
+
+    private func parseComments(from raw: String) -> [LinearComment] {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+
+        // Navigate to comments in the issue response
+        var commentsNodes: [[String: Any]] = []
+        if let issues = json["issues"] as? [[String: Any]],
+           let first = issues.first,
+           let comms = first["comments"] as? [String: Any],
+           let nodes = comms["nodes"] as? [[String: Any]] {
+            commentsNodes = nodes
+        } else if let comms = json["comments"] as? [String: Any],
+                  let nodes = comms["nodes"] as? [[String: Any]] {
+            commentsNodes = nodes
+        }
+        // Also try flat structure from linear_search_issues_by_identifier response
+        if commentsNodes.isEmpty, let nodes = json["comments"] as? [[String: Any]] {
+            commentsNodes = nodes
+        }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoFallback = ISO8601DateFormatter()
+
+        return commentsNodes.compactMap { c -> LinearComment? in
+            guard let id = c["id"] as? String else { return nil }
+            let user = c["user"] as? [String: Any]
+            let dateStr = c["createdAt"] as? String
+            let date = dateStr.flatMap { iso.date(from: $0) ?? isoFallback.date(from: $0) }
+            return LinearComment(
+                id: id,
+                body: (c["body"] as? String) ?? "",
+                authorName: (user?["name"] as? String) ?? (user?["displayName"] as? String) ?? "Unbekannt",
+                createdAt: date
+            )
+        }.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
     }
 
     func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
@@ -338,6 +417,18 @@ final class LinearService: ObservableObject {
             let labelsData  = (labelsOuter?["nodes"] as? [[String: Any]]) ?? []
             let labels      = labelsData.compactMap { $0["name"] as? String }
 
+            // Due date (yyyy-MM-dd format in Linear)
+            let dueDateStr = d["dueDate"] as? String
+            let dueDate: Date? = dueDateStr.flatMap { str in
+                let df = DateFormatter()
+                df.dateFormat = "yyyy-MM-dd"
+                return df.date(from: str)
+            }
+
+            // Cycle
+            let cycleDict = d["cycle"] as? [String: Any]
+            let cycleName = cycleDict?["name"] as? String
+
             return LinearIssue(
                 id:           id,
                 identifier:   ident,
@@ -351,6 +442,8 @@ final class LinearService: ObservableObject {
                 labels:       labels,
                 createdAt:    (d["createdAt"] as? String).flatMap { iso.date(from: $0) },
                 updatedAt:    (d["updatedAt"] as? String).flatMap { iso.date(from: $0) },
+                dueDate:      dueDate,
+                cycleName:    cycleName,
                 url:          (d["url"] as? String) ?? ""
             )
         }
