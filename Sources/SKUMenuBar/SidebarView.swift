@@ -235,7 +235,7 @@ struct SidebarView: View {
                     if openTasks > 0 { badge("\(openTasks)") }
                 }
                 if section == .chat, !state.activeSessions.isEmpty {
-                    liveDot
+                    liveSessionBadge
                 }
             }
             .padding(.horizontal, 8)
@@ -255,11 +255,25 @@ struct SidebarView: View {
             .foregroundStyle(accentColor)
     }
 
-    private var liveDot: some View {
-        ZStack {
-            Circle().fill(theme.statusGreen.opacity(0.3)).frame(width: 8, height: 8)
-            Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
+    @State private var livePulse = false
+
+    private var liveSessionBadge: some View {
+        let count = state.activeSessions.count
+        return HStack(spacing: 3) {
+            Circle()
+                .fill(theme.statusGreen)
+                .frame(width: 6, height: 6)
+                .scaleEffect(livePulse ? 1.3 : 1.0)
+                .opacity(livePulse ? 0.6 : 1.0)
+                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: livePulse)
+                .onAppear { livePulse = true }
+            Text(count > 1 ? "\(count) live" : "live")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(theme.statusGreen)
         }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(theme.statusGreen.opacity(0.12), in: Capsule())
     }
 
     // MARK: - Claude Usage Widget

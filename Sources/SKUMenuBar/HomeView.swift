@@ -384,51 +384,121 @@ struct HomeView: View {
                     emptyState(icon: "terminal", text: "Keine aktiven Prozesse.")
                 } else {
                     VStack(spacing: 6) {
-                        ForEach(state.activeSessions.prefix(4)) { session in
+                        ForEach(state.activeSessions) { session in
+                            sessionRow(session)
+                        }
+
+                        HStack(spacing: 8) {
+                            Spacer()
                             Button {
-                                state.pendingChatSession = session.sessionId
-                                state.pendingChatWorkingDirectory = session.cwd
-                                selectedSection = .chat
+                                refreshActiveSessions()
                             } label: {
-                                HStack(spacing: 10) {
-                                    ZStack {
-                                        Circle().fill(theme.statusGreen.opacity(0.20)).frame(width: 8, height: 8)
-                                        Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
-                                    }
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(session.cwdDisplay)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(theme.primaryText)
-                                            .lineLimit(1)
-                                        Text(session.kind.isEmpty ? "claude" : session.kind)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(theme.tertiaryText)
-                                    }
-                                    Spacer()
-                                    Text(session.startedAt, style: .relative)
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundStyle(theme.tertiaryText)
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(theme.tertiaryText)
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-                                .contentShape(RoundedRectangle(cornerRadius: 9))
+                                Label("Aktualisieren", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                terminateAllSessions()
+                            } label: {
+                                Label("Alle beenden", systemImage: "xmark.circle")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(theme.statusRed)
                             }
                             .buttonStyle(.plain)
                         }
-                        if state.activeSessions.count > 4 {
-                            Text("+ \(state.activeSessions.count - 4) weitere")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.tertiaryText)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
+                        .padding(.top, 4)
                     }
                 }
                 Spacer(minLength: 0)
             }
+        }
+    }
+
+    private func sessionRow(_ session: ActiveCLISession) -> some View {
+        Button {
+            state.pendingChatSession = session.sessionId
+            state.pendingChatWorkingDirectory = session.cwd
+            selectedSection = .chat
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(theme.statusGreen.opacity(0.20)).frame(width: 8, height: 8)
+                    Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(session.cwdDisplay)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                        Text(session.entrypointLabel)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(theme.primaryText.opacity(0.08), in: Capsule())
+                    }
+                    if !session.topic.isEmpty {
+                        Text(session.topic)
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: 8) {
+                        Text(session.startedAt, style: .relative)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(theme.tertiaryText)
+                        if !session.version.isEmpty {
+                            Text("v\(session.version)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+                }
+                Spacer()
+
+                Button {
+                    terminateSession(session)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Session beenden (PID \(session.pid))")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func terminateSession(_ session: ActiveCLISession) {
+        kill(Int32(session.pid), SIGTERM)
+        let sessionFile = NSHomeDirectory() + "/.claude/sessions/\(session.pid).json"
+        try? FileManager.default.removeItem(atPath: sessionFile)
+        refreshActiveSessions()
+    }
+
+    private func terminateAllSessions() {
+        for session in state.activeSessions {
+            kill(Int32(session.pid), SIGTERM)
+            let sessionFile = NSHomeDirectory() + "/.claude/sessions/\(session.pid).json"
+            try? FileManager.default.removeItem(atPath: sessionFile)
+        }
+        refreshActiveSessions()
+    }
+
+    private func refreshActiveSessions() {
+        Task {
+            let sessions = await Task.detached(priority: .utility) {
+                ClaudeCLIService.loadActiveSessionsSync()
+            }.value
+            state.activeSessions = sessions
         }
     }
 

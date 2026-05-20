@@ -553,13 +553,17 @@ final class ClaudeCLIService: ObservableObject {
             let running = kill(Int32(pid), 0) == 0
             if running {
                 let started = raw.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .now
+                let topic = Self.extractSessionTopic(sessionId: sid, home: home)
                 sessions.append(ActiveCLISession(
                     id: file.lastPathComponent,
                     pid: pid,
                     sessionId: sid,
                     cwd: cwd,
                     startedAt: started,
-                    kind: raw.kind ?? "interactive"
+                    kind: raw.kind ?? "interactive",
+                    entrypoint: raw.entrypoint ?? "",
+                    version: raw.version ?? "",
+                    topic: topic
                 ))
             }
         }
@@ -567,38 +571,49 @@ final class ClaudeCLIService: ObservableObject {
     }
 
     func loadActiveSessions() -> [ActiveCLISession] {
-        let home = NSHomeDirectory()
-        let sessionsDir = URL(fileURLWithPath: "\(home)/.claude/sessions")
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: sessionsDir,
-            includingPropertiesForKeys: nil
-        ) else { return [] }
+        Self.loadActiveSessionsSync()
+    }
 
-        let decoder = JSONDecoder()
-        var sessions: [ActiveCLISession] = []
+    private nonisolated static func extractSessionTopic(sessionId: String, home: String) -> String {
+        let projectsDir = URL(fileURLWithPath: "\(home)/.claude/projects")
+        guard let projectFolders = try? FileManager.default.contentsOfDirectory(
+            at: projectsDir, includingPropertiesForKeys: nil
+        ) else { return "" }
 
-        for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let raw = try? decoder.decode(ActiveSessionFile.self, from: data),
-                  let pid = raw.pid,
-                  let sid = raw.sessionId,
-                  let cwd = raw.cwd else { continue }
+        let jsonlName = "\(sessionId).jsonl"
+        for folder in projectFolders {
+            let jsonlPath = folder.appendingPathComponent(jsonlName)
+            guard FileManager.default.fileExists(atPath: jsonlPath.path) else { continue }
+            guard let handle = FileHandle(forReadingAtPath: jsonlPath.path) else { continue }
+            defer { handle.closeFile() }
 
-            // Check if process is still running
-            let running = kill(Int32(pid), 0) == 0
+            let chunkSize = 32_768
+            guard let chunk = try? handle.read(upToCount: chunkSize), !chunk.isEmpty,
+                  let text = String(data: chunk, encoding: .utf8) else { continue }
 
-            if running {
-                let started = raw.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .now
-                sessions.append(ActiveCLISession(
-                    id: file.lastPathComponent,
-                    pid: pid,
-                    sessionId: sid,
-                    cwd: cwd,
-                    startedAt: started,
-                    kind: raw.kind ?? "interactive"
-                ))
+            for line in text.components(separatedBy: "\n") {
+                guard !line.isEmpty,
+                      let lineData = line.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                      obj["type"] as? String == "user",
+                      let msg = obj["message"] as? [String: Any],
+                      msg["role"] as? String == "user",
+                      let content = msg["content"] else { continue }
+
+                if let arr = content as? [[String: Any]] {
+                    for item in arr {
+                        if item["type"] as? String == "text",
+                           let t = item["text"] as? String, t.count > 5 {
+                            let clean = t.components(separatedBy: "\n").first ?? t
+                            return String(clean.prefix(120))
+                        }
+                    }
+                } else if let s = content as? String, s.count > 5 {
+                    let clean = s.components(separatedBy: "\n").first ?? s
+                    return String(clean.prefix(120))
+                }
             }
         }
-        return sessions.sorted { $0.startedAt > $1.startedAt }
+        return ""
     }
 }

@@ -930,8 +930,20 @@ struct ActiveCLISession: Identifiable {
     let cwd: String
     let startedAt: Date
     let kind: String
+    let entrypoint: String
+    let version: String
+    var topic: String
 
     var cwdDisplay: String { URL(fileURLWithPath: cwd).lastPathComponent }
+
+    var entrypointLabel: String {
+        switch entrypoint {
+        case "claude-desktop": return "Desktop"
+        case "sdk-cli":        return "SDK"
+        case "cli":            return "Terminal"
+        default:               return entrypoint.isEmpty ? "CLI" : entrypoint
+        }
+    }
 }
 
 // MARK: - String helper: strip Claude internal system tags
@@ -970,6 +982,8 @@ struct ActiveSessionFile: Decodable {
     let cwd: String?
     let startedAt: Double?
     let kind: String?
+    let entrypoint: String?
+    let version: String?
 }
 
 // MARK: - Home Tile Configuration
