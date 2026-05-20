@@ -242,6 +242,7 @@ struct SingleChatSessionView: View {
     @State private var gitBranches: [String] = []
     @State private var showBranchPicker = false
     @State private var selectedOrchestrators: Set<String> = []
+    @State private var orchestratorHistory: [(role: String, content: String)] = []
     @State private var showModelPicker    = false
     @State private var showAgentPicker    = false
     @State private var showOrchPicker     = false
@@ -2510,6 +2511,7 @@ struct SingleChatSessionView: View {
             isAuthError = false
             attachedFiles = []
             sessionTitle = ""
+            orchestratorHistory = []
             autoTriggeredAgentName = nil
             showCompactBanner = false
             compactBannerSeenAt = 0
@@ -2528,7 +2530,7 @@ struct SingleChatSessionView: View {
         }
     }
 
-    // MARK: - Orchestrator: run multiple agents in parallel
+    // MARK: - Orchestrator: Plan → Execute → Synthesize
 
     private func sendOrchestrator() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2544,9 +2546,81 @@ struct SingleChatSessionView: View {
 
         isStreaming = true; streamingStartTime = Date()
 
-        // Sequential orchestration: each agent receives the previous agents' outputs as context
+        // Persist user message in orchestrator history for follow-up context
+        orchestratorHistory.append((role: "user", content: text))
+
         Task { @MainActor in
-            var previousOutputs: [(name: String, output: String)] = []
+
+            // ── Phase 1: Planning ──────────────────────────────────────
+            let agentProfiles = agents.map { a in
+                "- **\(a.name)**: \(a.description.isEmpty ? String(a.promptBody.prefix(200)) : a.description)"
+            }.joined(separator: "\n")
+
+            let priorContext: String
+            if orchestratorHistory.count > 1 {
+                let history = orchestratorHistory.dropLast()
+                    .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(500))" }
+                    .joined(separator: "\n\n")
+                priorContext = "\n\nBisheriger Konversationsverlauf:\n\(history)\n"
+            } else {
+                priorContext = ""
+            }
+
+            let planPrompt = """
+            Du bist ein Orchestrator. Deine Aufgabe: zerlege den Benutzer-Auftrag in spezifische Teilaufgaben für jeden Agent.
+            \(priorContext)
+            Verfügbare Agents:
+            \(agentProfiles)
+
+            Benutzer-Auftrag: \(text)
+
+            Antworte NUR in diesem exakten Format (kein anderer Text):
+            AGENT: <AgentName>
+            AUFGABE: <Konkrete Teilaufgabe in 1-3 Sätzen>
+
+            AGENT: <AgentName>
+            AUFGABE: <Konkrete Teilaufgabe in 1-3 Sätzen>
+
+            Regeln:
+            - Jeder Agent bekommt eine ANDERE, spezifische Teilaufgabe — keine Überlappung
+            - Formuliere die Aufgabe so, dass der Agent genau weiß was ER tun soll
+            - Beziehe dich auf den bisherigen Kontext wenn vorhanden
+            """
+
+            var planPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+            planPlaceholder.model = "🎯 Orchestrator"
+            messages.append(planPlaceholder)
+            let planIdx = messages.count - 1
+            messages[planIdx].content = "**🎯 Orchestrator-Plan**\n"
+
+            var planText = ""
+            let planStream = state.cliService.send(
+                message: planPrompt,
+                systemPrompt: "Du bist ein Task-Planer. Antworte kurz und strukturiert.",
+                model: selectedModel,
+                workingDirectory: workingDirectory
+            )
+            do {
+                for try await event in planStream {
+                    if case "assistant" = event.type, let content = event.message?.content {
+                        for block in content where block.type == "text" {
+                            if let t = block.text, !t.isEmpty {
+                                planText += t
+                                messages[planIdx].content += t
+                            }
+                        }
+                    }
+                }
+            } catch {
+                messages[planIdx].content += "\n⚠️ Plan-Fehler: \(error.localizedDescription)"
+            }
+            messages[planIdx].isStreaming = false
+
+            // Parse plan into per-agent tasks
+            let agentTasks = parseOrchestratorPlan(planText, agents: agents)
+
+            // ── Phase 2: Execution ─────────────────────────────────────
+            var agentOutputs: [(name: String, output: String)] = []
 
             for agent in agents {
                 var placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
@@ -2554,38 +2628,44 @@ struct SingleChatSessionView: View {
                 messages.append(placeholder)
                 let idx = messages.count - 1
 
-                // Build context-enriched message from prior agents
-                let contextMessage: String
-                if previousOutputs.isEmpty {
-                    contextMessage = text
-                } else {
-                    let prior = previousOutputs
+                let specificTask = agentTasks[agent.id] ?? text
+
+                // Build context: prior conversation + previous agent outputs in this run
+                var contextParts: [String] = []
+                if orchestratorHistory.count > 1 {
+                    let history = orchestratorHistory.dropLast()
+                        .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(800))" }
+                        .joined(separator: "\n\n")
+                    contextParts.append("Bisheriger Konversationsverlauf:\n\(history)")
+                }
+                if !agentOutputs.isEmpty {
+                    let prior = agentOutputs
                         .map { "**\($0.name):**\n\($0.output)" }
                         .joined(separator: "\n\n")
-                    contextMessage = """
-                    Aufgabe: \(text)
-
-                    ---
-                    Vorherige Agenten-Analysen:
-                    \(prior)
-
-                    ---
-                    Baue auf den obigen Ergebnissen auf und ergänze sie aus deiner Perspektive als \(agent.name).
-                    """
+                    contextParts.append("Ergebnisse der anderen Agents in dieser Runde:\n\(prior)")
                 }
+
+                let contextBlock = contextParts.isEmpty ? "" : contextParts.joined(separator: "\n\n---\n\n") + "\n\n---\n\n"
+
+                let agentMessage = """
+                \(contextBlock)Deine spezifische Aufgabe: \(specificTask)
+
+                Ursprünglicher Benutzer-Auftrag: \(text)
+                Fokussiere dich NUR auf deine Teilaufgabe. Wiederhole nicht, was andere Agents bereits geliefert haben.
+                """
 
                 messages[idx].content = "**[\(agent.name)]**\n"
 
+                let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent)
                 var agentOutput = ""
                 var pendingContent = ""
                 var tokenCount = 0
 
                 let stream = state.cliService.send(
-                    message: contextMessage,
-                    sessionId: nil,
-                    agentName: agent.id,
-                    model: selectedModel,
-                    workingDirectory: workingDirectory
+                    message: agentMessage,
+                    systemPrompt: agentSystemPrompt,
+                    model: agent.model.isEmpty ? selectedModel : agent.model,
+                    workingDirectory: agent.projectDirectory ?? workingDirectory
                 )
                 do {
                     for try await event in stream {
@@ -2616,7 +2696,6 @@ struct SingleChatSessionView: View {
                                 }
                             }
                         case "user":
-                            // Tool results — mark the matching tool call as done
                             guard let content = event.message?.content else { break }
                             for block in content where block.type == "tool_result" {
                                 guard let toolId = block.toolUseId,
@@ -2636,11 +2715,92 @@ struct SingleChatSessionView: View {
                     messages[idx].content += pendingContent
                 }
                 messages[idx].isStreaming = false
-                previousOutputs.append((name: agent.name, output: agentOutput))
+                agentOutputs.append((name: agent.name, output: agentOutput))
+            }
+
+            // ── Phase 3: Synthesis ─────────────────────────────────────
+            if agents.count > 1 {
+                var synthPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+                synthPlaceholder.model = "📋 Synthese"
+                messages.append(synthPlaceholder)
+                let synthIdx = messages.count - 1
+                messages[synthIdx].content = "**📋 Synthese**\n"
+
+                let allOutputs = agentOutputs
+                    .map { "**\($0.name):**\n\($0.output)" }
+                    .joined(separator: "\n\n---\n\n")
+
+                let synthPrompt = """
+                Du bist ein Synthese-Agent. Fasse die Ergebnisse mehrerer Agents zu einer kohärenten Antwort zusammen.
+
+                Benutzer-Auftrag: \(text)
+
+                Agent-Ergebnisse:
+                \(allOutputs)
+
+                Erstelle eine zusammenhängende Zusammenfassung:
+                1. Kernpunkte aus allen Agent-Beiträgen
+                2. Wie die Teile zusammenspielen
+                3. Konkrete nächste Schritte (falls relevant)
+
+                Sei prägnant — keine Wiederholung der Einzelergebnisse, sondern Mehrwert durch Verknüpfung.
+                """
+
+                var synthOutput = ""
+                let synthStream = state.cliService.send(
+                    message: synthPrompt,
+                    systemPrompt: "Du fasst Ergebnisse zusammen. Sei prägnant und strukturiert.",
+                    model: selectedModel,
+                    workingDirectory: workingDirectory
+                )
+                do {
+                    for try await event in synthStream {
+                        if case "assistant" = event.type, let content = event.message?.content {
+                            for block in content where block.type == "text" {
+                                if let t = block.text, !t.isEmpty {
+                                    synthOutput += t
+                                    messages[synthIdx].content += t
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    messages[synthIdx].content += "\n⚠️ Synthese-Fehler: \(error.localizedDescription)"
+                }
+                messages[synthIdx].isStreaming = false
+
+                // Store synthesis in orchestrator history for follow-up context
+                let fullRoundSummary = agentOutputs.map { "[\($0.name)] \($0.output.prefix(500))" }.joined(separator: "\n\n")
+                orchestratorHistory.append((role: "orchestrator", content: "Plan:\n\(planText.prefix(500))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
+            } else {
+                // Single agent — store output directly
+                if let first = agentOutputs.first {
+                    orchestratorHistory.append((role: first.name, content: first.output.prefix(1000).description))
+                }
             }
 
             isStreaming = false
         }
+    }
+
+    /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan.
+    private func parseOrchestratorPlan(_ plan: String, agents: [AgentDefinition]) -> [String: String] {
+        var result: [String: String] = [:]
+        let lines = plan.components(separatedBy: .newlines)
+        var currentAgentId: String?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.uppercased().hasPrefix("AGENT:") {
+                let name = trimmed.dropFirst(6).trimmingCharacters(in: .whitespaces)
+                    .replacingOccurrences(of: "**", with: "")
+                currentAgentId = agents.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }?.id
+            } else if trimmed.uppercased().hasPrefix("AUFGABE:"), let agentId = currentAgentId {
+                result[agentId] = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                currentAgentId = nil
+            }
+        }
+        return result
     }
 
     private var streamingTask: Task<Void, Never>? = nil
@@ -2898,6 +3058,7 @@ struct SingleChatSessionView: View {
             errorMessage = nil
             isAuthError = false
             sessionTitle = ""
+            orchestratorHistory = []
         }
     }
 
@@ -3731,6 +3892,8 @@ struct ChatFilePanel: View {
     @AppStorage("fileExplorerGroupBy")   private var groupBy: FileGroupBy = .foldersFirst
     @State private var currentRoot: String = ""
     @State private var searchText: String = ""
+    @State private var dirWatcher: DispatchSourceFileSystemObject? = nil
+    @State private var dirReloadTrigger: Int = 0
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -3886,8 +4049,11 @@ struct ChatFilePanel: View {
             // Always force-load on appear — resets guard so timing issues with animations don't skip the initial tree render
             currentRoot = ""
             load()
+            startDirWatcher()
         }
-        .onChange(of: rootPath) { load() }
+        .onDisappear { stopDirWatcher() }
+        .onChange(of: rootPath) { stopDirWatcher(); reload(); startDirWatcher() }
+        .onChange(of: dirReloadTrigger) { reload() }
     }
 
     private func load() {
@@ -3903,6 +4069,29 @@ struct ChatFilePanel: View {
     private func reload() {
         currentRoot = ""
         load()
+    }
+
+    private func startDirWatcher() {
+        stopDirWatcher()
+        let fd = open(rootPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete],
+            queue: .main
+        )
+        // Only increment trigger flag — .onChange(of: dirReloadTrigger) drives the actual reload.
+        source.setEventHandler { [self] in
+            dirReloadTrigger += 1
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        dirWatcher = source
+    }
+
+    private func stopDirWatcher() {
+        dirWatcher?.cancel()
+        dirWatcher = nil
     }
 
     private func selectNode(_ node: ExplorerNode) {
@@ -4425,6 +4614,8 @@ struct ChatFilePanelRow: View {
     @Environment(\.fileSortOrder) private var sortOrder
     @Environment(\.fileGroupBy)   private var groupBy
     @State private var isHovered = false
+    @State private var subDirWatcher: DispatchSourceFileSystemObject? = nil
+    @State private var subDirTrigger: Int = 0
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -4448,9 +4639,38 @@ struct ChatFilePanelRow: View {
                 }
             }
         }
+        .onDisappear { stopSubDirWatcher() }
+        .onChange(of: node.isExpanded) {
+            if node.isExpanded { startSubDirWatcher() } else { stopSubDirWatcher() }
+        }
+        .onChange(of: subDirTrigger) {
+            guard node.isDirectory && node.isExpanded else { return }
+            node.loadChildren(showHidden: showHidden)
+        }
     }
 
     private var isChanged: Bool { !node.isDirectory && changedPaths.contains(node.url.path) }
+
+    private func startSubDirWatcher() {
+        guard node.isDirectory else { return }
+        stopSubDirWatcher()
+        let fd = open(node.url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete],
+            queue: .main
+        )
+        source.setEventHandler { [self] in subDirTrigger += 1 }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        subDirWatcher = source
+    }
+
+    private func stopSubDirWatcher() {
+        subDirWatcher?.cancel()
+        subDirWatcher = nil
+    }
 
     private var row: some View {
         HStack(spacing: 8) {
