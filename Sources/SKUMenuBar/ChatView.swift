@@ -3644,22 +3644,51 @@ struct SingleChatSessionView: View {
     private func fetchGitDiff(in directory: String) async -> String? {
         await withCheckedContinuation { continuation in
             Task.detached(priority: .utility) {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-                process.arguments = ["diff", "HEAD"]
-                process.currentDirectoryURL = URL(fileURLWithPath: directory)
-                let outPipe = Pipe()
-                process.standardOutput = outPipe
-                process.standardError  = Pipe()
+                // ── 1. git diff HEAD — modified tracked files ──────────────────
+                let diffProcess = Process()
+                diffProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                diffProcess.arguments = ["diff", "HEAD"]
+                diffProcess.currentDirectoryURL = URL(fileURLWithPath: directory)
+                let diffPipe = Pipe()
+                diffProcess.standardOutput = diffPipe
+                diffProcess.standardError  = Pipe()
+                var combined = ""
                 do {
-                    try process.run()
-                    process.waitUntilExit()
-                    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                    let output = String(data: data, encoding: .utf8) ?? ""
-                    continuation.resume(returning: output.isEmpty ? nil : output)
-                } catch {
-                    continuation.resume(returning: nil)
-                }
+                    try diffProcess.run()
+                    diffProcess.waitUntilExit()
+                    let data = diffPipe.fileHandleForReading.readDataToEndOfFile()
+                    combined = String(data: data, encoding: .utf8) ?? ""
+                } catch {}
+
+                // ── 2. git ls-files --others — new (untracked) files ───────────
+                // Synthesise a "new file mode" diff entry for each untracked file
+                // that was created/modified in the last 10 min (i.e. by the agent).
+                let lsProcess = Process()
+                lsProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                lsProcess.arguments = ["ls-files", "--others", "--exclude-standard"]
+                lsProcess.currentDirectoryURL = URL(fileURLWithPath: directory)
+                let lsPipe = Pipe()
+                lsProcess.standardOutput = lsPipe
+                lsProcess.standardError  = Pipe()
+                do {
+                    try lsProcess.run()
+                    lsProcess.waitUntilExit()
+                    let data = lsPipe.fileHandleForReading.readDataToEndOfFile()
+                    let newFiles = (String(data: data, encoding: .utf8) ?? "")
+                        .components(separatedBy: "\n").filter { !$0.isEmpty }
+                    let cutoff = Date().addingTimeInterval(-600)   // 10-min window
+                    let fm = FileManager.default
+                    for file in newFiles {
+                        let fullPath = (directory as NSString).appendingPathComponent(file)
+                        if let attrs = try? fm.attributesOfItem(atPath: fullPath),
+                           let modified = attrs[.modificationDate] as? Date,
+                           modified > cutoff {
+                            combined += "\ndiff --git a/\(file) b/\(file)\nnew file mode 100644\n"
+                        }
+                    }
+                } catch {}
+
+                continuation.resume(returning: combined.isEmpty ? nil : combined)
             }
         }
     }
