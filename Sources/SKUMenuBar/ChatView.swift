@@ -3874,13 +3874,16 @@ struct PanelResizeHandle: NSViewRepresentable {
     /// true = rechte Kante des linken Panels (drag right → wider)
     /// false = linke Kante des rechten Panels (drag left → wider)
     let growsRight: Bool
+    var drawsLine: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(width: $width, minWidth: minWidth, maxWidth: maxWidth, growsRight: growsRight)
     }
 
     func makeNSView(context: Context) -> ResizeDragNSView {
-        ResizeDragNSView(coordinator: context.coordinator)
+        let v = ResizeDragNSView(coordinator: context.coordinator)
+        v.drawsLine = drawsLine
+        return v
     }
 
     func updateNSView(_ nsView: ResizeDragNSView, context: Context) {
@@ -3888,6 +3891,7 @@ struct PanelResizeHandle: NSViewRepresentable {
         context.coordinator.minWidth = minWidth
         context.coordinator.maxWidth = maxWidth
         context.coordinator.growsRight = growsRight
+        nsView.drawsLine = drawsLine
     }
 
     // MARK: Coordinator — holds mutable state across re-renders
@@ -3909,6 +3913,7 @@ struct PanelResizeHandle: NSViewRepresentable {
 // MARK: AppKit view — mouse events bypass SwiftUI gestures entirely
 class ResizeDragNSView: NSView {
     weak var coordinator: PanelResizeHandle.Coordinator?
+    var drawsLine = true
 
     init(coordinator: PanelResizeHandle.Coordinator) {
         self.coordinator = coordinator
@@ -3930,7 +3935,7 @@ class ResizeDragNSView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Subtle center line only
+        guard drawsLine else { return }
         NSColor.separatorColor.withAlphaComponent(0.25).setFill()
         NSRect(x: (bounds.width - 1) / 2, y: 0, width: 1, height: bounds.height).fill()
     }

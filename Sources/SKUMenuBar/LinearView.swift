@@ -142,14 +142,14 @@ struct LinearView: View {
             projectColumn
                 .frame(width: colWidthProject)
 
-            PanelResizeHandle(width: $colWidthProject, minWidth: 140, maxWidth: 320, growsRight: true)
+            PanelResizeHandle(width: $colWidthProject, minWidth: 140, maxWidth: 320, growsRight: true, drawsLine: false)
                 .frame(width: 1)
 
             // Col 2 — Issues
             issueColumn
                 .frame(width: colWidthIssue)
 
-            PanelResizeHandle(width: $colWidthIssue, minWidth: 220, maxWidth: 500, growsRight: true)
+            PanelResizeHandle(width: $colWidthIssue, minWidth: 220, maxWidth: 500, growsRight: true, drawsLine: false)
                 .frame(width: 1)
 
             // Col 3 — Detail
