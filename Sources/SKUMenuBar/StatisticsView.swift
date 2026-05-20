@@ -271,7 +271,7 @@ struct StatisticsDashboardSection: View {
                 if state.settings.budget > 0 {
                     RuleMark(y: .value("Budget", state.settings.budget))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                        .foregroundStyle(Color.red.opacity(0.5))
+                        .foregroundStyle(theme.statusRed.opacity(0.5))
                 }
             }
             .chartYAxis {

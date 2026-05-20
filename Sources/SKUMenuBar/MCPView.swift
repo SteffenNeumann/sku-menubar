@@ -259,11 +259,11 @@ struct MCPLogEntry: Identifiable {
             case .pending:   return "PENDING"
             }
         }
-        var color: Color {
+        func color(theme: AppTheme) -> Color {
             switch self {
-            case .success:   return .green
-            case .error:     return .red
-            case .retriable: return .orange
+            case .success:   return theme.statusGreen
+            case .error:     return theme.statusRed
+            case .retriable: return theme.statusOrange
             case .pending:   return .yellow
             }
         }

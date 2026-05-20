@@ -618,7 +618,7 @@ struct LinearView: View {
         VStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 24))
-                .foregroundStyle(Color.orange)
+                .foregroundStyle(theme.statusOrange)
             Text(message)
                 .font(.system(size: 11))
                 .foregroundStyle(theme.secondaryText)
@@ -753,7 +753,7 @@ struct NewIssueSheet: View {
                     if let err = error {
                         Text(err)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color.red)
+                            .foregroundStyle(theme.statusRed)
                     }
                 }
                 .padding(16)

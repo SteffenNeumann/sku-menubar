@@ -136,13 +136,13 @@ struct DrilldownChartCard: View {
             } else if let err = errorMsg {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange).font(.system(size: 13))
+                        .foregroundStyle(theme.statusOrange).font(.system(size: 13))
                     Text(err).font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(theme.statusOrange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 14).padding(.bottom, 12)
             } else if chartItems.isEmpty {
                 Text("Keine Daten")

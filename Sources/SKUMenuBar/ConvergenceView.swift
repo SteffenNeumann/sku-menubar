@@ -160,7 +160,7 @@ private struct SetupView: View {
                                 agents: allDesigners, selection: $selectedDesigner)
 
                     agentPicker(label: "Implementor", icon: "hammer.fill",
-                                color: .orange,
+                                color: theme.statusOrange,
                                 agents: allImplementors, selection: $selectedImplementor)
                 }
 
@@ -439,7 +439,7 @@ private struct SessionStatusView: View {
                       name: session.designerName, color: accentColor)
             connectionLine(lit: phaseIndex > 1)
             agentNode(targetPhase: .implementor, icon: "hammer.fill",
-                      name: session.implementorName, color: .orange)
+                      name: session.implementorName, color: theme.statusOrange)
         }
     }
 

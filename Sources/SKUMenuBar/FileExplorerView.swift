@@ -121,16 +121,16 @@ final class ExplorerNode: Identifiable, ObservableObject {
         }
     }
 
-    var iconColor: Color {
+    func iconColor(theme: AppTheme) -> Color {
         if isDirectory { return .indigo }  // overridden in view with accentColor
         switch fileExtension {
         case "swift":        return Color(red: 0.98, green: 0.45, blue: 0.20)
         case "py":           return .blue
         case "js", "jsx":   return .yellow
         case "ts", "tsx":   return Color(red: 0.17, green: 0.51, blue: 0.90)
-        case "json":         return .orange
+        case "json":         return theme.statusOrange
         case "md":           return Color(red: 0.72, green: 0.52, blue: 0.35)  // warm braun
-        case "sh", "bash", "zsh": return .green
+        case "sh", "bash", "zsh": return theme.statusGreen
         case "html":         return Color(red: 0.90, green: 0.35, blue: 0.2)
         case "css", "scss": return .purple
         case "bas", "cls", "frm", "vba", "vbs": return Color(red: 0.13, green: 0.55, blue: 0.13)
@@ -138,7 +138,7 @@ final class ExplorerNode: Identifiable, ObservableObject {
         case "docx", "doc", "pages":           return Color(red: 0.17, green: 0.51, blue: 0.90)
         case "pptx", "ppt", "key":             return Color(red: 0.98, green: 0.45, blue: 0.20)
         case "png", "jpg", "jpeg", "gif", "svg": return .pink
-        case "pdf":          return .red
+        case "pdf":          return theme.statusRed
         default:             return .secondary
         }
     }
@@ -225,7 +225,7 @@ struct FileExplorerView: View {
 
     /// Option C: Ordner → Theme-Akzentfarbe, Dateien → semantische Extension-Farbe
     private func resolvedIconColor(_ node: ExplorerNode) -> Color {
-        node.isDirectory ? accentColor : node.iconColor
+        node.isDirectory ? accentColor : node.iconColor(theme: theme)
     }
 
     @State private var treePanelWidth: CGFloat = 300
@@ -307,7 +307,7 @@ struct FileExplorerView: View {
                     if showSaveToast {
                             HStack(spacing: 6) {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(theme.statusGreen)
                                 Text("Gespeichert")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(theme.primaryText)
@@ -528,7 +528,7 @@ struct FileExplorerView: View {
                         if isEditing {
                             Button { saveFile(node: node) } label: {
                                 Label(isDirty ? "Speichern *" : "Speichern", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 10)).foregroundStyle(.green)
+                                    .font(.system(size: 10)).foregroundStyle(theme.statusGreen)
                             }
                             .buttonStyle(.plain)
                             Button { isEditing = false; isDirty = false; editText = previewText ?? "" } label: {
@@ -1095,7 +1095,7 @@ struct FileExplorerView: View {
                     Spacer()
                     if isEditing && isDirty {
                         HStack(spacing: 4) {
-                            Circle().fill(.orange).frame(width: 6, height: 6)
+                            Circle().fill(theme.statusOrange).frame(width: 6, height: 6)
                             Text("Ungespeichert")
                                 .font(.system(size: 9))
                                 .foregroundStyle(theme.tertiaryText)
@@ -1262,7 +1262,7 @@ struct FileExplorerView: View {
                             ScrollView {
                                 Text(gitLog)
                                     .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(gitHadError ? Color.red : theme.primaryText)
+                                    .foregroundStyle(gitHadError ? theme.statusRed : theme.primaryText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(8)
                             }
@@ -1585,7 +1585,7 @@ struct ExplorerTreeRow: View {
     }
 
     private func resolvedIconColor(_ node: ExplorerNode) -> Color {
-        node.isDirectory ? accentColor : node.iconColor
+        node.isDirectory ? accentColor : node.iconColor(theme: theme)
     }
 
     private var isSelected: Bool { selectedNode?.id == node.id }
@@ -1669,7 +1669,7 @@ struct ExplorerTreeRow: View {
                         renameText = node.name
                         renamingNode = node
                     }
-                    toolbarIconBtn("trash", help: "Löschen", color: .red) { onDelete(node) }
+                    toolbarIconBtn("trash", help: "Löschen", color: theme.statusRed) { onDelete(node) }
                 }
             }
         }
@@ -2143,9 +2143,9 @@ struct PersonaReviewOverlay: View {
                             }
                             Divider()
                             HStack(alignment: .top, spacing: 12) {
-                                reviewColumn(icon: "hand.thumbsup.fill", color: .green,
+                                reviewColumn(icon: "hand.thumbsup.fill", color: theme.statusGreen,
                                              title: "Gefällt mir", items: r.liked, sendable: false)
-                                reviewColumn(icon: "hand.thumbsdown.fill", color: .red,
+                                reviewColumn(icon: "hand.thumbsdown.fill", color: theme.statusRed,
                                              title: "Gefällt nicht", items: r.disliked, sendable: false)
                                 reviewColumn(icon: "lightbulb.fill", color: accentColor,
                                              title: "Wünsche", items: r.wishes, sendable: true)
@@ -2158,7 +2158,7 @@ struct PersonaReviewOverlay: View {
                 } else if let errMsg = reviewError {
                     VStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 22)).foregroundStyle(.orange)
+                            .font(.system(size: 22)).foregroundStyle(theme.statusOrange)
                         Text(errMsg)
                             .font(.system(size: 11)).foregroundStyle(theme.secondaryText)
                             .multilineTextAlignment(.center).padding(.horizontal, 16)

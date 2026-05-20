@@ -210,7 +210,7 @@ struct HomeView: View {
     private var quickActionsCard: some View {
         HomeTile(title: "Schnellzugriff", icon: "bolt.fill", iconColor: accentColor, theme: theme) {
             VStack(spacing: 8) {
-                quickActionButton(label: "Neuer Chat",    icon: "bubble.left.and.bubble.right.fill", color: .green)  { selectedSection = .chat }
+                quickActionButton(label: "Neuer Chat",    icon: "bubble.left.and.bubble.right.fill", color: theme.statusGreen)  { selectedSection = .chat }
                 quickActionButton(label: "File Explorer", icon: "folder.fill",                        color: .indigo) { selectedSection = .files }
                 quickActionButton(label: "Code Review",   icon: "checklist",                          color: .mint)   { selectedSection = .codeReview }
                 quickActionButton(label: "Agents",        icon: "cpu.fill",                           color: .purple) { selectedSection = .agents }
@@ -259,7 +259,7 @@ struct HomeView: View {
         let weekPct: Double = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
         let barColor: Color = weekPct > 0.9 ? theme.statusRed : weekPct > 0.7 ? theme.statusOrange : theme.accentIcon
 
-        return HomeTile(title: "Kosten Heute", icon: "eurosign.circle.fill", iconColor: .orange, theme: theme) {
+        return HomeTile(title: "Kosten Heute", icon: "eurosign.circle.fill", iconColor: theme.statusOrange, theme: theme) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(state.fmt(state.localTodayCost))
@@ -310,7 +310,7 @@ struct HomeView: View {
     private var recentProjectsCard: some View {
         let projects = Array(state.historyService.projects.prefix(3))
 
-        return HomeTile(title: "Letzte Projekte", icon: "clock.arrow.circlepath", iconColor: .orange, theme: theme) {
+        return HomeTile(title: "Letzte Projekte", icon: "clock.arrow.circlepath", iconColor: theme.statusOrange, theme: theme) {
             VStack(alignment: .leading, spacing: 0) {
                 if projects.isEmpty {
                     emptyState(icon: "folder.badge.questionmark", text: "Noch keine Projekte vorhanden.")
@@ -332,11 +332,11 @@ struct HomeView: View {
                                 HStack(spacing: 10) {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 7)
-                                            .fill(Color.orange.opacity(0.12))
+                                            .fill(theme.statusOrange.opacity(0.12))
                                             .frame(width: 30, height: 30)
                                         Image(systemName: "folder.fill")
                                             .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.orange)
+                                            .foregroundStyle(theme.statusOrange)
                                     }
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(project.displayName)
@@ -378,7 +378,7 @@ struct HomeView: View {
     // MARK: - Active Sessions Card
 
     private var activeSessionsCard: some View {
-        HomeTile(title: "Aktive Sessions", icon: "terminal.fill", iconColor: .green, theme: theme) {
+        HomeTile(title: "Aktive Sessions", icon: "terminal.fill", iconColor: theme.statusGreen, theme: theme) {
             VStack(alignment: .leading, spacing: 0) {
                 if state.activeSessions.isEmpty {
                     emptyState(icon: "terminal", text: "Keine aktiven Prozesse.")
@@ -641,7 +641,7 @@ struct HomeView: View {
                     } else {
                         // ── Gesamt + Donut + Top-3-Cards ─────────────────
                         let totalSeconds = displayedProjects.map(\.totalSeconds).reduce(0, +)
-                        let chartColors: [Color] = [.indigo, .blue, .cyan, .teal, .purple, .pink, .orange, .green]
+                        let chartColors: [Color] = [.indigo, .blue, .cyan, .teal, .purple, .pink, theme.statusOrange, theme.statusGreen]
 
                         HStack(alignment: .center, spacing: 18) {
                             // ── Donut (A: größer, Gesamtzeit + Label) ────────

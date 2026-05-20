@@ -34,18 +34,18 @@ enum AppSection: String, CaseIterable, Hashable {
         }
     }
 
-    var color: Color {
+    func color(theme: AppTheme) -> Color {
         switch self {
         case .home:       return .blue
         case .dashboard:  return .blue
-        case .chat:       return .green
-        case .history:    return .orange
+        case .chat:       return theme.statusGreen
+        case .history:    return theme.statusOrange
         case .agents:     return .purple
         case .mcp:        return .cyan
         case .codeReview: return .mint
         case .files:      return .indigo
         case .notes:      return .yellow
-        case .tasks:      return .green
+        case .tasks:      return theme.statusGreen
         case .linear:     return Color(red: 0.35, green: 0.35, blue: 0.95)
         case .settings:   return .gray
         }
@@ -545,11 +545,11 @@ struct AgentDefinition: Identifiable, Hashable {
         return result
     }
 
-    var modelBadgeColor: Color {
+    func modelBadgeColor(theme: AppTheme) -> Color {
         switch model.lowercased() {
         case "opus":   return .purple
         case "sonnet": return .blue
-        case "haiku":  return .green
+        case "haiku":  return theme.statusGreen
         default:       return .gray
         }
     }

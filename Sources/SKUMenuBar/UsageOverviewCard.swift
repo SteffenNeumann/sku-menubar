@@ -52,7 +52,7 @@ struct UsageOverviewCard: View {
             usageRow(
                 label:  "Heute",
                 icon:   "sun.max.fill",
-                tint:   .orange,
+                tint:   theme.statusOrange,
                 amount: state.todayCost,
                 limit:  dailyBudget,
                 pct:    todayPct
@@ -202,6 +202,6 @@ struct UsageOverviewCard: View {
     }
 
     private func barTint(_ pct: Double, _ base: Color) -> Color {
-        pct > 0.9 ? .red : pct > 0.75 ? .orange : base
+        pct > 0.9 ? theme.statusRed : pct > 0.75 ? theme.statusOrange : base
     }
 }

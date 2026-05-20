@@ -32,7 +32,7 @@ struct ClaudeUsageCard: View {
 
             // ── Cost grid ─────────────────────────────────────────────
             HStack(spacing: 0) {
-                costCell(icon: "sun.max.fill",              color: .orange,
+                costCell(icon: "sun.max.fill",              color: theme.statusOrange,
                          label: "Heute",  value: state.claudeTodayCost)
                 Divider().frame(height: 40).opacity(0.2)
                 costCell(icon: "calendar.badge.clock",      color: .blue,
@@ -53,7 +53,7 @@ struct ClaudeUsageCard: View {
                     .padding(.vertical, 10)
 
                 HStack(spacing: 12) {
-                    tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: .orange)
+                    tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: theme.statusOrange)
                     tokenPill(label: "Monat", tokens: state.claudeMonthTokens, color: .indigo)
                     Spacer()
                     Text("Tokens").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
@@ -109,14 +109,14 @@ struct ClaudeUsageCard: View {
             headerRow
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange).font(.system(size: 13))
+                    .foregroundStyle(theme.statusOrange).font(.system(size: 13))
                 Text(msg)
                     .font(.system(size: 12)).foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .background(theme.statusOrange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 

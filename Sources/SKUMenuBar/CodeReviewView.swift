@@ -24,13 +24,13 @@ enum ReviewMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var color: Color {
+    func color(theme: AppTheme) -> Color {
         switch self {
         case .general:     return .blue
-        case .security:    return .red
-        case .performance: return .orange
+        case .security:    return theme.statusRed
+        case .performance: return theme.statusOrange
         case .refactoring: return .purple
-        case .tests:       return .green
+        case .tests:       return theme.statusGreen
         case .explain:     return .yellow
         }
     }
@@ -89,7 +89,7 @@ struct FileNode: Identifiable {
         }
     }
 
-    var iconColor: Color {
+    func iconColor(theme: AppTheme) -> Color {
         if isDirectory { return .blue }
         let ext = url.pathExtension.lowercased()
         switch ext {
@@ -97,7 +97,7 @@ struct FileNode: Identifiable {
         case "py":              return .yellow
         case "js", "jsx":       return Color(red: 0.97, green: 0.80, blue: 0.15)
         case "ts", "tsx":       return .blue
-        case "json":            return .green
+        case "json":            return theme.statusGreen
         case "md":              return .secondary
         case "go":              return .cyan
         case "rs":              return .orange
@@ -283,7 +283,7 @@ struct CodeReviewView: View {
 
                 Image(systemName: node.icon)
                     .font(.system(size: 10))
-                    .foregroundStyle(node.iconColor)
+                    .foregroundStyle(node.iconColor(theme: theme))
                     .frame(width: 14)
 
                 Text(node.name)
@@ -480,13 +480,13 @@ struct CodeReviewView: View {
             HStack(spacing: 5) {
                 Image(systemName: mode.icon)
                     .font(.system(size: 10))
-                    .foregroundStyle(isActive ? mode.activeForeground : mode.color)
+                    .foregroundStyle(isActive ? mode.activeForeground : mode.color(theme: theme))
                 Text(mode.rawValue)
                     .font(.system(size: 11, weight: isActive ? .semibold : .regular))
                     .foregroundStyle(isActive ? mode.activeForeground : theme.secondaryText)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(isActive ? mode.color : theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
+            .background(isActive ? mode.color(theme: theme) : theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7)
                 .strokeBorder(isActive ? Color.clear : theme.cardBorder, lineWidth: 0.5))
         }

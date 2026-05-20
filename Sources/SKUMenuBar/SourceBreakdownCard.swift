@@ -46,10 +46,10 @@ struct SourceBreakdownCard: View {
         case "__claude__":                         return .purple
         default: switch product.lowercased() {
         case let p where p.contains("copilot"):    return .blue
-        case let p where p.contains("action"):     return .orange
+        case let p where p.contains("action"):     return theme.statusOrange
         case let p where p.contains("package"):    return .teal
         case let p where p.contains("codespace"):  return .cyan
-        case let p where p.contains("storage"):    return .green
+        case let p where p.contains("storage"):    return theme.statusGreen
         case let p where p.contains("lfs"):        return .mint
         default:                                   return .secondary
         }}

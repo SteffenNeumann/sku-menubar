@@ -21,7 +21,7 @@ struct BudgetBarsView: View {
             HStack(spacing: 10) {
                 statCard(
                     icon:      "sun.max.fill",
-                    iconColor: .orange,
+                    iconColor: theme.statusOrange,
                     title:     "Heute",
                     amount:    state.todayCost,
                     subtitle:  "Limit \(fmt(dailyRef))",
