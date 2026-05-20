@@ -76,22 +76,18 @@ struct SettingsFormView: View {
                     // ═══════════════════════════════════════════════════════
                     // CLUSTER: API & Authentifizierung
                     // ═══════════════════════════════════════════════════════
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         clusterLabel("API & Authentifizierung")
-
-                        HStack(alignment: .top, spacing: 20) {
-                            configSection(title: "GitHub Access", icon: "chevron.left.forwardslash.chevron.right",
-                                          hint: "Fine-grained PAT · User → Plan (read) · Org → Administration (read)") {
-                                configCard {
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        fieldLabel("Personal Access Token")
-                                        SecureField("github_pat_…", text: $draft.token)
-                                            .textFieldStyle(.plain)
-                                            .styledInput(theme: theme)
-                                    }
-                                    Divider().foregroundStyle(theme.cardBorder).padding(.vertical, 2)
-                                    HStack(alignment: .bottom, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
+                        clusterCard {
+                            configRow(title: "GitHub Access",
+                                      icon: "chevron.left.forwardslash.chevron.right",
+                                      hint: "Fine-grained PAT · User → Plan (read)") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    SecureField("github_pat_…", text: $draft.token)
+                                        .textFieldStyle(.plain)
+                                        .styledInput(theme: theme)
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
                                             fieldLabel("Account Type")
                                             Picker("", selection: $draft.accountType) {
                                                 Text("User").tag("user")
@@ -102,7 +98,7 @@ struct SettingsFormView: View {
                                             .frame(width: 120)
                                             .frame(height: 28)
                                         }
-                                        VStack(alignment: .leading, spacing: 6) {
+                                        VStack(alignment: .leading, spacing: 4) {
                                             fieldLabel("Username / Org")
                                             TextField("octocat", text: $draft.name)
                                                 .textFieldStyle(.plain)
@@ -111,28 +107,27 @@ struct SettingsFormView: View {
                                     }
                                 }
                             }
-
-                            configSection(title: "Currency", icon: "creditcard",
-                                          hint: "Anzeigewährung und EUR/USD Wechselkurs für die Kostenumrechnung") {
-                                configCard {
-                                    HStack(alignment: .bottom, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("Primary Currency")
-                                            Picker("", selection: $draft.currency) {
-                                                Text("USD ($)").tag("USD")
-                                                Text("EUR (€)").tag("EUR")
-                                            }
-                                            .pickerStyle(.segmented)
-                                            .labelsHidden()
-                                            .frame(width: 130)
-                                            .frame(height: 28)
+                            rowDivider()
+                            configRow(title: "Currency",
+                                      icon: "creditcard",
+                                      hint: "EUR/USD Wechselkurs") {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Währung")
+                                        Picker("", selection: $draft.currency) {
+                                            Text("USD ($)").tag("USD")
+                                            Text("EUR (€)").tag("EUR")
                                         }
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("EUR/USD Kurs")
-                                            TextField("0.92", value: $draft.eurRate, format: .number)
-                                                .textFieldStyle(.plain)
-                                                .styledInput(theme: theme)
-                                        }
+                                        .pickerStyle(.segmented)
+                                        .labelsHidden()
+                                        .frame(width: 130)
+                                        .frame(height: 28)
+                                    }
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("EUR/USD Kurs")
+                                        TextField("0.92", value: $draft.eurRate, format: .number)
+                                            .textFieldStyle(.plain)
+                                            .styledInput(theme: theme)
                                     }
                                 }
                             }
@@ -142,176 +137,141 @@ struct SettingsFormView: View {
                     // ═══════════════════════════════════════════════════════
                     // CLUSTER: KI-Modelle & Limits
                     // ═══════════════════════════════════════════════════════
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         clusterLabel("KI-Modelle & Limits")
-
-                        configSection(title: "Claude (Anthropic Admin API)", icon: "cpu",
-                                      hint: "Admin Key aus den Anthropic Organization-Einstellungen · für Usage-Tracking") {
-                            configCard {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    HStack(alignment: .top, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
+                        clusterCard {
+                            configRow(title: "Claude Admin API",
+                                      icon: "cpu",
+                                      hint: "Usage-Tracking mit Admin Key") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
                                             fieldLabel("Admin Key")
                                             SecureField("sk-ant-admin01-…", text: $draft.anthropicAdminKey)
                                                 .textFieldStyle(.plain)
                                                 .styledInput(theme: theme)
                                         }
-                                        VStack(alignment: .leading, spacing: 6) {
+                                        VStack(alignment: .leading, spacing: 4) {
                                             fieldLabel("Weekly Token Limit")
-                                            TextField("z. B. 1900000", value: $draft.claudeWeeklyTokenLimit, format: .number)
+                                            TextField("0", value: $draft.claudeWeeklyTokenLimit, format: .number)
                                                 .textFieldStyle(.plain)
                                                 .styledInput(theme: theme)
                                         }
                                     }
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        fieldLabel("Messages API Key (optional, Fallback)")
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Messages API Key (optional)")
                                         SecureField("sk-ant-api03-…", text: $draft.anthropicApiKey)
                                             .textFieldStyle(.plain)
                                             .styledInput(theme: theme)
-                                        Text("Nur nötig wenn kein Ollama läuft · console.anthropic.com → API Keys")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(theme.tertiaryText)
                                     }
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        fieldLabel("Plan Limits (von claude.ai/settings/usage)")
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Plan Limits")
                                         HStack(spacing: 12) {
-                                            VStack(alignment: .leading, spacing: 6) {
+                                            VStack(alignment: .leading, spacing: 3) {
                                                 Text("Session-Token-Limit")
                                                     .font(.system(size: 11))
                                                     .foregroundStyle(theme.secondaryText)
-                                                TextField("z. B. 88000", value: $draft.claudeSessionTokenLimit, format: .number)
+                                                TextField("0", value: $draft.claudeSessionTokenLimit, format: .number)
                                                     .textFieldStyle(.plain)
                                                     .styledInput(theme: theme)
                                             }
-                                            VStack(alignment: .leading, spacing: 6) {
-                                                Text("Monats-Ausgabenlimit (€)")
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text("Monats-Limit (€)")
                                                     .font(.system(size: 11))
                                                     .foregroundStyle(theme.secondaryText)
-                                                TextField("z. B. 100", value: $draft.claudeMonthlySpendLimit, format: .number)
+                                                TextField("0", value: $draft.claudeMonthlySpendLimit, format: .number)
                                                     .textFieldStyle(.plain)
                                                     .styledInput(theme: theme)
                                             }
                                         }
-                                        Text("Abzulesen auf claude.ai/settings/usage · Session = 5h-Fenster")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(theme.tertiaryText)
                                     }
                                 }
                             }
-                        }
-
-                        configSection(title: "Ollama (Lokales LLM)", icon: "cpu.fill",
-                                      hint: "Kostenlos · kein API-Key nötig · E-Mails bleiben auf dem Gerät · brew install ollama && ollama serve") {
-                            configCard {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        fieldLabel("Ollama Base URL")
+                            rowDivider()
+                            configRow(title: "Ollama",
+                                      icon: "cpu.fill",
+                                      hint: "Lokales LLM · kein API-Key nötig") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Base URL")
                                         TextField("http://localhost:11434/v1", text: $draft.ollamaBaseUrl)
                                             .textFieldStyle(.plain)
                                             .styledInput(theme: theme)
-                                        Text("Standard-Port 11434 · wird für Kundenanfragen-Triage verwendet (vor Anthropic API)")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(theme.tertiaryText)
                                     }
-                                    VStack(alignment: .leading, spacing: 6) {
+                                    VStack(alignment: .leading, spacing: 4) {
                                         fieldLabel("Modell")
                                         TextField("llama3.2", text: $draft.ollamaModel)
                                             .textFieldStyle(.plain)
                                             .styledInput(theme: theme)
-                                        Text("ollama pull llama3.2 · oder mistral, qwen2.5, phi4 etc.")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(theme.tertiaryText)
                                     }
                                 }
                             }
-                        }
-
-                        configSection(title: "Copilot Fallback", icon: "arrow.triangle.2.circlepath",
-                                      hint: "Bei Claude Rate-Limit automatisch auf GitHub Copilot umschalten") {
-                            configCard {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    HStack(spacing: 10) {
-                                        Toggle("Automatisch auf Copilot umschalten", isOn: $draft.copilotFallbackEnabled)
-                                            .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(theme.primaryText)
-                                        Spacer()
-                                    }
+                            rowDivider()
+                            configRow(title: "Copilot Fallback",
+                                      icon: "arrow.triangle.2.circlepath",
+                                      hint: "Bei Rate-Limit auf Copilot umschalten") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Toggle("Automatisch umschalten", isOn: $draft.copilotFallbackEnabled)
+                                        .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(theme.primaryText)
                                     if draft.copilotFallbackEnabled {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("Fallback-Modell (muss github/... sein für Copilot-Routing)")
-                                            Picker("", selection: $draft.copilotFallbackModel) {
-                                                ForEach(KnownModel.all.filter { $0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
-                                                    Text("\(model.name) (\(model.provider))")
-                                                        .tag(model.apiName)
-                                                }
-                                                Divider()
-                                                ForEach(KnownModel.all.filter { !$0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
-                                                    Text("\(model.name) (\(model.provider))")
-                                                        .tag(model.apiName)
-                                                }
+                                        Picker("", selection: $draft.copilotFallbackModel) {
+                                            ForEach(KnownModel.all.filter { $0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
+                                                Text("\(model.name) (\(model.provider))")
+                                                    .tag(model.apiName)
                                             }
-                                            .labelsHidden()
-                                            .pickerStyle(.menu)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(theme.cardBg.opacity(0.5))
-                                            .cornerRadius(6)
+                                            Divider()
+                                            ForEach(KnownModel.all.filter { !$0.apiName.hasPrefix("github/") }, id: \.apiName) { model in
+                                                Text("\(model.name) (\(model.provider))")
+                                                    .tag(model.apiName)
+                                            }
                                         }
-                                        Text("Wird automatisch aktiviert wenn Claude einen Rate-Limit-Fehler zurückgibt. Indikator erscheint in der Seitenleiste.")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(theme.tertiaryText)
+                                        .labelsHidden()
+                                        .pickerStyle(.menu)
                                     }
                                 }
                             }
-                        }
-
-                        configSection(title: "Token-Optimierung", icon: "slider.horizontal.3",
-                                      hint: "History-Fenster, Max-Turns und Auto-Compact für alle Modelle") {
-                            configCard {
+                            rowDivider()
+                            configRow(title: "Token-Optimierung",
+                                      icon: "slider.horizontal.3",
+                                      hint: "History, Max-Turns, Auto-Compact") {
                                 VStack(alignment: .leading, spacing: 10) {
                                     HStack(spacing: 12) {
                                         VStack(alignment: .leading, spacing: 4) {
-                                            fieldLabel("History-Fenster (GitHub Modelle) — Turns")
+                                            fieldLabel("History-Fenster")
                                             HStack(spacing: 6) {
                                                 TextField("8", value: $draft.historyWindowSize, formatter: NumberFormatter())
                                                     .styledInput(theme: theme)
-                                                    .frame(width: 60)
-                                                Text("Turns (~\(draft.historyWindowSize * 2) Nachrichten)")
+                                                    .frame(width: 50)
+                                                Text("Turns")
                                                     .font(.system(size: 12))
                                                     .foregroundStyle(theme.tertiaryText)
                                             }
                                         }
-                                        Spacer()
                                         VStack(alignment: .leading, spacing: 4) {
-                                            fieldLabel("Max. Turns Claude CLI (0 = aus)")
+                                            fieldLabel("Max. Turns CLI")
                                             HStack(spacing: 6) {
                                                 TextField("10", value: $draft.maxTurns, formatter: NumberFormatter())
                                                     .styledInput(theme: theme)
-                                                    .frame(width: 60)
-                                                Text("--max-turns")
+                                                    .frame(width: 50)
+                                                Text("(0 = aus)")
                                                     .font(.system(size: 12))
                                                     .foregroundStyle(theme.tertiaryText)
                                             }
                                         }
                                     }
-                                    HStack(spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            fieldLabel("Auto-Compact Schwelle — Input-Tokens (0 = aus)")
-                                            HStack(spacing: 6) {
-                                                TextField("50000", value: $draft.autoCompactThreshold, formatter: NumberFormatter())
-                                                    .styledInput(theme: theme)
-                                                    .frame(width: 80)
-                                                Text(draft.autoCompactThreshold > 0 ? "≥ \(draft.autoCompactThreshold >= 1000 ? String(format: "%.0fk", Double(draft.autoCompactThreshold) / 1000) : "\(draft.autoCompactThreshold)") Tokens → automatisch /compact" : "deaktiviert")
-                                                    .font(.system(size: 12))
-                                                    .foregroundStyle(theme.tertiaryText)
-                                            }
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Auto-Compact Schwelle")
+                                        HStack(spacing: 6) {
+                                            TextField("100000", value: $draft.autoCompactThreshold, formatter: NumberFormatter())
+                                                .styledInput(theme: theme)
+                                                .frame(width: 80)
+                                            Text(draft.autoCompactThreshold > 0 ? "≥ \(draft.autoCompactThreshold >= 1000 ? String(format: "%.0fk", Double(draft.autoCompactThreshold) / 1000) : "\(draft.autoCompactThreshold)") Tokens → /compact" : "deaktiviert")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(theme.tertiaryText)
                                         }
-                                        Spacer()
                                     }
-                                    Text("Ab dieser Schwelle wird /compact automatisch nach einer Antwort ausgelöst. Warnung (orange) ab 50%, kritisch (rot) ab 100%.")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(theme.tertiaryText)
                                 }
                             }
                         }
@@ -320,64 +280,55 @@ struct SettingsFormView: View {
                     // ═══════════════════════════════════════════════════════
                     // CLUSTER: Integrationen
                     // ═══════════════════════════════════════════════════════
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         clusterLabel("Integrationen")
-
-                        HStack(alignment: .top, spacing: 20) {
-                            configSection(title: "Budget & Filter", icon: "line.3.horizontal.decrease.circle",
-                                          hint: "Filtere GitHub-Daten nach Produkt · Monatliches Ausgabenlimit in USD") {
-                                configCard {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("Active Product")
-                                            Picker("", selection: $draft.product) {
-                                                Text("Alle Produkte").tag("")
-                                                Text("Actions").tag("actions")
-                                                Text("Copilot").tag("copilot")
-                                                Text("Packages").tag("packages")
-                                                Text("Shared Storage").tag("shared_storage")
+                        clusterCard {
+                            configRow(title: "Budget & Filter",
+                                      icon: "line.3.horizontal.decrease.circle",
+                                      hint: "GitHub-Daten nach Produkt filtern") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("Active Product")
+                                        Picker("", selection: $draft.product) {
+                                            Text("Alle Produkte").tag("")
+                                            Text("Actions").tag("actions")
+                                            Text("Copilot").tag("copilot")
+                                            Text("Packages").tag("packages")
+                                            Text("Shared Storage").tag("shared_storage")
+                                        }
+                                        .pickerStyle(.menu)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            fieldLabel("Monthly Budget ($)")
+                                            TextField("50", value: $draft.budget, format: .number)
+                                                .textFieldStyle(.plain)
+                                                .styledInput(theme: theme)
+                                        }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            fieldLabel("Auto-Update")
+                                            Picker("", selection: $draft.intervalSeconds) {
+                                                Text("1 Min").tag(60)
+                                                Text("5 Min").tag(300)
+                                                Text("10 Min").tag(600)
+                                                Text("30 Min").tag(1800)
                                             }
                                             .pickerStyle(.menu)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         }
-                                        HStack(alignment: .top, spacing: 12) {
-                                            VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Monthly Budget ($)")
-                                                TextField("10", value: $draft.budget, format: .number)
-                                                    .textFieldStyle(.plain)
-                                                    .styledInput(theme: theme)
-                                            }
-                                            VStack(alignment: .leading, spacing: 6) {
-                                                fieldLabel("Auto-Update")
-                                                Picker("", selection: $draft.intervalSeconds) {
-                                                    Text("1 Min").tag(60)
-                                                    Text("5 Min").tag(300)
-                                                    Text("10 Min").tag(600)
-                                                    Text("30 Min").tag(1800)
-                                                }
-                                                .pickerStyle(.menu)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                            }
-                                        }
                                     }
                                 }
                             }
-
-                            configSection(title: "TMetric Zeiterfassung", icon: "timer",
-                                          hint: "API-Token aus deinem TMetric-Profil · Zeitdaten werden in der Home-Kachel angezeigt") {
-                                configCard {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            fieldLabel("API Token")
-                                            SecureField("Dein TMetric API Token…", text: $draft.tmetricApiToken)
-                                                .textFieldStyle(.plain)
-                                                .styledInput(theme: theme)
-                                        }
-                                        Text("Token holen: TMetric -> Profil -> 'Get new API token' - Account-ID 276655 wird automatisch verwendet.")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(theme.tertiaryText)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
+                            rowDivider()
+                            configRow(title: "TMetric",
+                                      icon: "timer",
+                                      hint: "Zeitdaten in der Home-Kachel") {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    fieldLabel("API Token")
+                                    SecureField("Dein TMetric API Token…", text: $draft.tmetricApiToken)
+                                        .textFieldStyle(.plain)
+                                        .styledInput(theme: theme)
                                 }
                             }
                         }
@@ -386,109 +337,106 @@ struct SettingsFormView: View {
                     // ═══════════════════════════════════════════════════════
                     // CLUSTER: System
                     // ═══════════════════════════════════════════════════════
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         clusterLabel("System")
-
-                        configSection(title: "Datei-Zugriff", icon: "folder.badge.gearshape",
-                                      hint: "Erlaubt myClaude dauerhaft auf Projektordner in ~/Documents zuzugreifen — ohne Bestätigungsdialog bei jedem Deploy") {
-                            configCard {
-                                HStack(spacing: 16) {
-                                    HStack(spacing: 8) {
+                        clusterCard {
+                            configRow(title: "Datei-Zugriff",
+                                      icon: "folder.badge.gearshape",
+                                      hint: "~/Documents ohne Bestätigungsdialog") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 10) {
                                         if let access = hasDocumentsAccess {
                                             Circle()
                                                 .fill(access ? theme.statusGreen : theme.statusOrange)
                                                 .frame(width: 8, height: 8)
-                                            Text(access
-                                                 ? "Zugriff auf ~/Documents vorhanden"
-                                                 : "Kein Zugriff auf ~/Documents — macOS fragt bei jedem neuen Build erneut")
+                                            Text(access ? "Zugriff vorhanden" : "Kein Zugriff")
                                                 .font(.system(size: 13))
-                                                .foregroundStyle(access ? theme.primaryText : theme.primaryText)
+                                                .foregroundStyle(theme.primaryText)
                                         } else {
                                             ProgressView().controlSize(.small)
-                                            Text("Prüfe Zugriff…")
+                                            Text("Prüfe…")
                                                 .font(.system(size: 13))
                                                 .foregroundStyle(theme.secondaryText)
                                         }
+                                        Spacer()
+                                        Button {
+                                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+                                        } label: {
+                                            Label("Full Disk Access", systemImage: "gear")
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(accent)
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 5)
+                                                .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                                        }
+                                        .buttonStyle(.plain)
+                                        Button {
+                                            checkDocumentsAccess()
+                                        } label: {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(theme.secondaryText)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    Spacer()
-                                    Button {
-                                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
-                                    } label: {
-                                        Label("Full Disk Access öffnen", systemImage: "gear")
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(accent)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                            .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button {
-                                        checkDocumentsAccess()
-                                    } label: {
-                                        Image(systemName: "arrow.clockwise")
-                                            .font(.system(size: 13))
-                                            .foregroundStyle(theme.secondaryText)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("Status neu prüfen")
                                 }
-                                Divider().foregroundStyle(theme.cardBorder)
-                                Text("Öffne Systemeinstellungen → Datenschutz & Sicherheit → Voller Festplattenzugriff und füge myClaude hinzu. Danach erscheint der Bestätigungsdialog nie wieder — auch nach einem Rebuild nicht.")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(theme.tertiaryText)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
+                    }
 
-                        configSection(title: "Appearance", icon: "paintpalette") {
-                            configCard {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    let darkThemes = AppTheme.all.filter { !$0.isLight && !$0.isMedium }
-                                    let mediumThemes = AppTheme.all.filter { $0.isMedium }
-                                    let lightThemes = AppTheme.all.filter { $0.isLight }
+                    // ═══════════════════════════════════════════════════════
+                    // CLUSTER: Appearance
+                    // ═══════════════════════════════════════════════════════
+                    VStack(alignment: .leading, spacing: 12) {
+                        clusterLabel("Appearance")
+                        clusterCard {
+                            VStack(alignment: .leading, spacing: 16) {
+                                let darkThemes = AppTheme.all.filter { !$0.isLight && !$0.isMedium }
+                                let mediumThemes = AppTheme.all.filter { $0.isMedium }
+                                let lightThemes = AppTheme.all.filter { $0.isLight }
 
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        themeGroupHeader(label: "DARK", icon: "moon.fill")
-                                        LazyVGrid(
-                                            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                                            alignment: .leading, spacing: 10
-                                        ) {
-                                            ForEach(darkThemes.prefix(4)) { t in themeSwatchButton(t) }
-                                        }
-                                        LazyVGrid(
-                                            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                                            alignment: .leading, spacing: 10
-                                        ) {
-                                            ForEach(darkThemes.dropFirst(4)) { t in themeSwatchButton(t) }
-                                        }
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "DARK", icon: "moon.fill")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading, spacing: 10
+                                    ) {
+                                        ForEach(darkThemes.prefix(4)) { t in themeSwatchButton(t) }
                                     }
-
-                                    Divider().foregroundStyle(theme.cardBorder)
-
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        themeGroupHeader(label: "MEDIUM", icon: "circle.lefthalf.filled")
-                                        LazyVGrid(
-                                            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                                            alignment: .leading, spacing: 10
-                                        ) {
-                                            ForEach(mediumThemes) { t in themeSwatchButton(t) }
-                                        }
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading, spacing: 10
+                                    ) {
+                                        ForEach(darkThemes.dropFirst(4)) { t in themeSwatchButton(t) }
                                     }
+                                }
 
-                                    Divider().foregroundStyle(theme.cardBorder)
+                                Divider().foregroundStyle(theme.cardBorder)
 
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        themeGroupHeader(label: "LIGHT", icon: "sun.max.fill")
-                                        LazyVGrid(
-                                            columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
-                                            alignment: .leading,
-                                            spacing: 10
-                                        ) {
-                                            ForEach(lightThemes) { t in themeSwatchButton(t) }
-                                        }
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "MEDIUM", icon: "circle.lefthalf.filled")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading, spacing: 10
+                                    ) {
+                                        ForEach(mediumThemes) { t in themeSwatchButton(t) }
+                                    }
+                                }
+
+                                Divider().foregroundStyle(theme.cardBorder)
+
+                                VStack(alignment: .leading, spacing: 10) {
+                                    themeGroupHeader(label: "LIGHT", icon: "sun.max.fill")
+                                    LazyVGrid(
+                                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4),
+                                        alignment: .leading,
+                                        spacing: 10
+                                    ) {
+                                        ForEach(lightThemes) { t in themeSwatchButton(t) }
                                     }
                                 }
                             }
+                            .padding(18)
                         }
                     }
                 }
@@ -536,47 +484,65 @@ struct SettingsFormView: View {
         }
     }
 
-    // MARK: - Section Header
+    // MARK: - Cluster Card (one card per cluster)
 
     @ViewBuilder
-    private func configSection<C: View>(
+    private func clusterCard<C: View>(@ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .mirrorCard()
+    }
+
+    // MARK: - Config Row (label left, controls right)
+
+    @ViewBuilder
+    private func configRow<C: View>(
         title: String,
         icon: String,
         hint: String? = nil,
-        @ViewBuilder content: () -> C
+        @ViewBuilder controls: () -> C
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 24) {
+            // Left column: title + hint
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
                     Image(systemName: icon)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(accent)
+                        .frame(width: 16, alignment: .center)
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                 }
                 if let hint {
                     Text(hint)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(theme.tertiaryText)
-                        .padding(.leading, 22)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 23)
                 }
             }
-            content()
+            .frame(width: 220, alignment: .leading)
+
+            // Right column: controls
+            VStack(alignment: .leading, spacing: 10) {
+                controls()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
-    // MARK: - Card Container
+    // MARK: - Row Divider
 
     @ViewBuilder
-    private func configCard<C: View>(@ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            content()
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .mirrorCard()
+    private func rowDivider() -> some View {
+        Divider()
+            .foregroundStyle(theme.cardBorder)
+            .padding(.horizontal, 18)
     }
 
     // MARK: - Field Label
