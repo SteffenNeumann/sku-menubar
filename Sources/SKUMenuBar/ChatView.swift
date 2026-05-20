@@ -687,13 +687,41 @@ struct SingleChatSessionView: View {
     private func syncMessagesOnChange() {
         if !isStreaming { tab.messages = messages }
         if let cwd = workingDirectory {
+            // ── Pfad-Hilfsfunktion ───────────────────────────────────────
+            func resolve(_ raw: String) -> String {
+                raw.hasPrefix("/") ? raw : cwd + (cwd.hasSuffix("/") ? "" : "/") + raw
+            }
+
             for msg in messages {
-                guard let diff = msg.gitDiff else { continue }
-                for file in parseDiffFiles(diff) {
-                    let path = cwd + (cwd.hasSuffix("/") ? "" : "/") + file.name
-                    if !dismissedChangedPaths.contains(path) {
-                        changedFilePaths.insert(path)
-                        if file.isNew { newFilePaths.insert(path) }
+                // Methode 1: git diff (optional, wenn Git vorhanden)
+                if let diff = msg.gitDiff {
+                    for file in parseDiffFiles(diff) {
+                        let path = resolve(file.name)
+                        if !dismissedChangedPaths.contains(path) {
+                            changedFilePaths.insert(path)
+                            if file.isNew { newFilePaths.insert(path) }
+                        }
+                    }
+                }
+
+                // Methode 2: Write / Edit Tool-Calls direkt auswerten
+                // Funktioniert auch ohne Git-Repo (z.B. neue Projekte)
+                for call in msg.toolCalls {
+                    let raw = call.input.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !raw.isEmpty else { continue }
+                    switch call.name {
+                    case "Write":
+                        let path = resolve(raw)
+                        if !dismissedChangedPaths.contains(path) {
+                            changedFilePaths.insert(path)
+                            newFilePaths.insert(path)     // Write = neue Datei (grünes +)
+                        }
+                    case "Edit", "MultiEdit", "NotebookEdit":
+                        let path = resolve(raw)
+                        if !dismissedChangedPaths.contains(path) {
+                            changedFilePaths.insert(path)  // Edit = geändert (orange ●)
+                        }
+                    default: break
                     }
                 }
             }
