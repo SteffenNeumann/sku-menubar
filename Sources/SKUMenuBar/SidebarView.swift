@@ -198,9 +198,15 @@ struct SidebarView: View {
                               ? accentColor.opacity(0.30)
                               : theme.primaryText.opacity(0.06))
                         .frame(width: 26, height: 26)
-                    Image(systemName: section.icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
+                    if section == .linear {
+                        LinearLogoShape()
+                            .fill(isSelected ? accentColor : theme.secondaryText)
+                            .frame(width: 14, height: 14)
+                    } else {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
+                    }
                 }
 
                 Text(section.rawValue)
