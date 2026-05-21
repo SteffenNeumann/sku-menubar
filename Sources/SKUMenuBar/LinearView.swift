@@ -563,21 +563,32 @@ struct LinearView: View {
         let isSelected = selectedIssue?.id == issue.id
         let isHovered = hoveredIssueId == issue.id
 
+        let isSubtask = issue.parentId != nil
+
         return Button {
             selectedIssue = issue
         } label: {
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .center, spacing: 0) {
+                // Subtask indent + vertical bar
+                if isSubtask {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(linearPurple.opacity(0.35))
+                        .frame(width: 2)
+                        .padding(.trailing, 8)
+                }
+
+                HStack(alignment: .center, spacing: 10) {
                 // Status icon as leading element
                 if let st = issue.state {
-                    LinearStateIcon(type: st.type, color: st.displayColor, size: 16)
+                    LinearStateIcon(type: st.type, color: st.displayColor, size: isSubtask ? 14 : 16)
                 } else {
-                    LinearStateIcon(type: "unstarted", color: theme.tertiaryText, size: 16)
+                    LinearStateIcon(type: "unstarted", color: theme.tertiaryText, size: isSubtask ? 14 : 16)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     // Title first — primary element
                     Text(issue.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: isSubtask ? 11.5 : 12, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                         .strikethrough(issue.state?.isCompleted ?? false, color: theme.tertiaryText)
@@ -629,8 +640,10 @@ struct LinearView: View {
                             .foregroundStyle(theme.tertiaryText)
                     }
                 }
-            }
-            .padding(.horizontal, 12)
+                } // inner HStack
+            } // outer HStack
+            .padding(.leading, isSubtask ? 6 : 12)
+            .padding(.trailing, 12)
             .padding(.vertical, 10)
             .background(
                 isSelected ? linearPurple.opacity(0.10)
