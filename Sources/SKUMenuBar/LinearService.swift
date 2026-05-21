@@ -136,11 +136,15 @@ final class LinearService: ObservableObject {
 
     private var session: MCPClientSession?
     private var sessionConnected = false
+    private var linearAccessToken: String?
 
     func configure(config: MCPServerConfig) {
         session?.stop()
         session = MCPClientSession(config: config)
         sessionConnected = false
+        linearAccessToken = config.envVars
+            .first { $0.hasPrefix("LINEAR_ACCESS_TOKEN=") }
+            .map { String($0.dropFirst("LINEAR_ACCESS_TOKEN=".count)) }
     }
 
     private func ensureConnected() async throws {
@@ -257,54 +261,48 @@ final class LinearService: ObservableObject {
 
     func loadComments(issueId: String, identifier: String) async {
         do {
-            try await ensureConnected()
-            guard let session else { throw LinearError.notConfigured }
-            let raw = try await session.callTool(name: "linear_search_issues_by_identifier", arguments: [
-                "identifiers": [identifier]
-            ])
-            comments[issueId] = parseComments(from: raw)
+            let query = """
+            query { issue(id: "\(issueId)") { comments { nodes { id body createdAt user { name displayName } } } } }
+            """
+            guard let token = linearAccessToken,
+                  let url = URL(string: "https://api.linear.app/graphql") else {
+                comments[issueId] = []
+                return
+            }
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(token, forHTTPHeaderField: "Authorization")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let issue = dataObj["issue"] as? [String: Any],
+                  let comms = issue["comments"] as? [String: Any],
+                  let nodes = comms["nodes"] as? [[String: Any]] else {
+                comments[issueId] = []
+                return
+            }
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let isoFallback = ISO8601DateFormatter()
+            comments[issueId] = nodes.compactMap { c -> LinearComment? in
+                guard let id = c["id"] as? String else { return nil }
+                let user = c["user"] as? [String: Any]
+                let dateStr = c["createdAt"] as? String
+                let date = dateStr.flatMap { iso.date(from: $0) ?? isoFallback.date(from: $0) }
+                return LinearComment(
+                    id: id,
+                    body: (c["body"] as? String) ?? "",
+                    authorName: (user?["name"] as? String) ?? (user?["displayName"] as? String) ?? "Unbekannt",
+                    createdAt: date
+                )
+            }.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
         } catch {
-            // Comments are non-critical — don't set global error
+            comments[issueId] = []
         }
     }
 
-    private func parseComments(from raw: String) -> [LinearComment] {
-        guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
-
-        // Navigate to comments in the issue response
-        var commentsNodes: [[String: Any]] = []
-        if let issues = json["issues"] as? [[String: Any]],
-           let first = issues.first,
-           let comms = first["comments"] as? [String: Any],
-           let nodes = comms["nodes"] as? [[String: Any]] {
-            commentsNodes = nodes
-        } else if let comms = json["comments"] as? [String: Any],
-                  let nodes = comms["nodes"] as? [[String: Any]] {
-            commentsNodes = nodes
-        }
-        // Also try flat structure from linear_search_issues_by_identifier response
-        if commentsNodes.isEmpty, let nodes = json["comments"] as? [[String: Any]] {
-            commentsNodes = nodes
-        }
-
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let isoFallback = ISO8601DateFormatter()
-
-        return commentsNodes.compactMap { c -> LinearComment? in
-            guard let id = c["id"] as? String else { return nil }
-            let user = c["user"] as? [String: Any]
-            let dateStr = c["createdAt"] as? String
-            let date = dateStr.flatMap { iso.date(from: $0) ?? isoFallback.date(from: $0) }
-            return LinearComment(
-                id: id,
-                body: (c["body"] as? String) ?? "",
-                authorName: (user?["name"] as? String) ?? (user?["displayName"] as? String) ?? "Unbekannt",
-                createdAt: date
-            )
-        }.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-    }
 
     func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
         try await ensureConnected()
