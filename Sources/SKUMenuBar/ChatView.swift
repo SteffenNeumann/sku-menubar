@@ -2663,14 +2663,20 @@ struct SingleChatSessionView: View {
             // Parse plan into per-agent tasks
             let agentTasks = parseOrchestratorPlan(planText, agents: agents)
 
-            // ── Phase 2: Execution ─────────────────────────────────────
+            // ── Phase 2: Execution (compact — only synthesis is shown in full) ──
             var agentOutputs: [(name: String, output: String)] = []
 
-            for agent in agents {
-                var placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
-                placeholder.model = agent.name
-                messages.append(placeholder)
-                let idx = messages.count - 1
+            // Single progress message for all agents
+            var progressMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+            progressMsg.model = "⚙️ Agents"
+            messages.append(progressMsg)
+            let progressIdx = messages.count - 1
+            messages[progressIdx].content = ""
+
+            for (i, agent) in agents.enumerated() {
+                // Show spinning indicator for current agent
+                let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
+                messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
 
                 let specificTask = agentTasks[agent.id] ?? text
 
@@ -2698,12 +2704,8 @@ struct SingleChatSessionView: View {
                 Fokussiere dich NUR auf deine Teilaufgabe. Wiederhole nicht, was andere Agents bereits geliefert haben.
                 """
 
-                messages[idx].content = "**[\(agent.name)]**\n"
-
                 let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent)
                 var agentOutput = ""
-                var pendingContent = ""
-                var tokenCount = 0
 
                 let stream = state.cliService.send(
                     message: agentMessage,
@@ -2716,50 +2718,27 @@ struct SingleChatSessionView: View {
                         switch event.type {
                         case "assistant":
                             guard let content = event.message?.content else { break }
-                            for block in content {
-                                switch block.type {
-                                case "text":
-                                    if let t = block.text, !t.isEmpty {
-                                        agentOutput += t
-                                        pendingContent += t
-                                        tokenCount += 1
-                                        if tokenCount >= 50 {
-                                            messages[idx].content += pendingContent
-                                            pendingContent = ""
-                                            tokenCount = 0
-                                        }
-                                    }
-                                case "tool_use":
-                                    let name = block.name ?? "tool"
-                                    messages[idx].toolCalls.append(ToolCall(
-                                        name: name,
-                                        input: block.toolInput?.displayText ?? "",
-                                        toolUseId: block.id
-                                    ))
-                                default: break
-                                }
-                            }
-                        case "user":
-                            guard let content = event.message?.content else { break }
-                            for block in content where block.type == "tool_result" {
-                                guard let toolId = block.toolUseId,
-                                      let resultText = block.toolResultText,
-                                      !resultText.isEmpty else { continue }
-                                if let ri = messages[idx].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
-                                    messages[idx].toolCalls[ri].result = String(resultText.prefix(4000))
+                            for block in content where block.type == "text" {
+                                if let t = block.text, !t.isEmpty {
+                                    agentOutput += t
                                 }
                             }
                         default: break
                         }
                     }
                 } catch {
-                    messages[idx].content += "\n\n⚠️ \(error.localizedDescription)"
+                    agentOutput += "\n⚠️ \(error.localizedDescription)"
                 }
-                if !pendingContent.isEmpty {
-                    messages[idx].content += pendingContent
-                }
-                messages[idx].isStreaming = false
                 agentOutputs.append((name: agent.name, output: agentOutput))
+
+                // Update progress: mark this agent as done
+                let allDoneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
+                if i < agents.count - 1 {
+                    messages[progressIdx].content = allDoneLines
+                } else {
+                    messages[progressIdx].content = allDoneLines
+                    messages[progressIdx].isStreaming = false
+                }
             }
 
             // ── Phase 3: Synthesis ─────────────────────────────────────
@@ -2817,8 +2796,11 @@ struct SingleChatSessionView: View {
                 let fullRoundSummary = agentOutputs.map { "[\($0.name)] \($0.output.prefix(500))" }.joined(separator: "\n\n")
                 orchestratorHistory.append((role: "orchestrator", content: "Plan:\n\(planText.prefix(500))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
             } else {
-                // Single agent — store output directly
+                // Single agent — show output directly (no synthesis needed)
                 if let first = agentOutputs.first {
+                    var singleMsg = ChatMessage(role: .assistant, content: first.output)
+                    singleMsg.model = first.name
+                    messages.append(singleMsg)
                     orchestratorHistory.append((role: first.name, content: first.output.prefix(1000).description))
                 }
             }
