@@ -4,6 +4,8 @@ struct MainWindowView: View {
     @EnvironmentObject var state: AppState
     @State private var selectedSection: AppSection = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var previousSection: AppSection? = nil
+    @State private var sectionMonitor: Any? = nil
     // Lazy flags — heavy views are only instantiated when first visited
     @State private var chatLoaded       = false
     @State private var filesLoaded      = false
@@ -41,6 +43,27 @@ struct MainWindowView: View {
         }
         .onChange(of: state.hideSidebar) { _, hidden in
             withAnimation { columnVisibility = hidden ? .detailOnly : .all }
+        }
+        .onChange(of: selectedSection) { old, _ in
+            previousSection = old
+        }
+        .onAppear {
+            sectionMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard flags == [.command, .control],
+                      event.keyCode == 123 || event.keyCode == 124,
+                      let prev = previousSection else { return event }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    selectedSection = prev
+                }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let monitor = sectionMonitor {
+                NSEvent.removeMonitor(monitor)
+                sectionMonitor = nil
+            }
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .background(WindowConfigurator().frame(width: 0, height: 0))
