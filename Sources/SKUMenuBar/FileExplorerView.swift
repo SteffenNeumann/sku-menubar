@@ -1692,6 +1692,36 @@ struct ExplorerTreeRow: View {
             }
             onSelect(node)
         }
+        .contextMenu {
+            if !node.isDirectory {
+                Button {
+                    if let text = try? String(contentsOf: node.url, encoding: .utf8) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                } label: { Label("Inhalt kopieren", systemImage: "doc.on.clipboard") }
+                Divider()
+            }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            } label: { Label("Pfad kopieren", systemImage: "link") }
+            Button {
+                NSWorkspace.shared.selectFile(node.url.path,
+                    inFileViewerRootedAtPath: node.url.deletingLastPathComponent().path)
+            } label: { Label("Im Finder zeigen", systemImage: "folder") }
+            Button {
+                NSWorkspace.shared.open(node.url)
+            } label: { Label("Mit Standard-App öffnen", systemImage: "arrow.up.right.square") }
+            Divider()
+            Button {
+                renameText = node.name
+                renamingNode = node
+            } label: { Label("Umbenennen", systemImage: "pencil") }
+            Button(role: .destructive) {
+                onDelete(node)
+            } label: { Label("Löschen", systemImage: "trash") }
+        }
         .padding(.horizontal, 4)
     }
 

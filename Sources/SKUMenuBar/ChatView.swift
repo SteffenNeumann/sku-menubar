@@ -4835,10 +4835,43 @@ struct ChatFilePanelRow: View {
             onSelect(node)
             if node.isDirectory {
                 withAnimation(.easeInOut(duration: 0.12)) { node.isExpanded.toggle() }
-                // Load (or retry after failure) when expanding
                 if node.isExpanded && (node.children == nil || node.loadFailed) {
                     node.loadChildren(showHidden: showHidden)
                 }
+            }
+        }
+        .contextMenu {
+            // ── Datei-Aktionen ─────────────────────────────────────
+            if !node.isDirectory {
+                Button {
+                    if let text = try? String(contentsOf: node.url, encoding: .utf8) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                } label: {
+                    Label("Inhalt kopieren", systemImage: "doc.on.clipboard")
+                }
+                Button { onInsert(node) } label: {
+                    Label("In Chat einfügen", systemImage: "text.badge.plus")
+                }
+                Divider()
+            }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(node.url.path, forType: .string)
+            } label: {
+                Label("Pfad kopieren", systemImage: "link")
+            }
+            Button {
+                NSWorkspace.shared.selectFile(node.url.path,
+                    inFileViewerRootedAtPath: node.url.deletingLastPathComponent().path)
+            } label: {
+                Label("Im Finder zeigen", systemImage: "folder")
+            }
+            Button {
+                NSWorkspace.shared.open(node.url)
+            } label: {
+                Label("Mit Standard-App öffnen", systemImage: "arrow.up.right.square")
             }
         }
         .padding(.horizontal, 4)
