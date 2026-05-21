@@ -692,12 +692,19 @@ struct SingleChatSessionView: View {
                 raw.hasPrefix("/") ? raw : cwd + (cwd.hasSuffix("/") ? "" : "/") + raw
             }
 
-            for msg in messages {
+            // Letzter Assistenten-Message-Index — dessen Badges immer zeigen,
+            // auch wenn der Pfad bereits dismissed wurde (neuer Agent-Run).
+            let lastAssistantIdx = messages.indices.last(where: { messages[$0].role == .assistant })
+
+            for (msgIdx, msg) in messages.enumerated() {
+                let isLatestRun = msgIdx == lastAssistantIdx
+
                 // Methode 1: git diff (optional, wenn Git vorhanden)
                 if let diff = msg.gitDiff {
                     for file in parseDiffFiles(diff) {
                         let path = resolve(file.name)
-                        if !dismissedChangedPaths.contains(path) {
+                        if isLatestRun || !dismissedChangedPaths.contains(path) {
+                            if isLatestRun { dismissedChangedPaths.remove(path) }
                             changedFilePaths.insert(path)
                             if file.isNew { newFilePaths.insert(path) }
                         }
@@ -705,21 +712,24 @@ struct SingleChatSessionView: View {
                 }
 
                 // Methode 2: Write / Edit Tool-Calls direkt auswerten
-                // Funktioniert auch ohne Git-Repo (z.B. neue Projekte)
+                // Funktioniert auch ohne Git-Repo (z.B. neue Projekte).
+                // Neuester Run: dismissedChangedPaths überschreiben → Badge erscheint wieder.
                 for call in msg.toolCalls {
                     let raw = call.input.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !raw.isEmpty else { continue }
                     switch call.name {
                     case "Write":
                         let path = resolve(raw)
-                        if !dismissedChangedPaths.contains(path) {
+                        if isLatestRun || !dismissedChangedPaths.contains(path) {
+                            if isLatestRun { dismissedChangedPaths.remove(path) }
                             changedFilePaths.insert(path)
-                            newFilePaths.insert(path)     // Write = neue Datei (grünes +)
+                            newFilePaths.insert(path)
                         }
                     case "Edit", "MultiEdit", "NotebookEdit":
                         let path = resolve(raw)
-                        if !dismissedChangedPaths.contains(path) {
-                            changedFilePaths.insert(path)  // Edit = geändert (orange ●)
+                        if isLatestRun || !dismissedChangedPaths.contains(path) {
+                            if isLatestRun { dismissedChangedPaths.remove(path) }
+                            changedFilePaths.insert(path)
                         }
                     default: break
                     }
