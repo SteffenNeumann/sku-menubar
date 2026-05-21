@@ -49,8 +49,8 @@ struct MainWindowView: View {
         }
         .onAppear {
             sectionMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                guard flags == [.command, .control],
+                let flags = event.modifierFlags
+                guard flags.contains(.command), flags.contains(.control),
                       event.keyCode == 123 || event.keyCode == 124,
                       let prev = previousSection else { return event }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
