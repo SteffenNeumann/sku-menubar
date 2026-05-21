@@ -582,7 +582,7 @@ struct LinearView: View {
                         .lineLimit(1)
                         .strikethrough(issue.state?.isCompleted ?? false, color: theme.tertiaryText)
 
-                    // Identifier + Priority — secondary
+                    // Identifier + Priority + Parent badge — secondary
                     HStack(spacing: 5) {
                         Text(issue.identifier)
                             .font(.system(size: 10, design: .monospaced))
@@ -590,6 +590,24 @@ struct LinearView: View {
                         Image(systemName: issue.priority.icon)
                             .font(.system(size: 9))
                             .foregroundStyle(issue.priority.color)
+                        if let parentIdent = issue.parentIdentifier {
+                            HStack(spacing: 2) {
+                                Image(systemName: "arrow.turn.right.up")
+                                    .font(.system(size: 7))
+                                Text(parentIdent)
+                                    .font(.system(size: 9, design: .monospaced))
+                            }
+                            .foregroundStyle(linearPurple.opacity(0.7))
+                        }
+                        if issue.subIssueCount > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "list.bullet.indent")
+                                    .font(.system(size: 8))
+                                Text("\(issue.subIssueCount)")
+                                    .font(.system(size: 9))
+                            }
+                            .foregroundStyle(theme.tertiaryText)
+                        }
                     }
                 }
 
@@ -703,6 +721,33 @@ struct LinearView: View {
                     }
                 }
                 .padding(16)
+
+                // Parent issue breadcrumb
+                if let parentIdent = issue.parentIdentifier, let parentTitle = issue.parentTitle {
+                    Button {
+                        // Navigate to parent issue
+                        if let parentId = issue.parentId,
+                           let projId = selectedProject?.id,
+                           let parent = service.issues[projId]?.first(where: { $0.id == parentId }) {
+                            selectedIssue = parent
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.turn.right.up")
+                                .font(.system(size: 9))
+                            Text(parentIdent)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            Text(parentTitle)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(linearPurple)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Zum übergeordneten Issue")
+                }
 
                 // Title — prominent, double-click to edit
                 if isEditingTitle {
@@ -941,6 +986,18 @@ struct LinearView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(theme.secondaryText)
                         Text(cycleName)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                }
+            }
+            if issue.subIssueCount > 0 {
+                propertyRow(label: "Sub-Issues") {
+                    HStack(spacing: 5) {
+                        Image(systemName: "list.bullet.indent")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.secondaryText)
+                        Text("\(issue.subIssueCount)")
                             .font(.system(size: 12))
                             .foregroundStyle(theme.primaryText)
                     }

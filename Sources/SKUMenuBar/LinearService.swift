@@ -76,6 +76,11 @@ struct LinearIssue: Identifiable {
     let dueDate: Date?
     let cycleName: String?
     let url: String
+    // Parent/Sub-issue relationships
+    var parentId: String?
+    var parentIdentifier: String?
+    var parentTitle: String?
+    var subIssueCount: Int = 0
 }
 
 struct LinearProject: Identifiable {
@@ -182,6 +187,8 @@ final class LinearService: ObservableObject {
             ]
             let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
             issues[projectId] = parseIssues(from: raw)
+            // Enrich with parent/subissue info via GraphQL
+            await enrichParentInfo(projectId: projectId)
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
@@ -303,6 +310,61 @@ final class LinearService: ObservableObject {
         }
     }
 
+
+    /// Enrich issues with parent/sub-issue relationships via GraphQL API
+    private func enrichParentInfo(projectId: String) async {
+        guard let token = linearAccessToken,
+              let url = URL(string: "https://api.linear.app/graphql"),
+              let projectIssues = issues[projectId], !projectIssues.isEmpty else { return }
+
+        let ids = projectIssues.map { "\"\($0.id)\"" }.joined(separator: ",")
+        let query = """
+        query { issues(filter: { id: { in: [\(ids)] } }, first: 100) { nodes { id parent { id identifier title } children { nodes { id } } } } }
+        """
+        do {
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(token, forHTTPHeaderField: "Authorization")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = json["data"] as? [String: Any],
+                  let issuesObj = dataObj["issues"] as? [String: Any],
+                  let nodes = issuesObj["nodes"] as? [[String: Any]] else { return }
+
+            // Build lookup: issueId → (parentId, parentIdentifier, parentTitle, subIssueCount)
+            var parentMap: [String: (String, String, String)] = [:]
+            var childCounts: [String: Int] = [:]
+            for node in nodes {
+                guard let id = node["id"] as? String else { continue }
+                if let parent = node["parent"] as? [String: Any],
+                   let pid = parent["id"] as? String,
+                   let pident = parent["identifier"] as? String,
+                   let ptitle = parent["title"] as? String {
+                    parentMap[id] = (pid, pident, ptitle)
+                }
+                if let children = node["children"] as? [String: Any],
+                   let childNodes = children["nodes"] as? [[String: Any]] {
+                    childCounts[id] = childNodes.count
+                }
+            }
+
+            // Update issues in-place
+            issues[projectId] = projectIssues.map { issue in
+                var updated = issue
+                if let (pid, pident, ptitle) = parentMap[issue.id] {
+                    updated.parentId = pid
+                    updated.parentIdentifier = pident
+                    updated.parentTitle = ptitle
+                }
+                if let count = childCounts[issue.id] {
+                    updated.subIssueCount = count
+                }
+                return updated
+            }
+        } catch { /* non-critical */ }
+    }
 
     func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
         try await ensureConnected()
