@@ -997,6 +997,7 @@ enum HomeTileID: String, CaseIterable, Codable {
     case tokenUsage      = "tokenUsage"
     case zeiterfassung   = "zeiterfassung"
     case kundenanfragen  = "kundenanfragen"
+    case gitStatus       = "gitStatus"
 
     var displayName: String {
         switch self {
@@ -1008,6 +1009,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .tokenUsage:     return "Token-Verbrauch"
         case .zeiterfassung:  return "Zeiterfassung"
         case .kundenanfragen: return "Kundenanfragen"
+        case .gitStatus:      return "Git Status"
         }
     }
 
@@ -1021,13 +1023,62 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .tokenUsage:     return "chart.bar.fill"
         case .zeiterfassung:  return "timer"
         case .kundenanfragen: return "envelope.badge.fill"
+        case .gitStatus:      return "arrow.triangle.branch"
         }
     }
 
     var colSpan: Int {
         switch self {
-        case .zeiterfassung, .kundenanfragen: return 3
+        case .zeiterfassung, .kundenanfragen, .gitStatus: return 3
         default: return 1
         }
     }
+}
+
+// MARK: - Git Repo Status
+
+struct GitChangedFile: Identifiable, Hashable {
+    let id = UUID()
+    let statusCode: String   // "M", "A", "D", "??"  etc.
+    let filePath: String
+
+    var statusLabel: String {
+        switch statusCode {
+        case "M":  return "Modified"
+        case "A":  return "Added"
+        case "D":  return "Deleted"
+        case "R":  return "Renamed"
+        case "??": return "Untracked"
+        case "UU": return "Conflict"
+        default:   return statusCode
+        }
+    }
+
+    var statusIcon: String {
+        switch statusCode {
+        case "M":  return "pencil.circle.fill"
+        case "A":  return "plus.circle.fill"
+        case "D":  return "minus.circle.fill"
+        case "R":  return "arrow.right.circle.fill"
+        case "??": return "questionmark.circle.fill"
+        case "UU": return "exclamationmark.triangle.fill"
+        default:   return "circle.fill"
+        }
+    }
+}
+
+struct GitRepoStatus: Identifiable {
+    let id: String           // repo path
+    let repoPath: String
+    let branch: String
+    let changedFiles: [GitChangedFile]
+    let aheadCount: Int
+    let behindCount: Int
+
+    var displayName: String {
+        URL(fileURLWithPath: repoPath).lastPathComponent
+    }
+
+    var totalChanges: Int { changedFiles.count }
+    var hasChanges: Bool { !changedFiles.isEmpty || aheadCount > 0 }
 }

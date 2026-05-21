@@ -132,6 +132,7 @@ struct HomeView: View {
         case .tokenUsage:     tokenUsageCard
         case .zeiterfassung:  zeiterfassungCard
         case .kundenanfragen: kundenanfragenCard
+        case .gitStatus:      gitStatusCard
         }
     }
 
@@ -941,6 +942,239 @@ struct HomeView: View {
         let df = DateFormatter()
         df.dateFormat = "d.M."
         return "\(df.string(from: state.tmetricCustomFrom))–\(df.string(from: state.tmetricCustomTo))"
+    }
+
+    // MARK: - Git Status Card
+
+    @State private var expandedRepo: String? = nil
+
+    private var gitStatusCard: some View {
+        let repos = state.gitRepoStatuses
+        let dirtyRepos = repos.filter { $0.hasChanges }
+        let totalChanges = dirtyRepos.reduce(0) { $0 + $1.totalChanges }
+
+        return HomeTile(title: "Git Status", icon: "arrow.triangle.branch", iconColor: .orange, theme: theme) {
+            VStack(alignment: .leading, spacing: 0) {
+                if state.gitStatusIsLoading && repos.isEmpty {
+                    HStack { Spacer(); ProgressView().controlSize(.regular); Spacer() }
+                        .padding(.vertical, 16)
+                } else if repos.isEmpty {
+                    emptyState(icon: "arrow.triangle.branch", text: "Keine Git-Repos gefunden.")
+                } else if dirtyRepos.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 28, weight: .light))
+                            .foregroundStyle(theme.statusGreen)
+                        Text("Alle \(repos.count) Repos sauber")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.statusGreen)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                } else {
+                    // Summary header
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(dirtyRepos.count)")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundStyle(.orange)
+                            Text(dirtyRepos.count == 1 ? "Repo" : "Repos")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(totalChanges)")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundStyle(theme.statusOrange)
+                            Text("Änderungen")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(.bottom, 10)
+
+                    Divider().opacity(0.3).padding(.bottom, 8)
+
+                    // Repo list
+                    VStack(spacing: 6) {
+                        ForEach(dirtyRepos) { repo in
+                            gitRepoRow(repo)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                // Footer
+                HStack {
+                    Text("\(repos.count) Repos")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                    Spacer()
+                    Button {
+                        Task { await state.refreshGitStatuses() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                            .rotationEffect(.degrees(state.gitStatusIsLoading ? 360 : 0))
+                            .animation(
+                                state.gitStatusIsLoading
+                                    ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                    : .default,
+                                value: state.gitStatusIsLoading)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Git Status aktualisieren")
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private func gitRepoRow(_ repo: GitRepoStatus) -> some View {
+        let isExpanded = expandedRepo == repo.id
+        let modified  = repo.changedFiles.filter { $0.statusCode == "M" }.count
+        let untracked = repo.changedFiles.filter { $0.statusCode == "??" }.count
+        let added     = repo.changedFiles.filter { $0.statusCode == "A" }.count
+        let deleted   = repo.changedFiles.filter { $0.statusCode == "D" }.count
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Repo header row
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    expandedRepo = isExpanded ? nil : repo.id
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(Color.orange.opacity(0.12))
+                            .frame(width: 30, height: 30)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(repo.displayName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(1)
+                            Text(repo.branch)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.purple)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.purple.opacity(0.10), in: Capsule())
+                        }
+                        HStack(spacing: 8) {
+                            if modified > 0 {
+                                gitBadge(count: modified, label: "M", color: .orange)
+                            }
+                            if untracked > 0 {
+                                gitBadge(count: untracked, label: "?", color: .blue)
+                            }
+                            if added > 0 {
+                                gitBadge(count: added, label: "+", color: theme.statusGreen)
+                            }
+                            if deleted > 0 {
+                                gitBadge(count: deleted, label: "−", color: theme.statusRed)
+                            }
+                            if repo.aheadCount > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.up").font(.system(size: 8, weight: .bold))
+                                    Text("\(repo.aheadCount)")
+                                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                }
+                                .foregroundStyle(theme.statusGreen)
+                            }
+                            if repo.behindCount > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.down").font(.system(size: 8, weight: .bold))
+                                    Text("\(repo.behindCount)")
+                                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                }
+                                .foregroundStyle(theme.statusRed)
+                            }
+                        }
+                    }
+                    Spacer()
+                    Text("\(repo.totalChanges)")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.orange)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+
+            // Expanded file list
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(repo.changedFiles.prefix(15)) { file in
+                        HStack(spacing: 8) {
+                            Image(systemName: file.statusIcon)
+                                .font(.system(size: 11))
+                                .foregroundStyle(gitFileColor(file.statusCode))
+                                .frame(width: 16)
+                            Text(file.filePath)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(file.statusLabel)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(gitFileColor(file.statusCode))
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(gitFileColor(file.statusCode).opacity(0.12), in: Capsule())
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                    }
+                    if repo.changedFiles.count > 15 {
+                        Text("… und \(repo.changedFiles.count - 15) weitere")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                            .padding(.vertical, 4)
+                    }
+                }
+                .padding(.vertical, 6)
+                .background(theme.rowBg.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func gitBadge(count: Int, label: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+            Text("\(count)")
+                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 5).padding(.vertical, 2)
+        .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private func gitFileColor(_ code: String) -> Color {
+        switch code {
+        case "M":  return .orange
+        case "A":  return theme.statusGreen
+        case "D":  return theme.statusRed
+        case "R":  return .blue
+        case "??": return .blue
+        case "UU": return theme.statusRed
+        default:   return theme.secondaryText
+        }
     }
 
     // MARK: - Helpers

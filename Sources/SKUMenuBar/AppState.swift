@@ -153,6 +153,8 @@ final class AppState: ObservableObject {
 
     @Published var activeSessions: [ActiveCLISession] = []
     @Published var historySelectedProjectId: String? = nil   // set by sidebar recent-projects tap
+    @Published var gitRepoStatuses: [GitRepoStatus] = []
+    @Published var gitStatusIsLoading = false
 
     @Published var snippets: [CommandSnippet] = [] {
         didSet { persistSnippets() }
@@ -250,6 +252,7 @@ final class AppState: ObservableObject {
             activeSessions = loadedSessions
             agentService.startScheduler()
             historyService.startWatching()
+            await refreshGitStatuses()
             // Email automation: configure Linear + start polling
             let logPath = NSHomeDirectory() + "/.claude/inquiry_debug.log"
             func inquiryLog(_ msg: String) {
@@ -953,6 +956,74 @@ final class AppState: ObservableObject {
     private func stopTMetricInactivityTimer() {
         tmetricInactivityTimer?.invalidate()
         tmetricInactivityTimer = nil
+    }
+
+    // MARK: - Git Status
+
+    func refreshGitStatuses() async {
+        await MainActor.run { gitStatusIsLoading = true }
+        let projects = historyService.projects
+        let paths = Array(Set(projects.map(\.path)))
+
+        let results = await Task.detached(priority: .utility) {
+            var statuses: [GitRepoStatus] = []
+            for path in paths {
+                guard FileManager.default.fileExists(atPath: path + "/.git")
+                        || FileManager.default.fileExists(atPath: path + "/.git/HEAD") else { continue }
+
+                let branch = Self.runGit(["rev-parse", "--abbrev-ref", "HEAD"], in: path) ?? "unknown"
+
+                let porcelain = Self.runGit(["status", "--porcelain"], in: path) ?? ""
+                let files: [GitChangedFile] = porcelain
+                    .split(separator: "\n", omittingEmptySubsequences: true)
+                    .compactMap { line in
+                        let s = String(line)
+                        guard s.count >= 3 else { return nil }
+                        let code = s.prefix(2).trimmingCharacters(in: .whitespaces)
+                        let file = String(s.dropFirst(3))
+                        return GitChangedFile(statusCode: code.isEmpty ? "??" : code, filePath: file)
+                    }
+
+                let abRaw = Self.runGit(["rev-list", "--left-right", "--count", "@{u}...HEAD"], in: path) ?? "0\t0"
+                let abParts = abRaw.split(separator: "\t")
+                let behind = abParts.count > 0 ? Int(abParts[0]) ?? 0 : 0
+                let ahead  = abParts.count > 1 ? Int(abParts[1]) ?? 0 : 0
+
+                statuses.append(GitRepoStatus(
+                    id: path,
+                    repoPath: path,
+                    branch: branch,
+                    changedFiles: files,
+                    aheadCount: ahead,
+                    behindCount: behind
+                ))
+            }
+            return statuses.sorted { $0.totalChanges > $1.totalChanges }
+        }.value
+
+        await MainActor.run {
+            gitRepoStatuses = results
+            gitStatusIsLoading = false
+        }
+    }
+
+    nonisolated private static func runGit(_ args: [String], in directory: String) -> String? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        proc.arguments = args
+        proc.currentDirectoryURL = URL(fileURLWithPath: directory)
+        proc.environment = ["GIT_TERMINAL_PROMPT": "0"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
     }
 }
 
