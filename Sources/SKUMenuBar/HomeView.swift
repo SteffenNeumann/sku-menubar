@@ -385,9 +385,14 @@ struct HomeView: View {
                     emptyState(icon: "terminal", text: "Keine aktiven Prozesse.")
                 } else {
                     VStack(spacing: 6) {
-                        ForEach(state.activeSessions) { session in
-                            sessionRow(session)
+                        ScrollView {
+                            VStack(spacing: 6) {
+                                ForEach(state.activeSessions) { session in
+                                    sessionRow(session)
+                                }
+                            }
                         }
+                        .frame(maxHeight: 200)
 
                         HStack(spacing: 8) {
                             Spacer()
