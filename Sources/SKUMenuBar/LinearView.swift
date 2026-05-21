@@ -1042,10 +1042,12 @@ struct LinearView: View {
         VStack(spacing: 2) {
             ForEach(ordered) { st in
                 Button {
+                    // Optimistic update: sofort lokal anwenden
+                    showStatusPopover = false
+                    applyLocalStateChange(issueId: issue.id, newState: st)
                     Task {
                         try? await service.updateIssueStatus(issueId: issue.id, stateId: st.id)
                         await refreshCurrentIssue()
-                        showStatusPopover = false
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -1076,10 +1078,11 @@ struct LinearView: View {
         VStack(spacing: 2) {
             ForEach(LinearPriority.allCases, id: \.rawValue) { p in
                 Button {
+                    showPriorityPopover = false
+                    applyLocalPriorityChange(issueId: issue.id, newPriority: p)
                     Task {
                         try? await service.updateIssuePriority(issueId: issue.id, priority: p.rawValue)
                         await refreshCurrentIssue()
-                        showPriorityPopover = false
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -1121,6 +1124,40 @@ struct LinearView: View {
             await refreshCurrentIssue()
             isEditingTitle = false
         }
+    }
+
+    /// Optimistic local update: Status sofort in UI aktualisieren
+    private func applyLocalStateChange(issueId: String, newState: LinearIssueState) {
+        guard let projId = selectedProject?.id,
+              let idx = service.issues[projId]?.firstIndex(where: { $0.id == issueId }) else { return }
+        var updated = service.issues[projId]![idx]
+        updated = LinearIssue(id: updated.id, identifier: updated.identifier, title: updated.title,
+                              description: updated.description, priority: updated.priority,
+                              state: newState, teamId: updated.teamId, projectId: updated.projectId,
+                              assigneeName: updated.assigneeName, labels: updated.labels,
+                              createdAt: updated.createdAt, updatedAt: updated.updatedAt,
+                              dueDate: updated.dueDate, cycleName: updated.cycleName, url: updated.url,
+                              parentId: updated.parentId, parentIdentifier: updated.parentIdentifier,
+                              parentTitle: updated.parentTitle, subIssueCount: updated.subIssueCount)
+        service.issues[projId]![idx] = updated
+        if selectedIssue?.id == issueId { selectedIssue = updated }
+    }
+
+    /// Optimistic local update: Priority sofort in UI aktualisieren
+    private func applyLocalPriorityChange(issueId: String, newPriority: LinearPriority) {
+        guard let projId = selectedProject?.id,
+              let idx = service.issues[projId]?.firstIndex(where: { $0.id == issueId }) else { return }
+        var updated = service.issues[projId]![idx]
+        updated = LinearIssue(id: updated.id, identifier: updated.identifier, title: updated.title,
+                              description: updated.description, priority: newPriority,
+                              state: updated.state, teamId: updated.teamId, projectId: updated.projectId,
+                              assigneeName: updated.assigneeName, labels: updated.labels,
+                              createdAt: updated.createdAt, updatedAt: updated.updatedAt,
+                              dueDate: updated.dueDate, cycleName: updated.cycleName, url: updated.url,
+                              parentId: updated.parentId, parentIdentifier: updated.parentIdentifier,
+                              parentTitle: updated.parentTitle, subIssueCount: updated.subIssueCount)
+        service.issues[projId]![idx] = updated
+        if selectedIssue?.id == issueId { selectedIssue = updated }
     }
 
     private func refreshCurrentIssue() async {
