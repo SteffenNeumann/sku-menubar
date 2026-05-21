@@ -2599,23 +2599,35 @@ struct SingleChatSessionView: View {
             }
 
             let planPrompt = """
-            Du bist ein Orchestrator. Deine Aufgabe: zerlege den Benutzer-Auftrag in spezifische Teilaufgaben für jeden Agent.
+            Du bist ein Orchestrator. Analysiere den Auftrag und verteile die Arbeit intelligent.
             \(priorContext)
             Verfügbare Agents:
             \(agentProfiles)
 
             Benutzer-Auftrag: \(text)
 
+            WICHTIG — Entscheide zuerst: Ist der Auftrag einfach oder komplex?
+
+            EINFACHER Auftrag (Erklärung, einzelne Frage, eine klare Aufgabe):
+            → Weise dem best-geeigneten Agent die HAUPTAUFGABE zu.
+            → Andere Agents bekommen komplementäre Rollen: Review, Qualitätsprüfung, Gegenperspektive, Ergänzung aus Fachsicht.
+            → NIEMALS die gleiche Aufgabe an mehrere Agents vergeben!
+
+            KOMPLEXER Auftrag (mehrere Aspekte, verschiedene Fachbereiche nötig):
+            → Zerlege in NICHT-ÜBERLAPPENDE Teilaufgaben passend zu den Agent-Profilen.
+            → Jeder Agent bekommt einen eigenen, klar abgegrenzten Teil.
+
             Antworte NUR in diesem exakten Format (kein anderer Text):
             AGENT: <AgentName>
             AUFGABE: <Konkrete Teilaufgabe in 1-3 Sätzen>
 
             AGENT: <AgentName>
-            AUFGABE: <Konkrete Teilaufgabe in 1-3 Sätzen>
+            AUFGABE: <Konkrete, ANDERE Teilaufgabe — KEINE Wiederholung>
 
             Regeln:
-            - Jeder Agent bekommt eine ANDERE, spezifische Teilaufgabe — keine Überlappung
-            - Formuliere die Aufgabe so, dass der Agent genau weiß was ER tun soll
+            - Jeder Agent bekommt eine ANDERE Aufgabe — Überlappung = Fehler
+            - Bei einfachen Aufträgen: nur 1 Agent arbeitet inhaltlich, Rest prüft/ergänzt
+            - Formuliere so, dass der Agent genau weiß was ER und NUR ER tun soll
             - Beziehe dich auf den bisherigen Kontext wenn vorhanden
             """
 
@@ -2852,11 +2864,20 @@ struct SingleChatSessionView: View {
 
         var parts: [String] = []
 
+        // Threshold: files larger than 10 KB are passed by path reference instead of inline
+        // to avoid stdin overflow in long sessions with --resume.
+        let inlineLimit = 10_240
+
         for file in attachedFiles {
             if file.isText, let content = try? String(contentsOf: file.url, encoding: .utf8) {
-                let ext = file.url.pathExtension.lowercased()
-                let lang = ext.isEmpty ? "" : ext
-                parts.append("**\(file.name)**\n```\(lang)\n\(content)\n```")
+                if content.utf8.count <= inlineLimit {
+                    let ext = file.url.pathExtension.lowercased()
+                    let lang = ext.isEmpty ? "" : ext
+                    parts.append("**\(file.name)**\n```\(lang)\n\(content)\n```")
+                } else {
+                    // Large text file — pass by path so Claude CLI reads it via tools
+                    parts.append("**\(file.name)** (Textdatei, \(content.count) Zeichen, Pfad: `\(file.url.path)`)\nBitte lies diese Datei über den Pfad ein.")
+                }
             } else if file.url.pathExtension.lowercased() == "pdf",
                       let pdf = PDFDocument(url: file.url) {
                 var pdfText = ""
@@ -2864,8 +2885,12 @@ struct SingleChatSessionView: View {
                     if let page = pdf.page(at: i),
                        let pageText = page.string, !pageText.isEmpty { pdfText += pageText + "\n" }
                 }
-                if !pdfText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten)\n```\n\(pdfText.trimmingCharacters(in: .whitespacesAndNewlines))\n```")
+                let pdfTrimmed = pdfText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !pdfTrimmed.isEmpty, pdfTrimmed.utf8.count <= inlineLimit {
+                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten)\n```\n\(pdfTrimmed)\n```")
+                } else if !pdfTrimmed.isEmpty {
+                    // Large PDF — pass by path reference
+                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten, Pfad: `\(file.url.path)`)\nBitte lies diese Datei über den Pfad ein.")
                 } else {
                     parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten — kein extrahierbarer Text, Pfad: `\(file.url.path)`)")
                 }
@@ -3229,8 +3254,11 @@ struct SingleChatSessionView: View {
         }
 
         Task { @MainActor in
-            let imageDirs = Array(Set(sentFiles.filter { $0.isImage }.map { $0.url.deletingLastPathComponent().path }))
+            // Collect dirs from all attached files (images + large text/PDF files passed by path)
+            let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
             let imageAttachments = buildImageAttachments(from: sentFiles)
+            // Collect actual image file paths for Claude CLI (base64 via stream-json)
+            let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
             await performSend(
                 message: fullMessage,
                 assistantIndex: assistantIndex,
@@ -3238,8 +3266,9 @@ struct SingleChatSessionView: View {
                     ? state.settings.copilotFallbackModel
                     : selectedModel,
                 agentOverride: triggerAgent,
-                addDirs: imageDirs,
-                imageAttachments: imageAttachments
+                addDirs: fileDirs,
+                imageAttachments: imageAttachments,
+                cliImagePaths: imgPaths
             )
         }
     }
@@ -3252,6 +3281,7 @@ struct SingleChatSessionView: View {
         agentOverride: String? = nil,
         addDirs: [String] = [],
         imageAttachments: [GitHubImageAttachment] = [],
+        cliImagePaths: [String] = [],
         isFallbackAttempt: Bool = false
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
@@ -3344,7 +3374,8 @@ struct SingleChatSessionView: View {
                 addDirs: effectiveAddDirs,
                 skipPermissions: autoApprove,
                 maxTurns: effectiveMaxTurns,
-                mcpConfigJSON: mcpJson
+                mcpConfigJSON: mcpJson,
+                imagePaths: cliImagePaths
             )
         }
 
@@ -3484,6 +3515,7 @@ struct SingleChatSessionView: View {
                                     agentOverride: agentOverride,
                                     addDirs: addDirs,
                                     imageAttachments: imageAttachments,
+                                    cliImagePaths: cliImagePaths,
                                     isFallbackAttempt: true
                                 )
                                 return
@@ -3576,6 +3608,7 @@ struct SingleChatSessionView: View {
                         agentOverride: agentOverride,
                         addDirs: addDirs,
                         imageAttachments: imageAttachments,
+                        cliImagePaths: cliImagePaths,
                         isFallbackAttempt: true
                     )
                     return

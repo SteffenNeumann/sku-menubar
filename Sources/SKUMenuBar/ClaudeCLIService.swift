@@ -164,11 +164,19 @@ final class ClaudeCLIService: ObservableObject {
                         for imgPath in imagePaths where !imgPath.isEmpty {
                             if let imgData = FileManager.default.contents(atPath: imgPath) {
                                 let b64 = imgData.base64EncodedString()
+                                let ext = (imgPath as NSString).pathExtension.lowercased()
+                                let mime: String
+                                switch ext {
+                                case "jpg", "jpeg": mime = "image/jpeg"
+                                case "gif":         mime = "image/gif"
+                                case "webp":        mime = "image/webp"
+                                default:            mime = "image/png"
+                                }
                                 contentBlocks.append([
                                     "type": "image",
                                     "source": [
                                         "type": "base64",
-                                        "media_type": "image/png",
+                                        "media_type": mime,
                                         "data": b64
                                     ] as [String: Any]
                                 ])
