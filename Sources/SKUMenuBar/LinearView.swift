@@ -129,6 +129,7 @@ struct LinearView: View {
     @State private var newCommentText = ""
     @State private var isLoadingComments = false
     @State private var collapsedStatusGroups: Set<String> = []
+    @State private var copiedIdentifier = false
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -648,9 +649,28 @@ struct LinearView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Header with identifier badge + actions
                 HStack(spacing: 6) {
-                    Text(issue.identifier)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(theme.tertiaryText)
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(issue.identifier, forType: .string)
+                        copiedIdentifier = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                            copiedIdentifier = false
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(copiedIdentifier ? "Kopiert!" : issue.identifier)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(copiedIdentifier ? .green : theme.tertiaryText)
+                            if !copiedIdentifier {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(theme.tertiaryText.opacity(0.5))
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: copiedIdentifier)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Identifier kopieren")
                     Spacer()
 
                     // Agent button as colored pill
