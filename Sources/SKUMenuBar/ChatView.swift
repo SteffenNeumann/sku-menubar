@@ -2578,12 +2578,30 @@ struct SingleChatSessionView: View {
 
     private func sendOrchestrator() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming else { return }
+        guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
         inputText = ""
         errorMessage = nil
         isAuthError = false
-        messages.append(ChatMessage(role: .user, content: text))
+
+        // Capture & clear attached files before the task runs
+        let sentFiles = attachedFiles
+        attachedFiles = []
+
+        // Collect image paths for CLI (base64 via stream-json)
+        let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
+        // Collect dirs for --add-dir
+        let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
+
+        // Build display text (show file names to user)
+        var displayText = text
+        if !sentFiles.isEmpty {
+            let names = sentFiles.map { $0.name }.joined(separator: ", ")
+            let prefix = "[\(sentFiles.count == 1 ? "Datei" : "\(sentFiles.count) Dateien"): \(names)]"
+            displayText = text.isEmpty ? prefix : "\(prefix)\n\(text)"
+        }
+
+        messages.append(ChatMessage(role: .user, content: displayText))
 
         let agents = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
         guard !agents.isEmpty else { return }
@@ -2591,7 +2609,7 @@ struct SingleChatSessionView: View {
         isStreaming = true; streamingStartTime = Date()
 
         // Persist user message in orchestrator history for follow-up context
-        orchestratorHistory.append((role: "user", content: text))
+        orchestratorHistory.append((role: "user", content: displayText))
 
         Task { @MainActor in
 
@@ -2654,7 +2672,9 @@ struct SingleChatSessionView: View {
                 message: planPrompt,
                 systemPrompt: "Du bist ein Task-Planer. Antworte kurz und strukturiert.",
                 model: selectedModel,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                addDirs: fileDirs,
+                imagePaths: imgPaths
             )
             do {
                 for try await event in planStream {
@@ -2723,7 +2743,9 @@ struct SingleChatSessionView: View {
                     message: agentMessage,
                     systemPrompt: agentSystemPrompt,
                     model: agent.model.isEmpty ? selectedModel : agent.model,
-                    workingDirectory: agent.projectDirectory ?? workingDirectory
+                    workingDirectory: agent.projectDirectory ?? workingDirectory,
+                    addDirs: fileDirs,
+                    imagePaths: imgPaths
                 )
                 do {
                     for try await event in stream {
