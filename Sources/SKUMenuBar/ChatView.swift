@@ -714,6 +714,7 @@ struct SingleChatSessionView: View {
                 // Methode 2: Write / Edit Tool-Calls direkt auswerten
                 // Funktioniert auch ohne Git-Repo (z.B. neue Projekte).
                 // Neuester Run: dismissedChangedPaths überschreiben → Badge erscheint wieder.
+                // (Live-Streaming: Badges werden direkt in performSend gesetzt.)
                 for call in msg.toolCalls {
                     let raw = call.input.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !raw.isEmpty else { continue }
@@ -1062,6 +1063,7 @@ struct SingleChatSessionView: View {
         )
         .help(tab.tmetricTimerError ?? (tab.tmetricIsTimerRunning ? "Timer läuft" : ""))
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
+            guard tab.tmetricIsTimerRunning else { return }
             chatTimerTick = date
         }
     }
@@ -3404,15 +3406,36 @@ struct SingleChatSessionView: View {
                                     pendingTokenCount = 0
                                 }
                                 let name = block.name ?? "tool"
+                                let toolInput = block.toolInput?.displayText ?? ""
                                 let tool = ToolCall(
                                     name: name,
-                                    input: block.toolInput?.displayText ?? "",
+                                    input: toolInput,
                                     toolUseId: block.id
                                 )
                                 messages[assistantIndex].toolCalls.append(tool)
                                 // TodoWrite: Todo-Liste sofort in Message speichern
                                 if name == "TodoWrite", let todos = block.toolInput?.todos {
                                     messages[assistantIndex].currentTodos = todos
+                                }
+                                // ── Datei-Badge direkt beim Empfang setzen ────────────
+                                // Nicht auf syncMessagesOnChange warten (onChange-Timing
+                                // unzuverlässig). Hier live beim Streaming updaten.
+                                if !toolInput.isEmpty, let cwd = workingDirectory {
+                                    func resolveBadgePath(_ raw: String) -> String {
+                                        raw.hasPrefix("/") ? raw : cwd + (cwd.hasSuffix("/") ? "" : "/") + raw
+                                    }
+                                    switch name {
+                                    case "Write":
+                                        let p = resolveBadgePath(toolInput)
+                                        dismissedChangedPaths.remove(p)
+                                        changedFilePaths.insert(p)
+                                        newFilePaths.insert(p)
+                                    case "Edit", "MultiEdit", "NotebookEdit":
+                                        let p = resolveBadgePath(toolInput)
+                                        dismissedChangedPaths.remove(p)
+                                        changedFilePaths.insert(p)
+                                    default: break
+                                    }
                                 }
                             default: break
                             }
