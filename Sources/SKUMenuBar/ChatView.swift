@@ -5183,17 +5183,9 @@ struct MessageBubbleView: View {
     }
 
     private var streamingDots: some View {
-        TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { i in
-                    let phase = (t - Double(i) * 0.15).truncatingRemainder(dividingBy: 0.76) / 0.76
-                    let y = -sin(phase * .pi) * 5
-                    Circle()
-                        .fill(accentColor.opacity(0.75))
-                        .frame(width: 7, height: 7)
-                        .offset(y: y)
-                }
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { i in
+                BouncingDot(color: accentColor, delay: Double(i) * 0.15)
             }
         }
         .padding(.vertical, 6)
@@ -5271,6 +5263,26 @@ struct MessageBubbleView: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 16).padding(.bottom, 10)
         .onAppear { onDiffTap?(diff) }   // auto-open side panel
+    }
+}
+
+private struct BouncingDot: View {
+    let color: Color
+    let delay: Double
+    @State private var offsetY: CGFloat = 0
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(0.75))
+            .frame(width: 7, height: 7)
+            .offset(y: offsetY)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.38)
+                    .repeatForever(autoreverses: true)
+                    .delay(delay)
+                ) { offsetY = -5 }
+            }
     }
 }
 
