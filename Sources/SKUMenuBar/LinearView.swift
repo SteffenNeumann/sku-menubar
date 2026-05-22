@@ -807,7 +807,8 @@ struct LinearView: View {
                 }
 
                 // Sub-Issues section (inline to avoid ViewBuilder issues)
-                if !subIssuesOf(issue).isEmpty {
+                let subs = subIssuesOf(issue)
+                if !subs.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
                         Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
                         HStack(spacing: 6) {
@@ -817,7 +818,7 @@ struct LinearView: View {
                             Text("Sub-Issues")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(theme.tertiaryText)
-                            Text("\(subIssuesOf(issue).count)")
+                            Text("\(subs.count)")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(theme.tertiaryText.opacity(0.7))
                                 .padding(.horizontal, 5)
@@ -828,7 +829,7 @@ struct LinearView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 6)
 
-                        ForEach(subIssuesOf(issue)) { sub in
+                        ForEach(subs) { sub in
                             Button {
                                 let target = sub
                                 showStatusPopover = false
