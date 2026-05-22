@@ -742,7 +742,8 @@ struct LinearView: View {
                         if let parentId = issue.parentId,
                            let projId = selectedProject?.id,
                            let parent = service.issues[projId]?.first(where: { $0.id == parentId }) {
-                            selectedIssue = parent
+                            let target = parent
+                            DispatchQueue.main.async { selectedIssue = target }
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -802,12 +803,7 @@ struct LinearView: View {
                 }
 
                 // Sub-Issues section
-                if issue.subIssueCount > 0, let projId = selectedProject?.id {
-                    let subIssues = (service.issues[projId] ?? []).filter { $0.parentId == issue.id }
-                    if !subIssues.isEmpty {
-                        subIssuesSection(subIssues: subIssues)
-                    }
-                }
+                subIssuesForIssue(issue)
 
                 Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
 
@@ -818,6 +814,17 @@ struct LinearView: View {
     }
 
     // MARK: - Sub-Issues Section
+
+    @ViewBuilder
+    private func subIssuesForIssue(_ issue: LinearIssue) -> some View {
+        if issue.subIssueCount > 0,
+           let projId = selectedProject?.id {
+            let subs = (service.issues[projId] ?? []).filter { $0.parentId == issue.id }
+            if !subs.isEmpty {
+                subIssuesSection(subIssues: subs)
+            }
+        }
+    }
 
     @ViewBuilder
     private func subIssuesSection(subIssues: [LinearIssue]) -> some View {
@@ -844,7 +851,8 @@ struct LinearView: View {
 
             ForEach(subIssues) { sub in
                 Button {
-                    selectedIssue = sub
+                    let target = sub
+                    DispatchQueue.main.async { selectedIssue = target }
                 } label: {
                     HStack(spacing: 8) {
                         RoundedRectangle(cornerRadius: 1)
