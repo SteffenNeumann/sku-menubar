@@ -566,7 +566,10 @@ struct LinearView: View {
         let isSubtask = issue.parentId != nil
 
         return Button {
-            selectedIssue = issue
+            let target = issue
+            showStatusPopover = false
+            showPriorityPopover = false
+            DispatchQueue.main.async { selectedIssue = target }
         } label: {
             HStack(alignment: .center, spacing: 0) {
                 // Subtask indent + vertical bar
@@ -738,11 +741,12 @@ struct LinearView: View {
                 // Parent issue breadcrumb
                 if let parentIdent = issue.parentIdentifier, let parentTitle = issue.parentTitle {
                     Button {
-                        // Navigate to parent issue
                         if let parentId = issue.parentId,
                            let projId = selectedProject?.id,
                            let parent = service.issues[projId]?.first(where: { $0.id == parentId }) {
                             let target = parent
+                            showStatusPopover = false
+                            showPriorityPopover = false
                             DispatchQueue.main.async { selectedIssue = target }
                         }
                     } label: {
@@ -827,6 +831,8 @@ struct LinearView: View {
                         ForEach(subIssuesOf(issue)) { sub in
                             Button {
                                 let target = sub
+                                showStatusPopover = false
+                                showPriorityPopover = false
                                 DispatchQueue.main.async { selectedIssue = target }
                             } label: {
                                 HStack(spacing: 8) {
@@ -1123,12 +1129,11 @@ struct LinearView: View {
         VStack(spacing: 2) {
             ForEach(ordered) { st in
                 Button {
-                    // Optimistic update: sofort lokal anwenden
                     showStatusPopover = false
                     applyLocalStateChange(issueId: issue.id, newState: st)
                     Task {
                         try? await service.updateIssueStatus(issueId: issue.id, stateId: st.id)
-                        await refreshCurrentIssue()
+                        // Kein refreshCurrentIssue — optimistischer State bleibt erhalten
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -1145,13 +1150,19 @@ struct LinearView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(issue.state?.id == st.id ? linearPurple.opacity(0.10) : Color.clear)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 6)
-        .frame(width: 180)
+        .frame(width: 200)
+        .background(theme.windowBg)
+        .preferredColorScheme(theme.isLight ? .light : .dark)
     }
 
     @ViewBuilder
@@ -1163,7 +1174,7 @@ struct LinearView: View {
                     applyLocalPriorityChange(issueId: issue.id, newPriority: p)
                     Task {
                         try? await service.updateIssuePriority(issueId: issue.id, priority: p.rawValue)
-                        await refreshCurrentIssue()
+                        // Kein refreshCurrentIssue — optimistischer State bleibt erhalten
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -1183,13 +1194,19 @@ struct LinearView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(issue.priority == p ? linearPurple.opacity(0.10) : Color.clear)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 6)
-        .frame(width: 160)
+        .frame(width: 180)
+        .background(theme.windowBg)
+        .preferredColorScheme(theme.isLight ? .light : .dark)
     }
 
     // MARK: - Inline Edit Helpers
