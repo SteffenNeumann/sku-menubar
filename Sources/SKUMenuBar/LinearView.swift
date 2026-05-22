@@ -802,8 +802,64 @@ struct LinearView: View {
                         .padding(16)
                 }
 
-                // Sub-Issues section
-                subIssuesForIssue(issue)
+                // Sub-Issues section (inline to avoid ViewBuilder issues)
+                if !subIssuesOf(issue).isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
+                        HStack(spacing: 6) {
+                            Image(systemName: "list.bullet.indent")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Sub-Issues")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("\(subIssuesOf(issue).count)")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(theme.primaryText.opacity(0.06)))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
+
+                        ForEach(subIssuesOf(issue)) { sub in
+                            Button {
+                                let target = sub
+                                DispatchQueue.main.async { selectedIssue = target }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(linearPurple.opacity(0.35))
+                                        .frame(width: 2, height: 24)
+                                    if let st = sub.state {
+                                        LinearStateIcon(type: st.type, color: st.displayColor, size: 14)
+                                    } else {
+                                        LinearStateIcon(type: "unstarted", color: theme.tertiaryText, size: 14)
+                                    }
+                                    Text(sub.identifier)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(theme.tertiaryText)
+                                    Text(sub.title)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(theme.primaryText)
+                                        .lineLimit(1)
+                                        .strikethrough(sub.state?.isCompleted ?? false, color: theme.tertiaryText)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: sub.priority.icon)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(sub.priority.color)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
 
                 Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
 
@@ -820,78 +876,6 @@ struct LinearView: View {
         return (service.issues[projId] ?? []).filter { $0.parentId == issue.id }
     }
 
-    @ViewBuilder
-    private func subIssuesForIssue(_ issue: LinearIssue) -> some View {
-        let subs = subIssuesOf(issue)
-        if !subs.isEmpty {
-            subIssuesSection(subIssues: subs)
-        }
-    }
-
-    @ViewBuilder
-    private func subIssuesSection(subIssues: [LinearIssue]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
-
-            HStack(spacing: 6) {
-                Image(systemName: "list.bullet.indent")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.tertiaryText)
-                Text("Sub-Issues")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.tertiaryText)
-                Text("\(subIssues.count)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.tertiaryText.opacity(0.7))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(theme.primaryText.opacity(0.06)))
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-
-            ForEach(subIssues) { sub in
-                Button {
-                    let target = sub
-                    DispatchQueue.main.async { selectedIssue = target }
-                } label: {
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(linearPurple.opacity(0.35))
-                            .frame(width: 2, height: 24)
-
-                        if let st = sub.state {
-                            LinearStateIcon(type: st.type, color: st.displayColor, size: 14)
-                        } else {
-                            LinearStateIcon(type: "unstarted", color: theme.tertiaryText, size: 14)
-                        }
-
-                        Text(sub.identifier)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(theme.tertiaryText)
-
-                        Text(sub.title)
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.primaryText)
-                            .lineLimit(1)
-                            .strikethrough(sub.state?.isCompleted ?? false, color: theme.tertiaryText)
-
-                        Spacer(minLength: 0)
-
-                        Image(systemName: sub.priority.icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(sub.priority.color)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.bottom, 8)
-    }
 
     // MARK: - Comments Section
 
