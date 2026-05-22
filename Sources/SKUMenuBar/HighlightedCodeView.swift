@@ -304,15 +304,17 @@ struct HighlightedCodeView: NSViewRepresentable {
     var onMatchCountChange: ((Int) -> Void)? = nil
 
     private static let highlightr: Highlightr? = {
-        let bundleInApp = Bundle.main.bundleURL
-            .appendingPathComponent("Highlightr_Highlightr.bundle").path
-        let bundleInResources = (Bundle.main.resourceURL ?? Bundle.main.bundleURL)
-            .appendingPathComponent("Highlightr_Highlightr.bundle").path
         let fm = FileManager.default
-        guard fm.fileExists(atPath: bundleInApp) || fm.fileExists(atPath: bundleInResources) else {
-            return nil
-        }
-        return Highlightr()
+        let bundleName = "Highlightr_Highlightr.bundle"
+        let candidates = [
+            (Bundle.main.resourceURL ?? Bundle.main.bundleURL).appendingPathComponent(bundleName).path,
+            Bundle.main.bundleURL.appendingPathComponent(bundleName).path,
+        ]
+        guard let bundlePath = candidates.first(where: { fm.fileExists(atPath: $0) }),
+              let bundle = Bundle(path: bundlePath),
+              let jsPath = bundle.path(forResource: "highlight.min", ofType: "js")
+        else { return nil }
+        return Highlightr(highlightPath: jsPath)
     }()
 
     // MARK: Coordinator
