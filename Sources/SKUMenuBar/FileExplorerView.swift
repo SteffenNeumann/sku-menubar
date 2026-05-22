@@ -2250,22 +2250,14 @@ struct PersonaReviewOverlay: View {
                 )
 
             // Bubble with animated dots
-            TimelineView(.animation) { tl in
-                let t = tl.date.timeIntervalSinceReferenceDate
-                HStack(spacing: 5) {
-                    ForEach(0..<3, id: \.self) { i in
-                        let phase = (t - Double(i) * 0.22).truncatingRemainder(dividingBy: 0.9) / 0.9
-                        let scale = 0.7 + sin(phase * .pi) * 0.45
-                        Circle()
-                            .fill(accentColor.opacity(0.55 + sin(phase * .pi) * 0.35))
-                            .frame(width: 8, height: 8)
-                            .scaleEffect(scale)
-                    }
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { i in
+                    PulsingDot(color: accentColor, delay: Double(i) * 0.22)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
 
             Spacer(minLength: 0)
         }
@@ -2526,4 +2518,25 @@ final class _VerticalResizeNSView: NSView {
     override func mouseUp(with event: NSEvent) {}
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+
+private struct PulsingDot: View {
+    let color: Color
+    let delay: Double
+    @State private var scale: CGFloat = 0.7
+
+    var body: some View {
+        Circle()
+            .fill(color.opacity(0.7))
+            .frame(width: 8, height: 8)
+            .scaleEffect(scale)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.45)
+                    .repeatForever(autoreverses: true)
+                    .delay(delay)
+                ) { scale = 1.15 }
+            }
+    }
 }
