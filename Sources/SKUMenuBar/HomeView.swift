@@ -19,7 +19,7 @@ struct HomeView: View {
     @State private var showTMetricDatePicker    = false
     @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
     @State private var tmetricDraftTo:   Date   = Date()
-    @State private var timerTick:        Date   = Date()
+    @State private var viewAppearDate:    Date   = Date()
     @State private var selectedInquiry: CustomerInquiry?
     @State private var inquiryFilter: InquiryStatus? = nil
 
@@ -635,7 +635,7 @@ struct HomeView: View {
     private var zeiterfassungCard: some View {
         HomeTile(title: "Zeiterfassung", icon: "timer", iconColor: .indigo, theme: theme) {
             VStack(alignment: .leading, spacing: 0) {
-                let _ = timerTick
+                let _ = viewAppearDate
                 if state.settings.tmetricApiToken.isEmpty {
                     VStack(spacing: 10) {
                         emptyState(icon: "timer", text: "TMetric API-Token in den Einstellungen hinterlegen.")
@@ -891,7 +891,7 @@ struct HomeView: View {
                                 entries:     state.tmetricTimelineEntries,
                                 summaries:   state.tmetricProjects,
                                 chartColors: chartColors,
-                                now:         timerTick
+                                now:         Date()
                             )
                         }
 
@@ -931,9 +931,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
-                timerTick = date
-            }
+            .onAppear { viewAppearDate = Date() }
         }
     }
 

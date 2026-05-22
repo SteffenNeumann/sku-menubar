@@ -40,10 +40,8 @@ bash tools/gen-buildinfo.sh
 # 4. Release-Build (aus dem Projekt-Root)
 swift build -c release
 
-# 5. Binary + Resource-Bundles kopieren + App starten
+# 5. Binary kopieren + App starten
 cp .build/arm64-apple-macosx/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
-cp -r .build/arm64-apple-macosx/release/Highlightr_Highlightr.bundle ~/Applications/myClaude.app/
-cp -r .build/arm64-apple-macosx/release/SKUMenuBar_myClaude.bundle ~/Applications/myClaude.app/
 open ~/Applications/myClaude.app
 
 # 6. Gitstamp aktualisieren (Timestamp in der Sidebar)
