@@ -815,14 +815,16 @@ struct LinearView: View {
 
     // MARK: - Sub-Issues Section
 
+    private func subIssuesOf(_ issue: LinearIssue) -> [LinearIssue] {
+        guard issue.subIssueCount > 0, let projId = selectedProject?.id else { return [] }
+        return (service.issues[projId] ?? []).filter { $0.parentId == issue.id }
+    }
+
     @ViewBuilder
     private func subIssuesForIssue(_ issue: LinearIssue) -> some View {
-        if issue.subIssueCount > 0,
-           let projId = selectedProject?.id {
-            let subs = (service.issues[projId] ?? []).filter { $0.parentId == issue.id }
-            if !subs.isEmpty {
-                subIssuesSection(subIssues: subs)
-            }
+        let subs = subIssuesOf(issue)
+        if !subs.isEmpty {
+            subIssuesSection(subIssues: subs)
         }
     }
 
