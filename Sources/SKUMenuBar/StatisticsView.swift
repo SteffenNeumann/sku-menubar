@@ -44,40 +44,26 @@ struct StatisticsDashboardSection: View {
     private var months: [MonthlyUsage] { state.historicalMonths }
     private var activeMonths: [MonthlyUsage] { months.filter { $0.total > 0 } }
 
-    /// Daily Claude costs — prefers Anthropic API, falls back to local CLI.
-    private var claudeDailyForStats: [String: Double] {
-        state.claudeYearDailyByDate.isEmpty ? state.localDailyByDate : state.claudeYearDailyByDate
-    }
-
-    /// Extra Claude cost for a given Copilot month (keyed "yyyy-MM").
-    private func claudeCostForMonth(_ monthId: String) -> Double {
-        claudeDailyForStats
-            .filter { $0.key.hasPrefix(monthId) }
-            .values.reduce(0, +)
-    }
-
-    /// Combined (Copilot + Claude) total for the year.
+    /// Copilot total for the year.
     private var yearTotal: Double {
-        months.reduce(0) { $0 + $1.total + claudeCostForMonth($1.id) }
+        months.reduce(0) { $0 + $1.total }
     }
 
     private var avgMonthly: Double { activeMonths.isEmpty ? 0 : yearTotal / Double(activeMonths.count) }
-    private var peakMonth: MonthlyUsage? { months.max(by: { $0.total + claudeCostForMonth($0.id) < $1.total + claudeCostForMonth($1.id) }) }
-    private var cheapestMonth: MonthlyUsage? { activeMonths.min(by: { $0.total + claudeCostForMonth($0.id) < $1.total + claudeCostForMonth($1.id) }) }
-
-    private var claudeConfigured: Bool { !state.settings.anthropicAdminKey.isEmpty || !claudeDailyForStats.isEmpty }
+    private var peakMonth: MonthlyUsage? { months.max(by: { $0.total < $1.total }) }
+    private var cheapestMonth: MonthlyUsage? { activeMonths.min(by: { $0.total < $1.total }) }
 
     private var overBudgetCount: Int {
         guard state.settings.budget > 0 else { return 0 }
-        return activeMonths.filter { $0.total + claudeCostForMonth($0.id) > state.settings.budget }.count
+        return activeMonths.filter { $0.total > state.settings.budget }.count
     }
 
     private var trendData: (last: MonthlyUsage, prev: MonthlyUsage, diff: Double, pct: Double)? {
         let sorted = activeMonths.sorted { $0.month < $1.month }
         guard sorted.count >= 2 else { return nil }
         let last = sorted[sorted.count - 1], prev = sorted[sorted.count - 2]
-        let lastCombined = last.total + claudeCostForMonth(last.id)
-        let prevCombined = prev.total + claudeCostForMonth(prev.id)
+        let lastCombined = last.total
+        let prevCombined = prev.total
         let diff = lastCombined - prevCombined
         return (last, prev, diff, prevCombined > 0 ? abs(diff) / prevCombined * 100 : 0)
     }
@@ -176,19 +162,11 @@ struct StatisticsDashboardSection: View {
                         .foregroundStyle(theme.primaryText)
                 }
                 Spacer()
-                if claudeConfigured {
-                    Text("Copilot + Claude")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.secondary.opacity(0.12), in: Capsule())
-                } else {
-                    Text("Nur Copilot")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.blue.opacity(0.8))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(.blue.opacity(0.1), in: Capsule())
-                }
+                Text("Nur Copilot")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.blue.opacity(0.8))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.blue.opacity(0.1), in: Capsule())
                 if overBudgetCount > 0 {
                     Label("\(overBudgetCount)× über Budget", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 12)).foregroundStyle(theme.statusOrange)
@@ -231,7 +209,7 @@ struct StatisticsDashboardSection: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Label("Monatsvergleich", systemImage: "chart.bar.fill")
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.primaryText)
-                    Text(claudeConfigured ? "Copilot + Claude kombiniert" : "Nur GitHub Copilot")
+                    Text("Nur GitHub Copilot")
                         .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 }
                 Spacer()
@@ -253,7 +231,7 @@ struct StatisticsDashboardSection: View {
 
             Chart {
                 ForEach(months) { m in
-                    let combined = m.total + claudeCostForMonth(m.id)
+                    let combined = m.total
                     BarMark(x: .value("Monat", m.shortName), y: .value("Kosten", combined))
                         .foregroundStyle(hoveredValue?.label == m.shortName
                                          ? AnyShapeStyle(accentColor.opacity(0.95))
@@ -298,7 +276,7 @@ struct StatisticsDashboardSection: View {
                                 let x = loc.x - (proxy.plotFrame.map { geo[$0].origin.x } ?? 0)
                                 if let name: String = proxy.value(atX: x, as: String.self),
                                    let m = months.first(where: { $0.shortName == name }) {
-                                    hoveredValue = (name, m.total + claudeCostForMonth(m.id))
+                                    hoveredValue = (name, m.total)
                                 }
                             case .ended: hoveredValue = nil
                             }
@@ -321,25 +299,16 @@ struct StatisticsDashboardSection: View {
             if let td = trendData {
                 let isUp = td.diff > 0
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Text("MONATS-TREND").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
-                        if claudeConfigured {
-                            Text("Copilot + Claude")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(.secondary.opacity(0.12), in: Capsule())
-                        }
-                    }
+                    Text("MONATS-TREND").font(.system(size: 11, weight: .semibold)).foregroundStyle(theme.tertiaryText).kerning(0.8)
                     Text("\(td.prev.shortName) → \(td.last.shortName) Shift").font(.system(size: 13, weight: .medium)).foregroundStyle(theme.secondaryText)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(isUp ? "+" : "")\(fmt(td.diff))").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(isUp ? theme.statusRed : theme.statusGreen).lineLimit(1).minimumScaleFactor(0.6)
                         Spacer()
                         let recent = Array(activeMonths.sorted { $0.month < $1.month }.suffix(4))
-                        let maxV = recent.map { $0.total + claudeCostForMonth($0.id) }.max() ?? 1
+                        let maxV = recent.map { $0.total }.max() ?? 1
                         HStack(alignment: .bottom, spacing: 3) {
                             ForEach(recent) { m in
-                                let combinedM = m.total + claudeCostForMonth(m.id)
+                                let combinedM = m.total
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(m.id == td.last.id ? accentColor : accentColor.opacity(0.3))
                                     .frame(width: 6, height: max(4, CGFloat(combinedM/maxV) * 28))

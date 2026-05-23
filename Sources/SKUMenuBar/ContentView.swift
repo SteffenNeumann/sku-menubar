@@ -59,6 +59,7 @@ extension View {
 struct DashboardView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
+    @AppStorage("claudeDisplayMode") private var claudeDisplayMode = "tokens"
     @State private var refreshRotation: Double = 0
 
     // MARK: - Derived costs
@@ -267,13 +268,15 @@ struct DashboardView: View {
                             label: "CLAUDE API",
                             icon: "sparkles",
                             iconColor: .purple,
-                            value: state.fmt(state.claudeMonthCost),
+                            value: claudeDisplayMode == "tokens"
+                                ? fmtTok(state.claudeMonthTokens)
+                                : state.fmt(state.claudeMonthCost),
                             badge: "+\(Int(claudePct * 100))%",
                             badgeColor: consumedColor(claudePct),
                             pct: claudePct, barColor: .purple,
                             sub: state.settings.claudeWeeklyTokenLimit > 0
                                 ? "Limit: \(state.settings.claudeWeeklyTokenLimit / 1000)K tok/Wo."
-                                : "Kein Limit"
+                                : claudeDisplayMode == "tokens" ? "Token-Verbrauch" : "geschätzte Kosten"
                         )
                         kpiCard(
                             label: "VERBLEIBEND",
@@ -340,30 +343,37 @@ struct DashboardView: View {
 
                         DrilldownChartCard(
                             title:       "Claude Code",
-                            subtitle:    "Nur Claude · CLI (lokal)",
+                            subtitle:    claudeDisplayMode == "tokens"
+                                ? "Nur Claude · Tokens"
+                                : "Nur Claude · geschätzte Kosten",
                             icon:        "sparkles",
                             accentColor: .purple,
-                            monthlyData: claudeMonthlyData,
-                            dailyData:   claudeDailySource,
-                            fmtFn:       { state.fmt($0) },
+                            monthlyData: claudeDisplayMode == "tokens"
+                                ? claudeMonthlyTokenData : claudeMonthlyData,
+                            dailyData:   claudeDisplayMode == "tokens"
+                                ? claudeDailyTokenDataAsDouble : claudeDailySource,
+                            fmtFn:       claudeDisplayMode == "tokens"
+                                ? { fmtTokenShort($0) } : { state.fmt($0) },
                             isLoading:   state.claudeIsLoading,
                             errorMsg:    state.claudeError
                         )
                         .frame(maxWidth: .infinity)
                     }
 
-                    // Combined total chart (full width)
-                    DrilldownChartCard(
-                        title:       "Gesamt",
-                        subtitle:    "Copilot + Claude kombiniert",
-                        icon:        "chart.bar.fill",
-                        accentColor: accentColor,
-                        monthlyData: combinedMonthlyData,
-                        dailyData:   combinedDailyData,
-                        fmtFn:       { state.fmt($0) },
-                        isLoading:   state.isLoadingHistory || state.claudeIsLoading
-                    )
-                    .frame(maxWidth: .infinity)
+                    // Combined chart only makes sense in cost mode (can't mix tokens + USD)
+                    if claudeDisplayMode != "tokens" {
+                        DrilldownChartCard(
+                            title:       "Gesamt",
+                            subtitle:    "Copilot + Claude kombiniert",
+                            icon:        "chart.bar.fill",
+                            accentColor: accentColor,
+                            monthlyData: combinedMonthlyData,
+                            dailyData:   combinedDailyData,
+                            fmtFn:       { state.fmt($0) },
+                            isLoading:   state.isLoadingHistory || state.claudeIsLoading
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 } else {
                     DrilldownChartCard(
                         title:       "GitHub Copilot",
@@ -417,6 +427,50 @@ struct DashboardView: View {
     }
 
     // MARK: - KPI Card (uniform size)
+
+    private func fmtTok(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1fM tok", Double(n) / 1_000_000) }
+        if n >= 1_000     { return String(format: "%.0fK tok", Double(n) / 1_000) }
+        return "\(n) tok"
+    }
+
+    private var claudeDailyTokenSource: [String: Int] {
+        state.claudeYearDailyTokensByDate.isEmpty ? state.localDailyTokensByDate : state.claudeYearDailyTokensByDate
+    }
+
+    private var claudeMonthlyTokenData: [(id: String, label: String, value: Double)] {
+        var monthTotals: [String: Int] = [:]
+        for (dateStr, tokens) in claudeDailyTokenSource {
+            let monthId = String(dateStr.prefix(7))
+            monthTotals[monthId, default: 0] += tokens
+        }
+        let cur = currentMonthId
+        if monthTotals[cur] == nil { monthTotals[cur] = 0 }
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM"
+        df.locale     = Locale(identifier: "de_DE")
+        let shortDf   = DateFormatter()
+        shortDf.locale = Locale(identifier: "de_DE")
+        return monthTotals.compactMap { (monthId, value) -> (id: String, label: String, value: Double)? in
+            guard let date = df.date(from: monthId) else { return nil }
+            let label = shortDf.shortMonthSymbols[Calendar.current.component(.month, from: date) - 1]
+            return (id: monthId, label: label, value: Double(value))
+        }
+        .filter { $0.value > 0 || $0.id == cur }
+        .sorted { $0.id < $1.id }
+    }
+
+    private var claudeDailyTokenDataAsDouble: [String: Double] {
+        claudeDailyTokenSource.mapValues { Double($0) }
+    }
+
+    private func fmtTokenShort(_ v: Double) -> String {
+        let n = Int(v)
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000     { return String(format: "%.0fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
 
     private func kpiCard(label: String, icon: String, iconColor: Color,
                          value: String, badge: String, badgeColor: Color,

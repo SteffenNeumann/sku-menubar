@@ -1,10 +1,13 @@
 import SwiftUI
 
 /// Shows Claude API usage from Anthropic Admin API
-/// (cost per day / week / month / year + token counts)
+/// (cost or token view, togglable)
 struct ClaudeUsageCard: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
+    @AppStorage("claudeDisplayMode") private var displayMode = "tokens"
+
+    private var showTokens: Bool { displayMode == "tokens" }
 
     var body: some View {
         Group {
@@ -30,36 +33,61 @@ struct ClaudeUsageCard: View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow.padding(.bottom, 12)
 
-            // ── Cost grid ─────────────────────────────────────────────
-            HStack(spacing: 0) {
-                costCell(icon: "sun.max.fill",              color: theme.statusOrange,
-                         label: "Heute",  value: state.claudeTodayCost)
-                Divider().frame(height: 40).opacity(0.2)
-                costCell(icon: "calendar.badge.clock",      color: .blue,
-                         label: "Woche",  value: state.claudeWeekCost)
-                Divider().frame(height: 40).opacity(0.2)
-                costCell(icon: "calendar",                  color: .indigo,
-                         label: "Monat",  value: state.claudeMonthCost)
-                Divider().frame(height: 40).opacity(0.2)
-                costCell(icon: "chart.line.uptrend.xyaxis", color: .purple,
-                         label: "Jahr",   value: state.claudeYearCost)
-            }
+            if showTokens {
+                HStack(spacing: 0) {
+                    tokenCell(icon: "sun.max.fill",              color: theme.statusOrange,
+                              label: "Heute",  tokens: state.claudeTodayTokens)
+                    Divider().frame(height: 40).opacity(0.2)
+                    tokenCell(icon: "calendar.badge.clock",      color: .blue,
+                              label: "Woche",  tokens: state.claudeWeekTokens)
+                    Divider().frame(height: 40).opacity(0.2)
+                    tokenCell(icon: "calendar",                  color: .indigo,
+                              label: "Monat",  tokens: state.claudeMonthTokens)
+                    Divider().frame(height: 40).opacity(0.2)
+                    tokenCell(icon: "chart.line.uptrend.xyaxis", color: .purple,
+                              label: "Jahr",   tokens: state.claudeYearTokens)
+                }
 
-            // ── Token row ─────────────────────────────────────────────
-            if state.claudeMonthTokens > 0 {
                 Rectangle()
                     .fill(Color.primary.opacity(0.08))
                     .frame(height: 0.5)
                     .padding(.vertical, 10)
 
                 HStack(spacing: 12) {
-                    tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: theme.statusOrange)
-                    tokenPill(label: "Monat", tokens: state.claudeMonthTokens, color: .indigo)
+                    costPill(label: "Heute", cost: state.claudeTodayCost, color: theme.statusOrange)
+                    costPill(label: "Monat", cost: state.claudeMonthCost, color: .indigo)
                     Spacer()
-                    Text("Tokens").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                    Text("geschätzt").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    costCell(icon: "sun.max.fill",              color: theme.statusOrange,
+                             label: "Heute",  value: state.claudeTodayCost)
+                    Divider().frame(height: 40).opacity(0.2)
+                    costCell(icon: "calendar.badge.clock",      color: .blue,
+                             label: "Woche",  value: state.claudeWeekCost)
+                    Divider().frame(height: 40).opacity(0.2)
+                    costCell(icon: "calendar",                  color: .indigo,
+                             label: "Monat",  value: state.claudeMonthCost)
+                    Divider().frame(height: 40).opacity(0.2)
+                    costCell(icon: "chart.line.uptrend.xyaxis", color: .purple,
+                             label: "Jahr",   value: state.claudeYearCost)
+                }
+
+                if state.claudeMonthTokens > 0 {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 0.5)
+                        .padding(.vertical, 10)
+
+                    HStack(spacing: 12) {
+                        tokenPill(label: "Heute", tokens: state.claudeTodayTokens, color: theme.statusOrange)
+                        tokenPill(label: "Monat", tokens: state.claudeMonthTokens, color: .indigo)
+                        Spacer()
+                        Text("Tokens").font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                    }
                 }
             }
-
         }
     }
 
@@ -87,6 +115,22 @@ struct ClaudeUsageCard: View {
                     .foregroundStyle(theme.tertiaryText)
             }
             Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    displayMode = showTokens ? "cost" : "tokens"
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: showTokens ? "number" : "eurosign")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(showTokens ? "Tokens" : "Kosten")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.primary.opacity(0.06), in: Capsule())
+            }
+            .buttonStyle(.plain)
             if state.claudeIsLoading {
                 ProgressView().scaleEffect(0.6)
             } else {
@@ -139,7 +183,26 @@ struct ClaudeUsageCard: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Token Pill
+    // MARK: - Token Cell (primary in token mode)
+
+    private func tokenCell(icon: String, color: Color, label: String, tokens: Int) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundStyle(color)
+            Text(fmtTokens(tokens))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(theme.tertiaryText)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Pills (secondary row)
 
     private func tokenPill(label: String, tokens: Int, color: Color) -> some View {
         HStack(spacing: 4) {
@@ -147,6 +210,20 @@ struct ClaudeUsageCard: View {
                 .font(.system(size: 11))
                 .foregroundStyle(theme.tertiaryText)
             Text(fmtTokens(tokens))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.1), in: Capsule())
+    }
+
+    private func costPill(label: String, cost: Double, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(theme.tertiaryText)
+            Text(fmt(cost))
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
         }

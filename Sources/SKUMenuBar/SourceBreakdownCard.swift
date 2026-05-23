@@ -5,16 +5,24 @@ import SwiftUI
 struct SourceBreakdownCard: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
+    @AppStorage("claudeDisplayMode") private var claudeDisplayMode = "tokens"
 
     enum Period { case today, month }
     var period: Period = .month
 
+    private var showClaudeAsTokens: Bool { claudeDisplayMode == "tokens" }
+
     private var data: [String: Double] {
         var d = period == .today ? state.todayByProduct : state.monthByProduct
-        // Add Claude/Anthropic costs as a virtual product
-        let claudeCost = period == .today ? state.claudeTodayCost : state.claudeMonthCost
-        if claudeCost > 0 { d["__claude__"] = claudeCost }
+        if !showClaudeAsTokens {
+            let claudeCost = period == .today ? state.claudeTodayCost : state.claudeMonthCost
+            if claudeCost > 0 { d["__claude__"] = claudeCost }
+        }
         return d
+    }
+
+    private var claudeTokens: Int {
+        period == .today ? state.claudeTodayTokens : state.claudeMonthTokens
     }
 
     private var total: Double { data.values.reduce(0, +) }
@@ -108,6 +116,37 @@ struct SourceBreakdownCard: View {
                     }
                 }
 
+                // Claude token row (separate, not mixed with costs)
+                if showClaudeAsTokens && claudeTokens > 0 {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.1))
+                        .frame(height: 0.5)
+                        .padding(.vertical, 6)
+
+                    HStack(spacing: 8) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.purple.opacity(0.15))
+                                .frame(width: 26, height: 26)
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.purple)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Claude (Anthropic)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                            Text("tokens")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        Spacer()
+                        Text(fmtTokens(claudeTokens))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(.purple)
+                    }
+                }
+
                 // Divider + grand total
                 Rectangle()
                     .fill(Color.primary.opacity(0.1))
@@ -195,4 +234,10 @@ struct SourceBreakdownCard: View {
     }
 
     private func fmt(_ v: Double) -> String { state.fmt(v) }
+
+    private func fmtTokens(_ n: Int) -> String {
+        n >= 1_000_000 ? String(format: "%.1fM tok", Double(n) / 1_000_000)
+        : n >= 1_000   ? String(format: "%.0fK tok", Double(n) / 1_000)
+        : "\(n) tok"
+    }
 }

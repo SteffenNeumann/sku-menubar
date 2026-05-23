@@ -15,6 +15,7 @@ struct HomeView: View {
     @Environment(\.appTheme) var theme
     @Binding var selectedSection: AppSection
 
+    @AppStorage("claudeDisplayMode") private var claudeDisplayMode = "tokens"
     @State private var showingCustomize         = false
     @State private var showTMetricDatePicker    = false
     @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
@@ -255,17 +256,27 @@ struct HomeView: View {
     // MARK: - Cost Today Card
 
     private var costTodayCard: some View {
+        let showTokens = claudeDisplayMode == "tokens"
         let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
         let weekTokens     = state.localWeekTokens
         let weekPct: Double = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
         let barColor: Color = weekPct > 0.9 ? theme.statusRed : weekPct > 0.7 ? theme.statusOrange : theme.accentIcon
 
-        return HomeTile(title: "Kosten Heute", icon: "eurosign.circle.fill", iconColor: theme.statusOrange, theme: theme) {
+        let tileTitle = showTokens ? "Tokens Heute" : "Kosten Heute"
+        let tileIcon  = showTokens ? "number.circle.fill" : "eurosign.circle.fill"
+
+        return HomeTile(title: tileTitle, icon: tileIcon, iconColor: theme.statusOrange, theme: theme) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.fmt(state.localTodayCost))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(theme.primaryText)
+                    if showTokens {
+                        Text(fmtTok(state.localTodayTokens))
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                    } else {
+                        Text(state.fmt(state.localTodayCost))
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                    }
                     Text("Heute")
                         .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
@@ -279,11 +290,15 @@ struct HomeView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
-                        Text(weekTokenLimit > 0
-                             ? fmtTok(weekTokens)
-                             : state.fmt(state.localWeekCost))
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(barColor)
+                        if showTokens || weekTokenLimit > 0 {
+                            Text(fmtTok(weekTokens))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(barColor)
+                        } else {
+                            Text(state.fmt(state.localWeekCost))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(barColor)
+                        }
                     }
                     if weekTokenLimit > 0 {
                         GeometryReader { geo in

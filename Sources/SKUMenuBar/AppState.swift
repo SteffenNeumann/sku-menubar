@@ -43,6 +43,9 @@ final class AppState: ObservableObject {
     @Published var claudeWeekTokens:   Int = 0
     @Published var claudeMonthTokens:  Int = 0
     @Published var claudeYearDailyByDate: [String: Double] = [:]  // "yyyy-MM-dd" -> cost USD
+    @Published var claudeYearDailyTokensByDate: [String: Int] = [:]  // "yyyy-MM-dd" -> total tokens
+    @Published var claudeYearTokens: Int = 0
+    @Published var localDailyTokensByDate: [String: Int] = [:]  // "yyyy-MM-dd" -> total tokens
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
     @Published var claudeLastUpdate: Date?
@@ -575,7 +578,7 @@ final class AppState: ObservableObject {
 
     func loadLocalCLIUsage() async {
         // Run all file I/O off the main thread
-        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, Int, Int, [String: Double], Double, Double, Double) in
+        let result = await Task.detached(priority: .userInitiated) { () -> (Int, Int, Int, Int, Int, Int, [String: Double], Double, Double, Double, [String: Int]) in
             let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent(".claude/projects")
 
@@ -591,12 +594,13 @@ final class AppState: ObservableObject {
             var inToday = 0, outToday = 0, inWeek = 0, outWeek = 0, inSession = 0, outSession = 0
             var costToday: Double = 0, costWeek: Double = 0, costMonth: Double = 0
             var dailyByDate: [String: Double] = [:]
+            var dailyTokensByDate: [String: Int] = [:]
 
             let fm = FileManager.default
             guard let enumerator = fm.enumerator(at: projectsDir,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]) else {
-                return (0, 0, 0, 0, 0, 0, [:], 0, 0, 0)
+                return (0, 0, 0, 0, 0, 0, [String: Double](), 0.0, 0.0, 0.0, [String: Int]())
             }
 
             let iso = ISO8601DateFormatter()
@@ -627,12 +631,16 @@ final class AppState: ObservableObject {
                     if lineCost > 0 {
                         dailyByDate[dayFmt.string(from: dt), default: 0] += lineCost
                     }
+                    let lineTokens = inp + out
+                    if lineTokens > 0 {
+                        dailyTokensByDate[dayFmt.string(from: dt), default: 0] += lineTokens
+                    }
                 }
             }
-            return (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth)
+            return (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth, dailyTokensByDate)
         }.value
 
-        let (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth) = result
+        let (inToday, outToday, inWeek, outWeek, inSession, outSession, dailyByDate, costToday, costWeek, costMonth, dailyTokensByDate) = result
         localTodayTokens   = inToday + outToday
         localWeekTokens    = inWeek  + outWeek
         localSessionTokens = inSession + outSession
@@ -640,6 +648,7 @@ final class AppState: ObservableObject {
         localWeekCost      = costWeek
         localMonthCost     = costMonth
         localDailyByDate   = dailyByDate
+        localDailyTokensByDate = dailyTokensByDate
     }
 
     /// Per-model price lookup (input, output) per token.
@@ -707,6 +716,16 @@ final class AppState: ObservableObject {
                 dailyByDate[dateKey, default: 0] += bucketCost
             }
             claudeYearDailyByDate = dailyByDate
+
+            var dailyTokensByDate: [String: Int] = [:]
+            for bucket in year {
+                guard let dateStr = bucket.startingAt else { continue }
+                let dateKey = String(dateStr.prefix(10))
+                let bucketTokens = (bucket.results ?? []).map(\.totalTokens).reduce(0, +)
+                dailyTokensByDate[dateKey, default: 0] += bucketTokens
+            }
+            claudeYearDailyTokensByDate = dailyTokensByDate
+
             persistClaudeDaily()
 
             func cost(_ buckets: [AnthropicUsageBucket]) -> Double {
@@ -723,6 +742,7 @@ final class AppState: ObservableObject {
             claudeTodayTokens = tokens(today)
             claudeWeekTokens  = tokens(week)
             claudeMonthTokens = tokens(month)
+            claudeYearTokens  = tokens(year)
 
         } catch APIError.http(429, _) {
             // Rate limited — keep existing data, don't show error
