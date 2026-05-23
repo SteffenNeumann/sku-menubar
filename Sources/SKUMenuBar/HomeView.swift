@@ -134,6 +134,7 @@ struct HomeView: View {
         case .zeiterfassung:  zeiterfassungCard
         case .kundenanfragen: kundenanfragenCard
         case .gitStatus:      gitStatusCard
+        case .sessionAnalysis: SessionAnalysisCard()
         }
     }
 

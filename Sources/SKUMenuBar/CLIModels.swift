@@ -986,6 +986,62 @@ struct ActiveSessionFile: Decodable {
     let version: String?
 }
 
+// MARK: - Session Analysis
+
+struct SessionTokenSummary: Identifiable {
+    let id: String
+    let projectPath: String
+    let firstTimestamp: Date
+    let lastTimestamp: Date
+    let entrypoint: String
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheCreateTokens: Int
+    let cacheReadTokens: Int
+    let model: String
+    let estimatedCost: Double
+    let toolCalls: [String: Int]
+    let mcpServers: [String: Int]
+    let modelBreakdown: [String: Int]
+    let agentSpawns: Int
+
+    var totalTokens: Int { inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens }
+    var displayName: String {
+        let parts = projectPath.split(separator: "-")
+        if let last = parts.last { return String(last) }
+        return projectPath
+    }
+    var duration: TimeInterval { lastTimestamp.timeIntervalSince(firstTimestamp) }
+}
+
+struct SessionAnalysisData {
+    var todaySessions: [SessionTokenSummary] = []
+    var todayTotalTokens: Int { todaySessions.reduce(0) { $0 + $1.totalTokens } }
+    var todayTotalCost: Double { todaySessions.reduce(0) { $0 + $1.estimatedCost } }
+
+    var mcpServerTotals: [String: Int] {
+        var result: [String: Int] = [:]
+        for s in todaySessions {
+            for (server, tokens) in s.mcpServers {
+                result[server, default: 0] += tokens
+            }
+        }
+        return result
+    }
+
+    var modelTotals: [String: Int] {
+        var result: [String: Int] = [:]
+        for s in todaySessions {
+            for (model, tokens) in s.modelBreakdown {
+                result[model, default: 0] += tokens
+            }
+        }
+        return result
+    }
+
+    var totalAgentSpawns: Int { todaySessions.reduce(0) { $0 + $1.agentSpawns } }
+}
+
 // MARK: - Home Tile Configuration
 
 enum HomeTileID: String, CaseIterable, Codable {
@@ -998,6 +1054,7 @@ enum HomeTileID: String, CaseIterable, Codable {
     case zeiterfassung   = "zeiterfassung"
     case kundenanfragen  = "kundenanfragen"
     case gitStatus       = "gitStatus"
+    case sessionAnalysis = "sessionAnalysis"
 
     var displayName: String {
         switch self {
@@ -1010,6 +1067,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .zeiterfassung:  return "Zeiterfassung"
         case .kundenanfragen: return "Kundenanfragen"
         case .gitStatus:      return "Git Status"
+        case .sessionAnalysis: return "Session-Analyse"
         }
     }
 
@@ -1024,12 +1082,13 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .zeiterfassung:  return "timer"
         case .kundenanfragen: return "envelope.badge.fill"
         case .gitStatus:      return "arrow.triangle.branch"
+        case .sessionAnalysis: return "waveform.path.ecg"
         }
     }
 
     var colSpan: Int {
         switch self {
-        case .zeiterfassung, .kundenanfragen, .gitStatus: return 3
+        case .zeiterfassung, .kundenanfragen, .gitStatus, .sessionAnalysis: return 3
         default: return 1
         }
     }

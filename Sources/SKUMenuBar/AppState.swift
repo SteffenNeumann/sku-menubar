@@ -46,6 +46,11 @@ final class AppState: ObservableObject {
     @Published var claudeYearDailyTokensByDate: [String: Int] = [:]  // "yyyy-MM-dd" -> total tokens
     @Published var claudeYearTokens: Int = 0
     @Published var localDailyTokensByDate: [String: Int] = [:]  // "yyyy-MM-dd" -> total tokens
+
+    // MARK: - Session Analysis
+    @Published var sessionAnalysis: SessionAnalysisData = SessionAnalysisData()
+    @Published var sessionAnalysisIsLoading = false
+
     @Published var claudeIsLoading:  Bool = false
     @Published var claudeError:      String?
     @Published var claudeLastUpdate: Date?
@@ -649,6 +654,137 @@ final class AppState: ObservableObject {
         localMonthCost     = costMonth
         localDailyByDate   = dailyByDate
         localDailyTokensByDate = dailyTokensByDate
+    }
+
+    func loadSessionAnalysis() async {
+        sessionAnalysisIsLoading = true
+        let result = await Task.detached(priority: .utility) { () -> SessionAnalysisData in
+            let projectsDir = URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent(".claude/projects")
+            let fm = FileManager.default
+            let cal = Calendar.current
+            let startOfToday = cal.startOfDay(for: Date())
+
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+            var sessions: [SessionTokenSummary] = []
+
+            guard let topLevel = try? fm.contentsOfDirectory(at: projectsDir, includingPropertiesForKeys: nil) else {
+                return SessionAnalysisData()
+            }
+
+            for projDir in topLevel {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: projDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let projName = projDir.lastPathComponent
+
+                guard let files = try? fm.contentsOfDirectory(at: projDir, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+
+                for fileURL in files {
+                    guard fileURL.pathExtension == "jsonl" else { continue }
+                    if let attrs = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                       let modDate = attrs.contentModificationDate,
+                       modDate < startOfToday { continue }
+
+                    guard let data = try? Data(contentsOf: fileURL),
+                          let text = String(data: data, encoding: .utf8) else { continue }
+
+                    let sessionId = fileURL.deletingPathExtension().lastPathComponent
+                    var firstTs: Date?
+                    var lastTs: Date?
+                    var inputTokens = 0, outputTokens = 0
+                    var cacheCreate = 0, cacheRead = 0
+                    var entrypoint = ""
+                    var toolCalls: [String: Int] = [:]
+                    var mcpServers: [String: Int] = [:]
+                    var modelBreakdown: [String: Int] = [:]
+                    var agentSpawns = 0
+                    var hasTodayData = false
+
+                    for line in text.components(separatedBy: "\n") where !line.isEmpty {
+                        guard let lineData = line.data(using: .utf8),
+                              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else { continue }
+
+                        if let tsStr = obj["timestamp"] as? String, let dt = iso.date(from: tsStr) {
+                            if dt < startOfToday { continue }
+                            hasTodayData = true
+                            if firstTs == nil || dt < firstTs! { firstTs = dt }
+                            if lastTs == nil || dt > lastTs! { lastTs = dt }
+                        }
+
+                        if entrypoint.isEmpty, let ep = obj["entrypoint"] as? String {
+                            entrypoint = ep
+                        }
+
+                        guard let msg = obj["message"] as? [String: Any] else { continue }
+
+                        if let usage = msg["usage"] as? [String: Any] {
+                            let inp = usage["input_tokens"] as? Int ?? 0
+                            let out = usage["output_tokens"] as? Int ?? 0
+                            let cc = usage["cache_creation_input_tokens"] as? Int ?? 0
+                            let cr = usage["cache_read_input_tokens"] as? Int ?? 0
+                            inputTokens += inp
+                            outputTokens += out
+                            cacheCreate += cc
+                            cacheRead += cr
+
+                            if let model = msg["model"] as? String, !model.isEmpty, model != "<synthetic>" {
+                                modelBreakdown[model, default: 0] += inp + out + cc + cr
+                            }
+                        }
+
+                        if let content = msg["content"] as? [[String: Any]] {
+                            for block in content {
+                                guard let blockType = block["type"] as? String, blockType == "tool_use" else { continue }
+                                guard let toolName = block["name"] as? String else { continue }
+                                toolCalls[toolName, default: 0] += 1
+                                if toolName.hasPrefix("mcp__") {
+                                    let rest = String(toolName.dropFirst(5))
+                                    if let sep = rest.range(of: "__") {
+                                        let serverName = String(rest[..<sep.lowerBound])
+                                        mcpServers[serverName, default: 0] += 1
+                                    }
+                                }
+                                if toolName == "Agent" {
+                                    agentSpawns += 1
+                                }
+                            }
+                        }
+                    }
+
+                    guard hasTodayData, let first = firstTs, let last = lastTs else { continue }
+
+                    let dominantModel = modelBreakdown.max(by: { $0.value < $1.value })?.key ?? "unknown"
+                    let (ip, op) = AppState.modelPrice(dominantModel)
+                    let cost = Double(inputTokens) * ip + Double(outputTokens) * op
+
+                    sessions.append(SessionTokenSummary(
+                        id: sessionId,
+                        projectPath: projName,
+                        firstTimestamp: first,
+                        lastTimestamp: last,
+                        entrypoint: entrypoint,
+                        inputTokens: inputTokens,
+                        outputTokens: outputTokens,
+                        cacheCreateTokens: cacheCreate,
+                        cacheReadTokens: cacheRead,
+                        model: dominantModel,
+                        estimatedCost: cost,
+                        toolCalls: toolCalls,
+                        mcpServers: mcpServers,
+                        modelBreakdown: modelBreakdown,
+                        agentSpawns: agentSpawns
+                    ))
+                }
+            }
+
+            sessions.sort { $0.totalTokens > $1.totalTokens }
+            return SessionAnalysisData(todaySessions: sessions)
+        }.value
+
+        sessionAnalysis = result
+        sessionAnalysisIsLoading = false
     }
 
     /// Per-model price lookup (input, output) per token.
