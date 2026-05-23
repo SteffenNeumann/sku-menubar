@@ -590,7 +590,7 @@ struct LinearView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     // Title first — primary element
                     Text(issue.title)
-                        .font(.system(size: isSubtask ? 11.5 : 12, weight: .medium))
+                        .font(.system(size: isSubtask ? 12 : 13, weight: .medium))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                         .strikethrough(issue.state?.isCompleted ?? false, color: theme.tertiaryText)
@@ -598,26 +598,26 @@ struct LinearView: View {
                     // Identifier + Priority + Parent badge — secondary
                     HStack(spacing: 5) {
                         Text(issue.identifier)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(theme.tertiaryText)
                         Image(systemName: issue.priority.icon)
-                            .font(.system(size: 9))
+                            .font(.system(size: 10))
                             .foregroundStyle(issue.priority.color)
                         if let parentIdent = issue.parentIdentifier {
                             HStack(spacing: 2) {
                                 Image(systemName: "arrow.turn.right.up")
-                                    .font(.system(size: 7))
+                                    .font(.system(size: 8))
                                 Text(parentIdent)
-                                    .font(.system(size: 9, design: .monospaced))
+                                    .font(.system(size: 10, design: .monospaced))
                             }
                             .foregroundStyle(linearPurple.opacity(0.7))
                         }
                         if issue.subIssueCount > 0 {
                             HStack(spacing: 2) {
                                 Image(systemName: "list.bullet.indent")
-                                    .font(.system(size: 8))
-                                Text("\(issue.subIssueCount)")
                                     .font(.system(size: 9))
+                                Text("\(issue.subIssueCount)")
+                                    .font(.system(size: 10))
                             }
                             .foregroundStyle(theme.tertiaryText)
                         }
@@ -769,7 +769,7 @@ struct LinearView: View {
                 // Title — prominent, double-click to edit
                 if isEditingTitle {
                     TextField("Titel", text: $editedTitle)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .textFieldStyle(.plain)
                         .foregroundStyle(theme.primaryText)
                         .padding(.horizontal, 16)
@@ -782,7 +782,7 @@ struct LinearView: View {
                         }
                 } else {
                     Text(issue.title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                         .strikethrough(issue.state?.isCompleted ?? false)
                         .padding(.horizontal, 16)
