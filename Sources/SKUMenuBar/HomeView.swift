@@ -423,19 +423,24 @@ struct HomeView: View {
     }
 
     private func sessionRow(_ session: ActiveCLISession) -> some View {
-        Button {
-            state.pendingChatSession = session.sessionId
-            state.pendingChatWorkingDirectory = session.cwd
-            selectedSection = .chat
+        let isOrphan = session.id.hasPrefix("pgrep-")
+        let dotColor = isOrphan ? theme.statusOrange : theme.statusGreen
+
+        return Button {
+            if !isOrphan {
+                state.pendingChatSession = session.sessionId
+                state.pendingChatWorkingDirectory = session.cwd
+                selectedSection = .chat
+            }
         } label: {
             HStack(spacing: 10) {
                 ZStack {
-                    Circle().fill(theme.statusGreen.opacity(0.20)).frame(width: 8, height: 8)
-                    Circle().fill(theme.statusGreen).frame(width: 5, height: 5)
+                    Circle().fill(dotColor.opacity(0.20)).frame(width: 8, height: 8)
+                    Circle().fill(dotColor).frame(width: 5, height: 5)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(session.cwdDisplay)
+                        Text(isOrphan ? session.topic : session.cwdDisplay)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.primaryText)
                             .lineLimit(1)
@@ -445,8 +450,16 @@ struct HomeView: View {
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(theme.primaryText.opacity(0.08), in: Capsule())
+                        if isOrphan {
+                            Text("Hintergrund")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.statusOrange)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(theme.statusOrange.opacity(0.15), in: Capsule())
+                        }
                     }
-                    if !session.topic.isEmpty {
+                    if !isOrphan, !session.topic.isEmpty {
                         Text(session.topic)
                             .font(.system(size: 11))
                             .foregroundStyle(theme.secondaryText)
@@ -457,7 +470,7 @@ struct HomeView: View {
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(theme.tertiaryText)
                         if !session.version.isEmpty {
-                            Text("v\(session.version)")
+                            Text(isOrphan ? session.version : "v\(session.version)")
                                 .font(.system(size: 10))
                                 .foregroundStyle(theme.tertiaryText)
                         }
@@ -470,14 +483,14 @@ struct HomeView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(theme.tertiaryText)
+                        .foregroundStyle(isOrphan ? theme.statusOrange : theme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .help("Session beenden (PID \(session.pid))")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(theme.statusGreen.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+            .background(dotColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)

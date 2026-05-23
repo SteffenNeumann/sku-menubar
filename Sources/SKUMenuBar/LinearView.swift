@@ -372,7 +372,7 @@ struct LinearView: View {
             }
 
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(spacing: 0) {
                     if selectedProject == nil {
                         emptyPlaceholder("Projekt auswählen", icon: "sidebar.left")
                     } else {
@@ -381,14 +381,13 @@ struct LinearView: View {
                             emptyPlaceholder("Keine Issues", icon: "tray")
                         } else {
                             ForEach(grouped, id: \.state.id) { group in
-                                Section {
-                                    if !collapsedStatusGroups.contains(group.state.id) {
-                                        ForEach(group.issues) { issue in
-                                            issueRow(issue)
-                                        }
+                                // Header inline (kein Section/pinnedViews — LazyVStack+Section+pinnedViews
+                                // cached die Section-Struktur und updated sie nicht korrekt beim Gruppen-Wechsel)
+                                statusGroupHeader(group.state, count: group.issues.count)
+                                if !collapsedStatusGroups.contains(group.state.id) {
+                                    ForEach(group.issues) { issue in
+                                        issueRow(issue)
                                     }
-                                } header: {
-                                    statusGroupHeader(group.state, count: group.issues.count)
                                 }
                             }
                         }
@@ -1229,16 +1228,19 @@ struct LinearView: View {
     private func applyLocalStateChange(issueId: String, newState: LinearIssueState) {
         guard let projId = selectedProject?.id,
               let idx = service.issues[projId]?.firstIndex(where: { $0.id == issueId }) else { return }
-        var updated = service.issues[projId]![idx]
-        updated = LinearIssue(id: updated.id, identifier: updated.identifier, title: updated.title,
-                              description: updated.description, priority: updated.priority,
-                              state: newState, teamId: updated.teamId, projectId: updated.projectId,
-                              assigneeName: updated.assigneeName, labels: updated.labels,
-                              createdAt: updated.createdAt, updatedAt: updated.updatedAt,
-                              dueDate: updated.dueDate, cycleName: updated.cycleName, url: updated.url,
-                              parentId: updated.parentId, parentIdentifier: updated.parentIdentifier,
-                              parentTitle: updated.parentTitle, subIssueCount: updated.subIssueCount)
-        service.issues[projId]![idx] = updated
+        let old = service.issues[projId]![idx]
+        let updated = LinearIssue(id: old.id, identifier: old.identifier, title: old.title,
+                                  description: old.description, priority: old.priority,
+                                  state: newState, teamId: old.teamId, projectId: old.projectId,
+                                  assigneeName: old.assigneeName, labels: old.labels,
+                                  createdAt: old.createdAt, updatedAt: old.updatedAt,
+                                  dueDate: old.dueDate, cycleName: old.cycleName, url: old.url,
+                                  parentId: old.parentId, parentIdentifier: old.parentIdentifier,
+                                  parentTitle: old.parentTitle, subIssueCount: old.subIssueCount)
+        // Copy → mutate → reassign so @Published setter fires objectWillChange correctly
+        var snapshot = service.issues
+        snapshot[projId]![idx] = updated
+        service.issues = snapshot
         if selectedIssue?.id == issueId { selectedIssue = updated }
     }
 
@@ -1246,16 +1248,19 @@ struct LinearView: View {
     private func applyLocalPriorityChange(issueId: String, newPriority: LinearPriority) {
         guard let projId = selectedProject?.id,
               let idx = service.issues[projId]?.firstIndex(where: { $0.id == issueId }) else { return }
-        var updated = service.issues[projId]![idx]
-        updated = LinearIssue(id: updated.id, identifier: updated.identifier, title: updated.title,
-                              description: updated.description, priority: newPriority,
-                              state: updated.state, teamId: updated.teamId, projectId: updated.projectId,
-                              assigneeName: updated.assigneeName, labels: updated.labels,
-                              createdAt: updated.createdAt, updatedAt: updated.updatedAt,
-                              dueDate: updated.dueDate, cycleName: updated.cycleName, url: updated.url,
-                              parentId: updated.parentId, parentIdentifier: updated.parentIdentifier,
-                              parentTitle: updated.parentTitle, subIssueCount: updated.subIssueCount)
-        service.issues[projId]![idx] = updated
+        let old = service.issues[projId]![idx]
+        let updated = LinearIssue(id: old.id, identifier: old.identifier, title: old.title,
+                                  description: old.description, priority: newPriority,
+                                  state: old.state, teamId: old.teamId, projectId: old.projectId,
+                                  assigneeName: old.assigneeName, labels: old.labels,
+                                  createdAt: old.createdAt, updatedAt: old.updatedAt,
+                                  dueDate: old.dueDate, cycleName: old.cycleName, url: old.url,
+                                  parentId: old.parentId, parentIdentifier: old.parentIdentifier,
+                                  parentTitle: old.parentTitle, subIssueCount: old.subIssueCount)
+        // Copy → mutate → reassign so @Published setter fires objectWillChange correctly
+        var snapshot = service.issues
+        snapshot[projId]![idx] = updated
+        service.issues = snapshot
         if selectedIssue?.id == issueId { selectedIssue = updated }
     }
 

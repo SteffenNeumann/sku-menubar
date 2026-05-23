@@ -543,39 +543,117 @@ final class ClaudeCLIService: ObservableObject {
     nonisolated static func loadActiveSessionsSync() -> [ActiveCLISession] {
         let home = NSHomeDirectory()
         let sessionsDir = URL(fileURLWithPath: "\(home)/.claude/sessions")
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: sessionsDir,
-            includingPropertiesForKeys: nil
-        ) else { return [] }
 
         let decoder = JSONDecoder()
         var sessions: [ActiveCLISession] = []
+        var knownPIDs: Set<Int> = []
 
-        for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let raw = try? decoder.decode(ActiveSessionFile.self, from: data),
-                  let pid = raw.pid,
-                  let sid = raw.sessionId,
-                  let cwd = raw.cwd else { continue }
+        // 1) Session-Dateien auswerten
+        if let files = try? FileManager.default.contentsOfDirectory(
+            at: sessionsDir, includingPropertiesForKeys: nil
+        ) {
+            for file in files where file.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: file),
+                      let raw = try? decoder.decode(ActiveSessionFile.self, from: data),
+                      let pid = raw.pid,
+                      let sid = raw.sessionId,
+                      let cwd = raw.cwd else { continue }
 
-            let running = kill(Int32(pid), 0) == 0
-            if running {
-                let started = raw.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .now
-                let topic = Self.extractSessionTopic(sessionId: sid, home: home)
-                sessions.append(ActiveCLISession(
-                    id: file.lastPathComponent,
-                    pid: pid,
-                    sessionId: sid,
-                    cwd: cwd,
-                    startedAt: started,
-                    kind: raw.kind ?? "interactive",
-                    entrypoint: raw.entrypoint ?? "",
-                    version: raw.version ?? "",
-                    topic: topic
-                ))
+                let running = kill(Int32(pid), 0) == 0
+                if running {
+                    knownPIDs.insert(pid)
+                    let started = raw.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .now
+                    let topic = Self.extractSessionTopic(sessionId: sid, home: home)
+                    sessions.append(ActiveCLISession(
+                        id: file.lastPathComponent,
+                        pid: pid,
+                        sessionId: sid,
+                        cwd: cwd,
+                        startedAt: started,
+                        kind: raw.kind ?? "interactive",
+                        entrypoint: raw.entrypoint ?? "",
+                        version: raw.version ?? "",
+                        topic: topic
+                    ))
+                }
             }
         }
+
+        // 2) pgrep-Fallback: Claude-Prozesse ohne Session-Datei erkennen
+        sessions.append(contentsOf: discoverOrphanedCLIProcesses(knownPIDs: knownPIDs))
+
         return sessions.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    /// Findet laufende Claude-CLI-Prozesse, die keine Session-Datei haben.
+    private nonisolated static func discoverOrphanedCLIProcesses(knownPIDs: Set<Int>) -> [ActiveCLISession] {
+        let proc = Foundation.Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        proc.arguments = ["-lf", "claude.*--model"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        guard (try? proc.run()) != nil else { return [] }
+        proc.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8), !output.isEmpty else { return [] }
+
+        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
+        var orphans: [ActiveCLISession] = []
+
+        for line in output.components(separatedBy: "\n") where !line.isEmpty {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard let pidVal = parts.first, let pid = Int(pidVal) else { continue }
+            if knownPIDs.contains(pid) || pid == myPID { continue }
+
+            let cmdLine = parts.count > 1 ? String(parts[1]) : ""
+
+            let model = Self.extractFlag(from: cmdLine, flag: "--model") ?? "unknown"
+            let isResume = cmdLine.contains("--resume")
+            let entrypoint = cmdLine.contains("claude-desktop") ? "claude-desktop"
+                           : cmdLine.contains("sdk-cli") ? "sdk-cli" : "cli"
+
+            let startDate = Self.processStartDate(pid: pid) ?? .now
+
+            orphans.append(ActiveCLISession(
+                id: "pgrep-\(pid)",
+                pid: pid,
+                sessionId: Self.extractFlag(from: cmdLine, flag: "--resume") ?? "unknown",
+                cwd: "/",
+                startedAt: startDate,
+                kind: isResume ? "resumed" : "background",
+                entrypoint: entrypoint,
+                version: model,
+                topic: isResume ? "Resumed Session (\(model))" : "Background (\(model))"
+            ))
+        }
+        return orphans
+    }
+
+    private nonisolated static func extractFlag(from cmdLine: String, flag: String) -> String? {
+        guard let range = cmdLine.range(of: flag + " ") else { return nil }
+        let after = cmdLine[range.upperBound...]
+        let value = after.prefix(while: { $0 != " " && $0 != "-" })
+        return value.isEmpty ? nil : String(value)
+    }
+
+    private nonisolated static func processStartDate(pid: Int) -> Date? {
+        let proc = Foundation.Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/ps")
+        proc.arguments = ["-o", "lstart=", "-p", "\(pid)"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        guard (try? proc.run()) != nil else { return nil }
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !str.isEmpty else { return nil }
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "EEE MMM dd HH:mm:ss yyyy"
+        return fmt.date(from: str)
     }
 
     func loadActiveSessions() -> [ActiveCLISession] {
