@@ -220,6 +220,24 @@ struct DashboardView: View {
                                     .strokeBorder(state.errorMsg != nil ? theme.statusRed.opacity(0.4) : theme.statusGreen.opacity(0.4), lineWidth: 1))
                         )
                         Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                claudeDisplayMode = claudeDisplayMode == "tokens" ? "cost" : "tokens"
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: claudeDisplayMode == "tokens" ? "number" : "eurosign")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(claudeDisplayMode == "tokens" ? "Tokens" : "Kosten")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(theme.secondaryText)
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(theme.cardSurface)
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.cardBorder, lineWidth: 1)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Claude-Anzeige: Tokens oder geschätzte Kosten")
+                        Button {
                             withAnimation(.linear(duration: 0.6)) { refreshRotation += 360 }
                             Task {
                                 await state.refresh()

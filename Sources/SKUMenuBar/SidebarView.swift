@@ -281,11 +281,20 @@ struct SidebarView: View {
     private var claudeUsageWidget: some View {
         let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
         let weekTokens     = state.localWeekTokens
-        let todayCost      = state.localTodayCost
+        let todayTokens    = state.localTodayTokens + state.copilotTodayTokens
         let weekPct        = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
         let barColor: Color = accentColor
         let fallbackActive = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
         let lastProvider = state.lastChatProvider
+
+        // 7-day average from daily token data
+        let avg7d = dailyAverage7d
+        let trendUp = avg7d > 0 && Double(todayTokens) > avg7d
+        let trendColor: Color = avg7d > 0
+            ? (Double(todayTokens) > avg7d * 1.2 ? theme.statusRed
+               : Double(todayTokens) > avg7d ? theme.statusOrange
+               : theme.statusGreen)
+            : theme.secondaryText
 
         return VStack(alignment: .leading, spacing: 8) {
             // Copilot Fallback Banner
@@ -325,6 +334,7 @@ struct SidebarView: View {
                 }
             }
 
+            // Today: tokens + trend indicator
             HStack {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 11))
@@ -333,9 +343,17 @@ struct SidebarView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
-                Text("\(state.fmt(todayCost))  ·  \(formatTokens(state.localTodayTokens + state.copilotTodayTokens)) tok")
+                Text(formatTokens(todayTokens) + " tok")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                if avg7d > 0 {
+                    Image(systemName: trendUp ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(trendColor)
+                        .help(trendUp
+                              ? "Über Ø7d (\(formatTokens(Int(avg7d))) tok/Tag)"
+                              : "Unter Ø7d (\(formatTokens(Int(avg7d))) tok/Tag)")
+                }
             }
 
             // Weekly
@@ -374,6 +392,23 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private var dailyAverage7d: Double {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let dayFmt = DateFormatter()
+        dayFmt.dateFormat = "yyyy-MM-dd"
+        var total = 0
+        var days  = 0
+        for offset in 1...7 {
+            guard let d = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+            let key = dayFmt.string(from: d)
+            let tokens = state.localDailyTokensByDate[key] ?? 0
+            total += tokens
+            if tokens > 0 { days += 1 }
+        }
+        return days > 0 ? Double(total) / Double(days) : 0
     }
 
     private func formatTokens(_ n: Int) -> String {
