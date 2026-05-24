@@ -24,7 +24,8 @@ final class ClaudeCLIService: ObservableObject {
         addDirs: [String] = [],
         skipPermissions: Bool = false,
         maxTurns: Int? = nil,
-        mcpConfigJSON: String? = nil,   // wenn gesetzt: --strict-mcp-config + --mcp-config <json>
+        mcpConfigJSON: String? = nil,   // wenn gesetzt: --mcp-config <json>
+        mcpStrictMode: Bool = true,     // wenn true zusätzlich --strict-mcp-config (disabled für OAuth-MCPs)
         imagePaths: [String] = []       // optional image files to attach (for persona reviews)
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
@@ -35,7 +36,8 @@ final class ClaudeCLIService: ObservableObject {
                     args.append("--dangerously-skip-permissions")
                 }
                 if let mcpJson = mcpConfigJSON, !mcpJson.isEmpty {
-                    args += ["--strict-mcp-config", "--mcp-config", mcpJson]
+                    if mcpStrictMode { args.append("--strict-mcp-config") }
+                    args += ["--mcp-config", mcpJson]
                 }
 
                 if let sid = sessionId, !sid.isEmpty {

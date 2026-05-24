@@ -1931,16 +1931,31 @@ struct SingleChatSessionView: View {
 
     // MARK: - MCP Config JSON Builder
 
-    private func buildMCPConfigJSON() async -> String? {
+    // Returns (json, useStrictMode).
+    // claude.ai OAuth-MCPs (name prefix "claude.ai ") cannot be included in --mcp-config JSON
+    // because `claude mcp get` fails for them — they are managed transparently by the claude.ai
+    // session. When they are among the selected servers, --strict-mcp-config must be disabled
+    // (strict mode would block them since they can't appear in the JSON).
+    private func buildMCPConfigJSON() async -> (String?, Bool) {
         // activeMCPIds leer = alle aktiv → kein --strict-mcp-config nötig
-        guard !activeMCPIds.isEmpty else { return nil }
+        guard !activeMCPIds.isEmpty else { return (nil, true) }
         // "__none__" = wirklich alle deaktivieren
         if activeMCPIds == Set(["__none__"]) {
-            return "{\"mcpServers\":{}}"
+            return ("{\"mcpServers\":{}}", true)
+        }
+
+        let selectedServers = availableMCPs.filter { activeMCPIds.contains($0.id) }
+        // OAuth-MCPs are managed by the claude.ai session — they cannot be configured via JSON
+        let hasOAuthMCPs = selectedServers.contains { $0.name.hasPrefix("claude.ai ") }
+        let regularServers = selectedServers.filter { !$0.name.hasPrefix("claude.ai ") }
+
+        // If only OAuth MCPs selected: no JSON needed, claude handles them automatically
+        if regularServers.isEmpty {
+            return (nil, false)
         }
 
         var mcpServers: [String: Any] = [:]
-        for server in availableMCPs where activeMCPIds.contains(server.id) {
+        for server in regularServers {
             // Config lazy laden und cachen
             if mcpConfigs[server.id] == nil {
                 if let cfg = await state.cliService.getMCPServerConfig(name: server.name) {
@@ -1986,8 +2001,9 @@ struct SingleChatSessionView: View {
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: ["mcpServers": mcpServers]),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        return json
+              let json = String(data: data, encoding: .utf8) else { return (nil, true) }
+        // Disable strict mode when OAuth MCPs are also selected (strict would block them)
+        return (json, !hasOAuthMCPs)
     }
 
     /// Returns the active MCPServerConfig list for use with the GitHub/Copilot path.
@@ -3380,7 +3396,7 @@ struct SingleChatSessionView: View {
             // Inject compacted summary as system prompt if no agent prompt is set
             let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
             let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
-            let mcpJson = await buildMCPConfigJSON()
+            let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
             stream = state.cliService.send(
                 message: message,
                 sessionId: currentSessionId,
@@ -3392,6 +3408,7 @@ struct SingleChatSessionView: View {
                 skipPermissions: autoApprove,
                 maxTurns: effectiveMaxTurns,
                 mcpConfigJSON: mcpJson,
+                mcpStrictMode: mcpStrict,
                 imagePaths: cliImagePaths
             )
         }
