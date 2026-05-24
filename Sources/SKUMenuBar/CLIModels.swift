@@ -1009,11 +1009,39 @@ struct SessionTokenSummary: Identifiable {
     var totalTokens: Int { inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens }
     /// Only billable-rate tokens: input + output (matches Token-Verbrauch tile, 11K style)
     var paidTokens:  Int { inputTokens + outputTokens }
+
+    /// Human-readable project name extracted from the dash-encoded path.
+    /// Examples:
+    ///   "-Users-steffen-Documents-GitHub-Suzananda--claude-worktrees-nervous-mccarthy-af8713" → "Suzananda"
+    ///   "-Users-steffen-Documents-GitHub-sku-menubar" → "sku-menubar"
+    ///   "-" or "" → "sdk·XXXXXX" (first 6 chars of session id)
     var displayName: String {
-        let parts = projectPath.split(separator: "-")
-        if let last = parts.last { return String(last) }
-        return projectPath
+        guard !projectPath.isEmpty, projectPath != "-" else {
+            return "sdk·" + String(id.prefix(6))
+        }
+        var raw = projectPath
+        if raw.hasPrefix("-") { raw = String(raw.dropFirst()) }
+
+        let components = raw.split(separator: "-").map(String.init).filter { !$0.isEmpty }
+        let username   = URL(fileURLWithPath: NSHomeDirectory()).lastPathComponent
+        let skip: Set<String> = ["Users", "home", "Documents", "GitHub", "repos", "Desktop", "workspace"]
+
+        // Worktree path: project folder sits directly before ".claude"
+        if let claudeIdx = components.firstIndex(of: "claude"), claudeIdx > 0 {
+            let candidate = components[claudeIdx - 1]
+            if !skip.contains(candidate) && candidate != username {
+                return candidate
+            }
+        }
+
+        // Regular path: strip common prefixes, join remaining segments
+        let meaningful = components.filter { !skip.contains($0) && $0 != username }
+        if meaningful.isEmpty { return String(id.prefix(8)) }
+        // Limit display length (covers multi-word project names like "vba-helper")
+        let name = meaningful.joined(separator: "-")
+        return name.count > 24 ? String(name.prefix(22)) + "…" : name
     }
+
     var duration: TimeInterval { lastTimestamp.timeIntervalSince(firstTimestamp) }
 }
 

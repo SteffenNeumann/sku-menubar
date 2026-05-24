@@ -47,14 +47,14 @@ struct SessionAnalysisCard: View {
 
                 // Drilldown chart
                 drilldownSection
-                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 6)
             }
 
             // Footer
             footerRow
-                .padding(.horizontal, 16).padding(.bottom, 16)
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
         }
-        .padding(.bottom, 4)   // Fix 4: gap between card and window edge
+        .padding(.bottom, 12)   // visible gap between card and window edge
         .mirrorCard()
         .onAppear {
             if data.todaySessions.isEmpty && !state.sessionAnalysisIsLoading {
@@ -190,32 +190,44 @@ struct SessionAnalysisCard: View {
                     .fill(sessionDotColor(session.entrypoint))
                     .frame(width: 7, height: 7)
 
-                Text(session.displayName)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? theme.accentText : theme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // Name + start time stacked
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.displayName)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? theme.accentText : theme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(fmtStartTime(session.firstTimestamp))
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                }
 
                 Spacer(minLength: 2)
 
-                // Entrypoint badge
-                Text(entrypointLabel(session.entrypoint))
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(sessionDotColor(session.entrypoint))
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(sessionDotColor(session.entrypoint).opacity(0.12), in: Capsule())
+                // Fixed-width badge area prevents layout shifts
+                HStack(spacing: 4) {
+                    Text(entrypointLabel(session.entrypoint))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(sessionDotColor(session.entrypoint))
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(sessionDotColor(session.entrypoint).opacity(0.12), in: Capsule())
 
-                if session.agentSpawns > 0 {
-                    HStack(spacing: 2) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 8))
-                        Text("\(session.agentSpawns)")
-                            .font(.system(size: 9, weight: .semibold))
+                    if session.agentSpawns > 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "cpu")
+                                .font(.system(size: 8))
+                            Text("\(session.agentSpawns)")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(.purple)
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                        .background(Color.purple.opacity(0.1), in: Capsule())
+                    } else {
+                        // Placeholder to keep width stable when no agent badge
+                        Color.clear.frame(width: 20, height: 16)
                     }
-                    .foregroundStyle(.purple)
-                    .padding(.horizontal, 4).padding(.vertical, 2)
-                    .background(Color.purple.opacity(0.1), in: Capsule())
                 }
+                .frame(minWidth: 72, alignment: .trailing)
 
                 VStack(alignment: .trailing, spacing: 1) {
                     // Primary: paid tokens (matches Token-Verbrauch tile)
@@ -849,5 +861,12 @@ struct SessionAnalysisCard: View {
         if mins < 60 { return "vor \(mins) Min" }
         let hrs = mins / 60
         return "vor \(hrs)h"
+    }
+
+    /// Short clock time for the session start, e.g. "14:32"
+    private func fmtStartTime(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "HH:mm"
+        return fmt.string(from: date)
     }
 }
