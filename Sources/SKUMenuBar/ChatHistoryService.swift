@@ -211,7 +211,9 @@ final class ChatHistoryService: ObservableObject {
                     // Use firstUserMessage as preview if history.jsonl shows a slash-command or empty
                     let rawPreview = e.preview
                     let preview: String
-                    if rawPreview.isEmpty || rawPreview.hasPrefix("/") || rawPreview.hasPrefix("[Image") {
+                    let looksLikePath = rawPreview.hasPrefix("/") && !rawPreview.contains(" ")
+                    if rawPreview.isEmpty || looksLikePath
+                        || rawPreview.hasPrefix("[Image") || rawPreview.hasPrefix("[Pasted") {
                         preview = firstUserMessage(sessionId: e.session, projectPath: path) ?? rawPreview
                     } else {
                         preview = rawPreview
@@ -270,21 +272,27 @@ final class ChatHistoryService: ObservableObject {
                 let modDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))
                     .flatMap { $0.contentModificationDate } ?? .distantPast
 
-                // Read first line to get real cwd + timestamp
+                // Scan first lines to find cwd + timestamp.
+                // New sessions start with queue-operation (no cwd), so scan multiple lines.
                 var ts = modDate
                 var projectPath: String? = nil
 
                 if let handle = try? FileHandle(forReadingFrom: file) {
-                    let data = handle.readData(ofLength: 1024)
+                    let data = handle.readData(ofLength: 8192)
                     try? handle.close()
-                    if let firstLine = String(data: data, encoding: .utf8)?
-                        .components(separatedBy: "\n").first(where: { !$0.isEmpty }),
-                       let lineData = firstLine.data(using: .utf8),
-                       let raw = try? JSONDecoder().decode(RawCLIMessage.self, from: lineData) {
-                        projectPath = raw.cwd
-                        if let tsStr = raw.timestamp {
+                    let lines = String(data: data, encoding: .utf8)?
+                        .components(separatedBy: "\n")
+                        .filter { !$0.isEmpty } ?? []
+                    for line in lines.prefix(30) {
+                        guard let lineData = line.data(using: .utf8),
+                              let raw = try? JSONDecoder().decode(RawCLIMessage.self, from: lineData) else { continue }
+                        if projectPath == nil, let cwd = raw.cwd, !cwd.isEmpty {
+                            projectPath = cwd
+                        }
+                        if ts == modDate, let tsStr = raw.timestamp {
                             ts = isoFull.date(from: tsStr) ?? isoBasic.date(from: tsStr) ?? modDate
                         }
+                        if projectPath != nil { break }
                     }
                 }
 
@@ -412,14 +420,15 @@ final class ChatHistoryService: ObservableObject {
                       raw.type == "user" else { continue }
                 let text = raw.message?.content?.displayText ?? ""
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Skip pure slash-commands
+                // Skip slash-commands and bare file paths
                 guard !trimmed.isEmpty && !trimmed.hasPrefix("/") else { continue }
-                // Strip "[Image: source: /path...]" references, keep any user-written text
+                // Strip noise references
                 let stripped = trimmed
                     .replacingOccurrences(of: #"\[Image: source:[^\]]*\]"#, with: "", options: .regularExpression)
+                    .replacingOccurrences(of: #"\[Pasted text[^\]]*\]"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                let preview = stripped.isEmpty ? trimmed : stripped
-                return String(preview.prefix(80))
+                guard !stripped.isEmpty else { continue }
+                return String(stripped.prefix(80))
             }
         }
         return nil
