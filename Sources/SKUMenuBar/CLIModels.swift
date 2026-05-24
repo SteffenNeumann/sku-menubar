@@ -1079,7 +1079,6 @@ struct SessionAnalysisData {
 
 enum HomeTileID: String, CaseIterable, Codable {
     case quickActions    = "quickActions"
-    case costToday       = "costToday"
     case recentProjects  = "recentProjects"
     case activeSessions  = "activeSessions"
     case agents          = "agents"
@@ -1092,7 +1091,6 @@ enum HomeTileID: String, CaseIterable, Codable {
     var displayName: String {
         switch self {
         case .quickActions:   return "Schnellzugriff"
-        case .costToday:      return "Kosten Heute"
         case .recentProjects: return "Letzte Projekte"
         case .activeSessions: return "Aktive Sessions"
         case .agents:         return "Agents"
@@ -1107,7 +1105,6 @@ enum HomeTileID: String, CaseIterable, Codable {
     var icon: String {
         switch self {
         case .quickActions:   return "bolt.fill"
-        case .costToday:      return "eurosign.circle.fill"
         case .recentProjects: return "clock.arrow.circlepath"
         case .activeSessions: return "terminal.fill"
         case .agents:         return "cpu.fill"

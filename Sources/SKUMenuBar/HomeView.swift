@@ -15,7 +15,6 @@ struct HomeView: View {
     @Environment(\.appTheme) var theme
     @Binding var selectedSection: AppSection
 
-    @AppStorage("claudeDisplayMode") private var claudeDisplayMode = "tokens"
     @State private var showingCustomize         = false
     @State private var showTMetricDatePicker    = false
     @State private var tmetricDraftFrom: Date   = Calendar.current.startOfDay(for: Date())
@@ -83,21 +82,15 @@ struct HomeView: View {
         if orderedVisibleTiles.isEmpty {
             emptyDashboard
         } else {
-            Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
+            VStack(spacing: 12) {
                 ForEach(tileRows.indices, id: \.self) { rowIndex in
-                    GridRow {
-                        let row = tileRows[rowIndex]
-                        let usedCols = row.reduce(0) { $0 + $1.colSpan }
-                        ForEach(row) { tileID in
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(tileRows[rowIndex]) { tileID in
                             tileView(for: tileID)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .gridCellColumns(tileID.colSpan)
-                        }
-                        if usedCols < 3 {
-                            Color.clear
-                                .gridCellColumns(3 - usedCols)
                         }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -126,7 +119,6 @@ struct HomeView: View {
     private func tileView(for id: HomeTileID) -> some View {
         switch id {
         case .quickActions:   quickActionsCard
-        case .costToday:      costTodayCard
         case .recentProjects: recentProjectsCard
         case .activeSessions: activeSessionsCard
         case .agents:         agentsCard
@@ -254,31 +246,20 @@ struct HomeView: View {
         return "\(n) tok"
     }
 
-    // MARK: - Cost Today Card
+    // MARK: - Token Usage Card
 
-    private var costTodayCard: some View {
-        let showTokens = claudeDisplayMode == "tokens"
-        let weekTokenLimit = state.settings.claudeWeeklyTokenLimit
-        let weekTokens     = state.localWeekTokens
-        let weekPct: Double = weekTokenLimit > 0 ? min(1.0, Double(weekTokens) / Double(weekTokenLimit)) : 0
-        let barColor: Color = weekPct > 0.9 ? theme.statusRed : weekPct > 0.7 ? theme.statusOrange : theme.accentIcon
+    private var tokenUsageCard: some View {
+        let todayIn = state.localTodayTokens
+        let weekIn  = state.localWeekTokens
+        let ratio: Double = weekIn > 0 ? min(1.0, Double(todayIn) / Double(weekIn)) : 0
 
-        let tileTitle = showTokens ? "Tokens Heute" : "Kosten Heute"
-        let tileIcon  = showTokens ? "number.circle.fill" : "eurosign.circle.fill"
-
-        return HomeTile(title: tileTitle, icon: tileIcon, iconColor: theme.statusOrange, theme: theme) {
+        return HomeTile(title: "Token-Verbrauch", icon: "chart.bar.fill", iconColor: accentColor, theme: theme) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
-                    if showTokens {
-                        Text(fmtTok(state.localTodayTokens))
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(theme.primaryText)
-                    } else {
-                        Text(state.fmt(state.localTodayCost))
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(theme.primaryText)
-                    }
-                    Text("Heute")
+                    Text(formatTokens(todayIn))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text("Tokens heute")
                         .font(.system(size: 13))
                         .foregroundStyle(theme.tertiaryText)
                 }
@@ -291,31 +272,23 @@ struct HomeView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                         Spacer()
-                        if showTokens || weekTokenLimit > 0 {
-                            Text(fmtTok(weekTokens))
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(barColor)
-                        } else {
-                            Text(state.fmt(state.localWeekCost))
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(barColor)
+                        Text(fmtTok(weekIn))
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(theme.isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
+                            Capsule()
+                                .fill(theme.accentIcon)
+                                .frame(width: geo.size.width * max(0.02, ratio))
+                                .animation(.spring(response: 0.5), value: ratio)
                         }
                     }
-                    if weekTokenLimit > 0 {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(theme.isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
-                                Capsule()
-                                    .fill(barColor)
-                                    .frame(width: geo.size.width * weekPct)
-                                    .animation(.spring(response: 0.5), value: weekPct)
-                            }
-                        }
-                        .frame(height: 4)
-                        Text("Limit: \(fmtTok(weekTokenLimit))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
+                    .frame(height: 4)
+                    Text("Heute ist \(Int(ratio * 100))% der Woche")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
                 }
                 Spacer(minLength: 0)
             }
@@ -607,55 +580,6 @@ struct HomeView: View {
             Text(label)
                 .font(.system(size: 12))
                 .foregroundStyle(theme.tertiaryText)
-        }
-    }
-
-    // MARK: - Token Usage Card
-
-    private var tokenUsageCard: some View {
-        let todayIn = state.localTodayTokens
-        let weekIn  = state.localWeekTokens
-        let ratio: Double = weekIn > 0 ? min(1.0, Double(todayIn) / Double(weekIn)) : 0
-
-        return HomeTile(title: "Token-Verbrauch", icon: "chart.bar.fill", iconColor: accentColor, theme: theme) {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(formatTokens(todayIn))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(theme.primaryText)
-                    Text("Tokens heute")
-                        .font(.system(size: 13))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-
-                Divider().opacity(0.3)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Diese Woche")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(theme.secondaryText)
-                        Spacer()
-                        Text(formatTokens(weekIn) + " tok")
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(theme.primaryText)
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(theme.isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
-                            Capsule()
-                                .fill(theme.accentIcon)
-                                .frame(width: geo.size.width * max(0.02, ratio))
-                                .animation(.spring(response: 0.5), value: ratio)
-                        }
-                    }
-                    .frame(height: 4)
-                    Text("Heute ist \(Int(ratio * 100))% der Woche")
-                        .font(.system(size: 12))
-                        .foregroundStyle(theme.tertiaryText)
-                }
-                Spacer(minLength: 0)
-            }
         }
     }
 
