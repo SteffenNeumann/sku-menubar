@@ -1005,7 +1005,10 @@ struct SessionTokenSummary: Identifiable {
     let modelBreakdown: [String: Int]
     let agentSpawns: Int
 
+    /// All token types including cache (35.2M style)
     var totalTokens: Int { inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens }
+    /// Only billable-rate tokens: input + output (matches Token-Verbrauch tile, 11K style)
+    var paidTokens:  Int { inputTokens + outputTokens }
     var displayName: String {
         let parts = projectPath.split(separator: "-")
         if let last = parts.last { return String(last) }
@@ -1017,6 +1020,8 @@ struct SessionTokenSummary: Identifiable {
 struct SessionAnalysisData {
     var todaySessions: [SessionTokenSummary] = []
     var todayTotalTokens: Int { todaySessions.reduce(0) { $0 + $1.totalTokens } }
+    /// Sum of paidTokens across all sessions (= matches Token-Verbrauch tile)
+    var todayPaidTokens:  Int { todaySessions.reduce(0) { $0 + $1.paidTokens  } }
     var todayTotalCost: Double { todaySessions.reduce(0) { $0 + $1.estimatedCost } }
 
     var mcpServerTotals: [String: Int] {

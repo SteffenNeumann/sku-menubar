@@ -32,11 +32,14 @@ struct SessionAnalysisCard: View {
                 summaryRow
                     .padding(.horizontal, 16).padding(.bottom, 12)
 
-                // Three columns
+                // Three columns — each gets equal width via maxWidth:.infinity
                 HStack(alignment: .top, spacing: 10) {
                     sessionsColumn
+                        .frame(maxWidth: .infinity)
                     mcpServerColumn
+                        .frame(maxWidth: .infinity)
                     modelMixColumn
+                        .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 16).padding(.bottom, 14)
 
@@ -49,8 +52,9 @@ struct SessionAnalysisCard: View {
 
             // Footer
             footerRow
-                .padding(.horizontal, 16).padding(.bottom, 14)
+                .padding(.horizontal, 16).padding(.bottom, 16)
         }
+        .padding(.bottom, 4)   // Fix 4: gap between card and window edge
         .mirrorCard()
         .onAppear {
             if data.todaySessions.isEmpty && !state.sessionAnalysisIsLoading {
@@ -94,10 +98,12 @@ struct SessionAnalysisCard: View {
     // MARK: - Summary Row
 
     private var summaryRow: some View {
-        let sessionCount = data.todaySessions.count
-        let totalTokens = data.todayTotalTokens
-        let totalCost = data.todayTotalCost
-        let spawns = data.totalAgentSpawns
+        let sessionCount  = data.todaySessions.count
+        let paidTokens    = data.todayPaidTokens   // matches Token-Verbrauch tile
+        let totalTokens   = data.todayTotalTokens  // includes cache
+        let cacheTokens   = totalTokens - paidTokens
+        let totalCost     = data.todayTotalCost
+        let spawns        = data.totalAgentSpawns
 
         return HStack(spacing: 6) {
             Image(systemName: "info.circle.fill")
@@ -107,7 +113,13 @@ struct SessionAnalysisCard: View {
             Group {
                 Text("\(sessionCount) Sessions")
                 Text("\u{00B7}").foregroundStyle(theme.tertiaryText)
-                Text(fmtTokens(totalTokens) + " Tokens")
+                // Primary: paid tokens (= same as Token-Verbrauch tile)
+                Text(fmtTokens(paidTokens) + " tok")
+                    .foregroundStyle(theme.primaryText)
+                if cacheTokens > 0 {
+                    Text("+("+fmtTokens(cacheTokens)+" Cache)")
+                        .foregroundStyle(theme.tertiaryText)
+                }
                 Text("\u{00B7}").foregroundStyle(theme.tertiaryText)
                 Text("~" + state.fmt(totalCost, decimals: 2))
                 if spawns > 0 {
@@ -163,9 +175,9 @@ struct SessionAnalysisCard: View {
     }
 
     private func sessionRow(_ session: SessionTokenSummary) -> some View {
-        let pct = data.todayTotalTokens > 0
-            ? Double(session.totalTokens) / Double(data.todayTotalTokens) * 100
-            : 0
+        // Use paid tokens for percentage (matches Token-Verbrauch tile scale)
+        let base = data.todayPaidTokens > 0 ? data.todayPaidTokens : 1
+        let pct = Double(session.paidTokens) / Double(base) * 100
         let isSelected = selectedSessionId == session.id
 
         return Button {
@@ -206,12 +218,20 @@ struct SessionAnalysisCard: View {
                 }
 
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(fmtTokens(session.totalTokens))
+                    // Primary: paid tokens (matches Token-Verbrauch tile)
+                    Text(fmtTokens(session.paidTokens))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(theme.primaryText)
-                    Text(String(format: "%.0f%%", pct))
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.tertiaryText)
+                    HStack(spacing: 3) {
+                        Text(String(format: "%.0f%%", pct))
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                        if session.cacheReadTokens > 0 {
+                            Text("+\(fmtTokens(session.cacheReadTokens))c")
+                                .font(.system(size: 9))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 5)
@@ -302,7 +322,8 @@ struct SessionAnalysisCard: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .truncationMode(.middle)
+                .help(name)   // full name on hover
             Spacer(minLength: 2)
             Text("\(calls)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -804,7 +825,8 @@ struct SessionAnalysisCard: View {
     }
 
     private func cleanServerName(_ raw: String) -> String {
-        if raw.count > 12 { return String(raw.prefix(8)) + "\u{2026}" }
+        // Keep up to 18 chars; SwiftUI's .truncationMode(.middle) handles the rest
+        if raw.count > 18 { return String(raw.prefix(9)) + "\u{2026}" + String(raw.suffix(8)) }
         return raw.capitalized
     }
 
