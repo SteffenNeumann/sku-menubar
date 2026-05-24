@@ -3764,8 +3764,10 @@ struct SingleChatSessionView: View {
     }
 
     private func fetchGitDiff(in directory: String) async -> String? {
+        // DispatchQueue.global statt Task.detached — waitUntilExit() darf keinen
+        // Swift-Concurrency-Thread blockieren (erschöpft den Cooperative Thread Pool).
         await withCheckedContinuation { continuation in
-            Task.detached(priority: .utility) {
+            DispatchQueue.global(qos: .utility).async {
                 // ── 1. git diff HEAD — modified tracked files ──────────────────
                 let diffProcess = Process()
                 diffProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -3783,8 +3785,6 @@ struct SingleChatSessionView: View {
                 } catch {}
 
                 // ── 2. git ls-files --others — new (untracked) files ───────────
-                // Synthesise a "new file mode" diff entry for each untracked file
-                // that was created/modified in the last 10 min (i.e. by the agent).
                 let lsProcess = Process()
                 lsProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
                 lsProcess.arguments = ["ls-files", "--others", "--exclude-standard"]
@@ -3798,7 +3798,7 @@ struct SingleChatSessionView: View {
                     let data = lsPipe.fileHandleForReading.readDataToEndOfFile()
                     let newFiles = (String(data: data, encoding: .utf8) ?? "")
                         .components(separatedBy: "\n").filter { !$0.isEmpty }
-                    let cutoff = Date().addingTimeInterval(-600)   // 10-min window
+                    let cutoff = Date().addingTimeInterval(-600)
                     let fm = FileManager.default
                     for file in newFiles {
                         let fullPath = (directory as NSString).appendingPathComponent(file)
