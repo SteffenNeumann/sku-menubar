@@ -1128,6 +1128,7 @@ struct SingleChatSessionView: View {
                         }, onAskForResult: msg.role == .assistant && !msg.toolCalls.isEmpty && !msg.isStreaming ? {
                             sendMessage(text: "Bitte teile dein abschließendes Ergebnis und deine konkreten Empfehlungen mit.")
                         } : nil)
+                        .equatable()
                         .id(msg.id)
                     }
                     if let err = errorMessage {
@@ -4925,7 +4926,15 @@ struct ChatFilePanelRow: View {
 
 // MARK: - Message Row (VS Code Copilot style: flat, left-aligned, dividers)
 
-struct MessageBubbleView: View {
+struct MessageBubbleView: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Streaming messages always re-render (content changes on every token batch)
+        if lhs.message.isStreaming || rhs.message.isStreaming { return false }
+        // Completed messages: skip re-render if nothing meaningful changed.
+        // Closures (onDiffTap, onAskForResult) are intentionally ignored — they
+        // are stable captures that never change for a finished message.
+        return lhs.message == rhs.message
+    }
     let message: ChatMessage
     var onDiffTap: ((String) -> Void)?
     var onAskForResult: (() -> Void)?
