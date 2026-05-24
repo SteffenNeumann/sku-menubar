@@ -324,6 +324,27 @@ struct SingleChatSessionView: View {
         }
     }
 
+    /// Heuristik: true = Aufgabe ist komplex genug für Orchestrierung.
+    /// Berücksichtigt Wortanzahl, mehrere Aufgaben-Verben und Mehrdomain-Konjunktionen.
+    private func isComplexTask(_ text: String) -> Bool {
+        let words = text.split(separator: " ")
+        guard words.count > 20 else { return false }   // Kurz → immer einfach
+        guard words.count <= 300 else { return true }  // Sehr lang → immer komplex
+        let lower = text.lowercased()
+        // Aufgaben-Verben die eigenständige Teilaufgaben signalisieren
+        let taskVerbs = ["erstelle", "entwickle", "implementiere", "analysiere",
+                         "überprüfe", "schreibe", "entwerfe", "plane", "optimiere",
+                         "recherchiere", "vergleiche", "bewerte", "dokumentiere",
+                         "strukturiere", "baue", "konfiguriere", "konzipiere"]
+        let verbCount = taskVerbs.filter { lower.contains($0) }.count
+        if verbCount >= 2 { return true }
+        // Konjunktionen die einen neuen Themenbereich einleiten
+        let complexConjunctions = [" sowie ", " außerdem ", " zusätzlich ",
+                                   " darüber hinaus ", " einerseits ", " andererseits ",
+                                   " zum einen ", " zum anderen ", " gleichzeitig "]
+        return complexConjunctions.contains { lower.contains($0) }
+    }
+
     private func closeAllPickers() {
         showModelPicker   = false
         showAgentPicker   = false
@@ -2599,7 +2620,9 @@ struct SingleChatSessionView: View {
 
     // MARK: - Orchestrator: Plan → Execute → Synthesize
 
-    private func sendOrchestrator() {
+    /// - autoAgentList: wenn gesetzt, werden diese Agents verwendet (Auto-Orchestrierung).
+    ///   nil = Agents aus selectedOrchestrators (manuell).
+    private func sendOrchestrator(autoAgentList: [AgentDefinition]? = nil) {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
@@ -2626,7 +2649,9 @@ struct SingleChatSessionView: View {
 
         messages.append(ChatMessage(role: .user, content: displayText))
 
-        let agents = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
+        // Agent-Liste: manuell gewählt oder automatisch (alle verfügbaren)
+        let isAutoOrchestrated = autoAgentList != nil
+        let agents = autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
         guard !agents.isEmpty else { return }
 
         isStreaming = true; streamingStartTime = Date()
@@ -2688,7 +2713,9 @@ struct SingleChatSessionView: View {
             planPlaceholder.model = "🎯 Orchestrator"
             messages.append(planPlaceholder)
             let planIdx = messages.count - 1
-            messages[planIdx].content = "**🎯 Orchestrator-Plan**\n"
+            messages[planIdx].content = isAutoOrchestrated
+                ? "🤖 **Auto-Orchestrierung** — \(agents.map { $0.name }.joined(separator: ", "))\n\n**🎯 Plan**\n"
+                : "**🎯 Orchestrator-Plan**\n"
 
             var planText = ""
             let planStream = state.cliService.send(
@@ -3220,10 +3247,25 @@ struct SingleChatSessionView: View {
     }
 
     private func sendMessage() {
-        if orchestratorMode && !selectedOrchestrators.isEmpty {
-            sendOrchestrator()
+        // ── Smart Routing ─────────────────────────────────────────────────────
+        let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taskIsComplex = isComplexTask(routingText)
+
+        if orchestratorMode {
+            if taskIsComplex || routingText.isEmpty {
+                // Komplexe Aufgabe oder reiner Datei-Upload → volle Orchestrierung
+                sendOrchestrator()
+            } else {
+                // Einfache Aufgabe trotz Orchestrator-Auswahl → direkt mit bestem Agent
+                // (fall-through zum normalen Send-Pfad unten)
+            }
+            if taskIsComplex || routingText.isEmpty { return }
+        } else if taskIsComplex && !routingText.isEmpty && state.agentService.agents.count >= 2 {
+            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
+            sendOrchestrator(autoAgentList: state.agentService.agents)
             return
         }
+        // ── Normaler Einzel-Agent-Pfad ────────────────────────────────────────
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         // Handle slash commands before normal send
         if text.hasPrefix("/"),
@@ -3282,8 +3324,15 @@ struct SingleChatSessionView: View {
 
         isStreaming = true; streamingStartTime = Date()
 
-        // Auto-detect agent via trigger keywords if none is manually selected
-        let triggerAgent: String? = autoTriggerAgent(for: text)?.id
+        // Auto-detect agent:
+        // • Orchestratoren gewählt + einfache Aufgabe → besten gewählten Agent nehmen
+        // • Sonst: Trigger-Keywords prüfen
+        let triggerAgent: String?
+        if orchestratorMode, let bestId = selectedOrchestrators.first {
+            triggerAgent = bestId
+        } else {
+            triggerAgent = autoTriggerAgent(for: text)?.id
+        }
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
