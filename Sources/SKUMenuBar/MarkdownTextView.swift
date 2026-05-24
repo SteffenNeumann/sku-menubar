@@ -3,7 +3,9 @@ import AppKit
 
 // MARK: - Markdown renderer with syntax-highlighted code blocks
 
-struct MarkdownTextView: View {
+struct MarkdownTextView: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.text == rhs.text }
+
     let text: String
     @Environment(\.appTheme) var theme
     @Environment(\.colorScheme) var colorScheme
@@ -15,7 +17,9 @@ struct MarkdownTextView: View {
     var body: some View {
         let segments = parseSegments(text)
 
-        // Single-column layout: text and code blocks appear in order
+        // Single-column layout: text and code blocks appear in order.
+        // .textSelection is applied ONCE here — not per-block — to avoid
+        // creating one SelectionOverlay NSViewRepresentable per paragraph.
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                 switch segment {
@@ -26,6 +30,7 @@ struct MarkdownTextView: View {
                 }
             }
         }
+        .textSelection(.enabled)
     }
 
     // MARK: - Block-level Markdown types
@@ -266,9 +271,9 @@ struct MarkdownTextView: View {
             markdown: text,
             options: AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            Text(attributed).textSelection(.enabled)
+            Text(attributed)
         } else {
-            Text(text).textSelection(.enabled)
+            Text(text)
         }
     }
 

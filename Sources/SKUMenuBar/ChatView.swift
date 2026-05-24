@@ -1062,10 +1062,16 @@ struct SingleChatSessionView: View {
             in: Capsule()
         )
         .help(tab.tmetricTimerError ?? (tab.tmetricIsTimerRunning ? "Timer läuft" : ""))
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { date in
-            guard tab.tmetricIsTimerRunning else { return }
-            chatTimerTick = date
-        }
+        // Timer only runs when TMetric is active — avoids 1s main-thread wakeups at idle
+        .background(
+            Group {
+                if tab.tmetricIsTimerRunning {
+                    Color.clear.onReceive(
+                        Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+                    ) { date in chatTimerTick = date }
+                }
+            }
+        )
     }
 
     private func tmetricElapsed(from start: Date) -> String {
@@ -5022,6 +5028,7 @@ struct MessageBubbleView: View, Equatable {
             }
             if !message.content.isEmpty {
                 MarkdownTextView(text: message.content)
+                    .equatable()
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -5080,6 +5087,7 @@ struct MessageBubbleView: View, Equatable {
             let isResearching = message.isStreaming && !message.toolCalls.isEmpty && !allToolsDone
             if !message.content.isEmpty && !isResearching {
                 MarkdownTextView(text: message.content)
+                    .equatable()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(allToolsDone && message.isStreaming ? 0.65 : 1.0)
             }
