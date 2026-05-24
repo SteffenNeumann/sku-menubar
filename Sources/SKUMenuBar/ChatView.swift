@@ -253,6 +253,8 @@ struct SingleChatSessionView: View {
     @State private var newSnippetTitle    = ""
     @State private var newSnippetText     = ""
     @State private var activeDiff: String?
+    @State private var activePlan: String? = nil       // Orchestrator-Plan für rechtes Panel
+    @State private var rightPanelShowsPlan: Bool = true // true = Plan-Tab aktiv
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
@@ -640,11 +642,11 @@ struct SingleChatSessionView: View {
                 }
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
-                // Right: Diff side panel (resizable) — bleibt geschlossen wenn vom User dismissed
-                if let diff = activeDiff, !diffPanelDismissed {
+                // Right: Plan- oder Diff-Panel (resizable) — bleibt geschlossen wenn vom User dismissed
+                if (activePlan != nil || activeDiff != nil) && !diffPanelDismissed {
                     PanelResizeHandle(width: $diffPanelWidth, minWidth: 320, maxWidth: 900, growsRight: false)
                         .frame(width: 10)
-                    diffSidePanel(diff)
+                    unifiedRightPanel()
                         .frame(width: diffPanelWidth)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -2603,6 +2605,7 @@ struct SingleChatSessionView: View {
             autoTriggeredAgentName = nil
             showCompactBanner = false
             compactBannerSeenAt = 0
+            activePlan = nil
         }
     }
 
@@ -2717,6 +2720,11 @@ struct SingleChatSessionView: View {
                 ? "🤖 **Auto-Orchestrierung** — \(agents.map { $0.name }.joined(separator: ", "))\n\n**🎯 Plan**\n"
                 : "**🎯 Orchestrator-Plan**\n"
 
+            // Panel sofort öffnen — zeigt "Wird erstellt…" bis erste Chunks ankommen
+            diffPanelDismissed = false
+            rightPanelShowsPlan = true
+            activePlan = ""
+
             var planText = ""
             let planStream = state.cliService.send(
                 message: planPrompt,
@@ -2733,6 +2741,7 @@ struct SingleChatSessionView: View {
                             if let t = block.text, !t.isEmpty {
                                 planText += t
                                 messages[planIdx].content += t
+                                activePlan = planText   // Live-Update rechtes Panel
                             }
                         }
                     }
@@ -2741,6 +2750,7 @@ struct SingleChatSessionView: View {
                 messages[planIdx].content += "\n⚠️ Plan-Fehler: \(error.localizedDescription)"
             }
             messages[planIdx].isStreaming = false
+            activePlan = planText   // Finale Version für geparste Agent-Karten
 
             // Parse plan into per-agent tasks
             let agentTasks = parseOrchestratorPlan(planText, agents: agents)
@@ -3182,6 +3192,7 @@ struct SingleChatSessionView: View {
             isAuthError = false
             sessionTitle = ""
             orchestratorHistory = []
+            activePlan = nil
         }
     }
 
@@ -4004,6 +4015,191 @@ struct SingleChatSessionView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10).padding(.vertical, 1)
             .background(bg)
+    }
+}
+
+// MARK: - Unified Right Panel (Plan + Diff)
+
+extension SingleChatSessionView {
+
+    // MARK: Unified wrapper
+
+    @ViewBuilder
+    func unifiedRightPanel() -> some View {
+        let hasBoth = activePlan != nil && activeDiff != nil
+
+        VStack(spacing: 0) {
+            // Tab-Leiste nur wenn Plan UND Diff gleichzeitig existieren
+            if hasBoth {
+                HStack(spacing: 0) {
+                    rightPanelTab(label: "Plan", icon: "list.clipboard",
+                                  selected: rightPanelShowsPlan) { rightPanelShowsPlan = true }
+                    rightPanelTab(label: "Diff", icon: "arrow.left.arrow.right",
+                                  selected: !rightPanelShowsPlan) { rightPanelShowsPlan = false }
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.3)) { diffPanelDismissed = true }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 12)
+                    .help("Panel schließen")
+                }
+                .frame(height: 36)
+                .background(theme.windowBg)
+                Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+            }
+
+            // Inhalt
+            if rightPanelShowsPlan, let plan = activePlan {
+                planSidePanel(plan)
+            } else if let diff = activeDiff {
+                diffSidePanel(diff)
+            } else if let plan = activePlan {
+                planSidePanel(plan)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rightPanelTab(label: String, icon: String,
+                                selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 11))
+                Text(label).font(.system(size: 12, weight: selected ? .semibold : .regular))
+            }
+            .foregroundStyle(selected ? accentColor : theme.secondaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 0)
+            .frame(height: 36)
+            .overlay(alignment: .bottom) {
+                if selected { Rectangle().fill(accentColor).frame(height: 2) }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Plan Side Panel
+
+    func planSidePanel(_ plan: String) -> some View {
+        let entries = parsePlanForPanel(plan)
+        let isLoading = plan.isEmpty || (entries.isEmpty && !plan.isEmpty)
+
+        return VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "list.clipboard")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.orange)
+                Text("Orchestrator-Plan")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                if isLoading {
+                    ProgressView().scaleEffect(0.55)
+                }
+                Spacer()
+                // Kein eigener Close-Button wenn Tab-Leiste schon Close hat
+                if activeDiff == nil {
+                    Button {
+                        withAnimation(.spring(response: 0.3)) { diffPanelDismissed = true }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Panel schließen")
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(theme.windowBg)
+
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            // Agent-Karten
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !entries.isEmpty {
+                        ForEach(Array(entries.enumerated()), id: \.offset) { idx, entry in
+                            planAgentCard(number: idx + 1,
+                                         agentName: entry.agent,
+                                         task: entry.task)
+                        }
+                    } else if isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.7)
+                            Text("Plan wird erstellt…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .padding(12)
+                    }
+                }
+                .padding(10)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color(white: theme.isLight ? 0.96 : 0.06))
+    }
+
+    // MARK: Plan-Karte pro Agent
+
+    @ViewBuilder
+    private func planAgentCard(number: Int, agentName: String, task: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            // Nummer-Badge
+            ZStack {
+                Circle().fill(Color.orange)
+                Text("\(number)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 22, height: 22)
+            .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(agentName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Text(task)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.cardBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: Plan-Parser
+
+    private struct PlanPanelEntry { let agent: String; let task: String }
+
+    private func parsePlanForPanel(_ plan: String) -> [PlanPanelEntry] {
+        var entries: [PlanPanelEntry] = []
+        let lines = plan.components(separatedBy: .newlines)
+        var currentAgent: String?
+        for line in lines {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.uppercased().hasPrefix("AGENT:") {
+                currentAgent = String(t.dropFirst(6))
+                    .trimmingCharacters(in: .whitespaces)
+                    .replacingOccurrences(of: "**", with: "")
+            } else if t.uppercased().hasPrefix("AUFGABE:"), let agent = currentAgent {
+                entries.append(PlanPanelEntry(
+                    agent: agent,
+                    task: String(t.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                ))
+                currentAgent = nil
+            }
+        }
+        return entries
     }
 }
 
