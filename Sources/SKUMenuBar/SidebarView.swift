@@ -82,11 +82,31 @@ struct SidebarView: View {
         }
     }
 
-    // MARK: - Recent Projects
+    // MARK: - Recent Chats
+
+    private var recentSessions: [HistorySession] {
+        state.historyService.projects
+            .flatMap { $0.sessions }
+            .sorted { $0.timestamp > $1.timestamp }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 { return "gerade" }
+        if interval < 3600 { return "\(Int(interval / 60))m" }
+        if interval < 86400 { return "\(Int(interval / 3600))h" }
+        if interval < 7 * 86400 { return "\(Int(interval / 86400))d" }
+        let df = DateFormatter()
+        df.dateFormat = "d. MMM"
+        df.locale = Locale(identifier: "de_DE")
+        return df.string(from: date)
+    }
 
     @ViewBuilder
     private var recentProjectsSection: some View {
-        Text("LETZTE PROJEKTE")
+        Text("LETZTE CHATS")
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.tertiaryText)
             .kerning(0.8)
@@ -95,9 +115,12 @@ struct SidebarView: View {
             .padding(.top, 6)
             .padding(.bottom, 2)
 
-        ForEach(state.historyService.projects.prefix(5)) { project in
+        ForEach(recentSessions) { session in
+            let projectName = URL(fileURLWithPath: session.projectPath).lastPathComponent
             Button {
-                state.pendingChatNewProject = project.path
+                state.pendingChatSession = session.sessionId
+                state.pendingChatSessionTitle = projectName
+                state.pendingChatWorkingDirectory = session.projectPath
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     selection = .chat
                 }
@@ -107,43 +130,75 @@ struct SidebarView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .fill(theme.primaryText.opacity(0.06))
                             .frame(width: 26, height: 26)
-                        Image(systemName: "folder")
-                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(theme.secondaryText)
                     }
-                    Text(project.displayName)
-                        .font(.system(size: 14))
-                        .foregroundStyle(theme.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.preview.isEmpty ? "Leere Session" : session.preview)
+                            .font(.system(size: 13))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        HStack(spacing: 3) {
+                            Text(projectName)
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text("·")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.4))
+                            Text(relativeTime(session.timestamp))
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                    }
+
                     Spacer()
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.vertical, 5)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .contextMenu {
                 Button {
-                    state.pendingChatNewProject = project.path
+                    state.pendingChatSession = session.sessionId
+                    state.pendingChatSessionTitle = projectName
+                    state.pendingChatWorkingDirectory = session.projectPath
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         selection = .chat
                     }
                 } label: {
-                    Label("In Chat öffnen", systemImage: "bubble.left.and.bubble.right")
+                    Label("Fortsetzen", systemImage: "arrow.right.circle")
                 }
+
                 Button {
-                    state.pendingFilesPath = project.path
+                    state.historySelectedProjectId = session.projectPath
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        selection = .history
+                    }
+                } label: {
+                    Label("Im Verlauf anzeigen", systemImage: "clock.arrow.circlepath")
+                }
+
+                Divider()
+
+                Button {
+                    state.pendingFilesPath = session.projectPath
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         selection = .files
                     }
                 } label: {
-                    Label("In Explorer öffnen", systemImage: "folder")
+                    Label("Dateien öffnen", systemImage: "folder")
                 }
-                Divider()
+
                 Button {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: project.path))
+                    NSWorkspace.shared.open(URL(fileURLWithPath: session.projectPath))
                 } label: {
                     Label("Im Finder öffnen", systemImage: "arrow.up.forward.square")
                 }
@@ -220,7 +275,8 @@ struct SidebarView: View {
                     badge("\(state.agentService.agents.count)")
                 }
                 if section == .history, !state.historyService.projects.isEmpty {
-                    badge("\(state.historyService.projects.count)")
+                    let sessionCount = state.historyService.projects.reduce(0) { $0 + $1.sessions.count }
+                    badge("\(sessionCount)")
                 }
                 if section == .notes {
                     let noteCount = state.notes.filter { $0.type == .note }.count
