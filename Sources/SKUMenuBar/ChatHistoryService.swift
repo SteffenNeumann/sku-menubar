@@ -227,12 +227,16 @@ final class ChatHistoryService: ObservableObject {
                         messageCount: 0
                     )
                 }
-            // De-duplicate sessions by sessionId (keep most recent)
+            // De-duplicate sessions by sessionId (keep most recent), drop sessions with no preview
             var seen = Set<String>()
-            let unique = sessions.filter { seen.insert($0.sessionId).inserted }
+            let unique = sessions.filter { seen.insert($0.sessionId).inserted && !$0.preview.isEmpty }
+            guard !unique.isEmpty else { continue }
             result.append(ProjectHistory(id: path, path: path, sessions: unique))
         }
-        projects = result.sorted { $0.lastActivity > $1.lastActivity }
+        // Drop worktree pseudo-projects and the root "/" artifact
+        projects = result
+            .filter { !$0.path.contains("/.claude/worktrees/") && $0.path != "/" && !$0.path.isEmpty }
+            .sorted { $0.lastActivity > $1.lastActivity }
     }
 
     // MARK: - Disk fallback: scan ~/.claude/projects/ for sessions missing from history.jsonl

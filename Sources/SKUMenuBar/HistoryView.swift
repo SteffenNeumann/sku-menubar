@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum ProjectSortMode: String, CaseIterable {
+    case recent   = "Neueste zuerst"
+    case name     = "Name A–Z"
+    case count    = "Meiste Sessions"
+}
+
 struct HistoryView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
@@ -8,16 +14,22 @@ struct HistoryView: View {
     @State private var sessionMessages: [HistoryMessage] = []
     @State private var isLoadingMessages = false
     @State private var searchText = ""
+    @State private var sortMode: ProjectSortMode = .recent
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
     var filteredProjects: [ProjectHistory] {
-        guard !searchText.isEmpty else { return state.historyService.projects }
-        return state.historyService.projects.filter {
-            $0.path.localizedCaseInsensitiveContains(searchText) ||
-            $0.sessions.contains { $0.preview.localizedCaseInsensitiveContains(searchText) }
+        let base = searchText.isEmpty ? state.historyService.projects :
+            state.historyService.projects.filter {
+                $0.path.localizedCaseInsensitiveContains(searchText) ||
+                $0.sessions.contains { $0.preview.localizedCaseInsensitiveContains(searchText) }
+            }
+        switch sortMode {
+        case .recent: return base
+        case .name:   return base.sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+        case .count:  return base.sorted { $0.sessions.count > $1.sessions.count }
         }
     }
 
@@ -94,11 +106,38 @@ struct HistoryView: View {
                 Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(theme.tertiaryText)
                 TextField("Suchen…", text: $searchText)
                     .textFieldStyle(.plain).font(.system(size: 14))
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13)).foregroundStyle(theme.tertiaryText)
+                    }.buttonStyle(.plain)
+                }
             }
             .padding(8)
             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
-            .padding(10)
+            .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 6)
+
+            // Sort bar
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+                ForEach(ProjectSortMode.allCases, id: \.self) { mode in
+                    Button {
+                        sortMode = mode
+                    } label: {
+                        Text(mode.rawValue)
+                            .font(.system(size: 11, weight: sortMode == mode ? .semibold : .regular))
+                            .foregroundStyle(sortMode == mode ? accentColor : theme.tertiaryText)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(sortMode == mode ? accentColor.opacity(0.12) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 10).padding(.bottom, 8)
 
             Divider().foregroundStyle(theme.cardBorder)
 
