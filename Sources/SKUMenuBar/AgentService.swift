@@ -147,6 +147,10 @@ final class AgentService: ObservableObject {
         var researchUpdatedAt: String? = nil
         var skillsUpdatedAt: String?   = nil
         var currentSection: String?    = nil
+        let dateFmtValidator: DateFormatter = {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            f.locale = Locale(identifier: "en_US_POSIX"); return f
+        }()
         for line in lines[bodyStart...] {
             if line.contains("🔬")      { currentSection = "research" }
             else if line.contains("🛠") { currentSection = "skills" }
@@ -158,7 +162,9 @@ final class AgentService: ObservableObject {
                     .trimmingCharacters(in: .whitespaces)
                     .components(separatedBy: " ").first ?? ""
                 let cleaned = raw.trimmingCharacters(in: CharacterSet(charactersIn: "_*"))
-                if cleaned.count == 10, cleaned.contains("-") {
+                // Only accept real ISO dates — rejects template placeholders like "YYYY-MM-DD"
+                if cleaned.count == 10, cleaned.contains("-"),
+                   dateFmtValidator.date(from: cleaned) != nil {
                     switch section {
                     case "research": researchUpdatedAt = cleaned
                     case "skills":   skillsUpdatedAt   = cleaned
@@ -499,12 +505,6 @@ Consolidate memory for "\(agent.name)".
         let dateFmt = DateFormatter(); dateFmt.dateFormat = "yyyy-MM-dd"
         let today   = dateFmt.string(from: Date())
 
-        if let old = try? String(contentsOf: memURL, encoding: .utf8),
-           !old.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let archiveURL = dir.appendingPathComponent("MEMORY_archive_\(today).md")
-            try? old.write(to: archiveURL, atomically: true, encoding: .utf8)
-        }
-
         try? trimmed.write(to: memURL, atomically: true, encoding: .utf8)
         try? today.write(
             to: dir.appendingPathComponent("last_dream.txt"),
@@ -539,6 +539,22 @@ Consolidate memory for "\(agent.name)".
             let recent = Array(lines.suffix(20))
             if !recent.isEmpty {
                 parts.append("## Your Learning Log (last \(recent.count) entries)\n" + recent.joined(separator: "\n"))
+            }
+        }
+
+        // Skills — extract 🛠 Skill Recommendations and surface prominently in preamble
+        let bodyForSkills = agent.promptBody
+        if let range = bodyForSkills.range(of: "## 🛠 Skill Recommendations") {
+            let fromSection = String(bodyForSkills[range.lowerBound...])
+            let trimmedSkills: String
+            if let nextHeader = fromSection.range(of: "\n## ", options: [], range: fromSection.index(after: fromSection.startIndex)..<fromSection.endIndex) {
+                trimmedSkills = String(fromSection[..<nextHeader.lowerBound])
+            } else {
+                trimmedSkills = fromSection
+            }
+            let content = trimmedSkills.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty {
+                parts.append("## Your Recommended Skills & Tools\nActively use the tools and libraries listed below when choosing your approach for this session:\n\n\(content)")
             }
         }
 
