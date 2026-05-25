@@ -64,13 +64,13 @@ struct HistoryView: View {
 
             HStack(spacing: 0) {
                 projectList
-                    .frame(width: 220)
+                    .frame(width: 260)
 
                 Divider().foregroundStyle(theme.cardBorder)
 
                 if let project = selectedProject {
                     sessionList(for: project)
-                        .frame(width: 260)
+                        .frame(width: 280)
                     Divider().foregroundStyle(theme.cardBorder)
                 }
 
