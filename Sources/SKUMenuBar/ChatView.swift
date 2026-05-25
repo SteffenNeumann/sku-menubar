@@ -3263,22 +3263,20 @@ struct SingleChatSessionView: View {
     private func sendMessage() {
         // ── Smart Routing ─────────────────────────────────────────────────────
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let taskIsComplex = isComplexTask(routingText)
 
         if orchestratorMode {
-            if taskIsComplex || routingText.isEmpty {
-                // Komplexe Aufgabe oder reiner Datei-Upload → volle Orchestrierung
-                sendOrchestrator()
-            } else {
-                // Einfache Aufgabe trotz Orchestrator-Auswahl → direkt mit bestem Agent
-                // (fall-through zum normalen Send-Pfad unten)
-            }
-            if taskIsComplex || routingText.isEmpty { return }
-        } else if taskIsComplex && !routingText.isEmpty && state.agentService.agents.count >= 2 {
-            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
+            // User hat Agents manuell gewählt → immer orchestrieren.
+            // Der Planer entscheidet intern ob einfach oder komplex.
+            sendOrchestrator()
+            return
+        }
+
+        // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
+        if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
             sendOrchestrator(autoAgentList: state.agentService.agents)
             return
         }
+
         // ── Normaler Einzel-Agent-Pfad ────────────────────────────────────────
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         // Handle slash commands before normal send
@@ -3338,15 +3336,8 @@ struct SingleChatSessionView: View {
 
         isStreaming = true; streamingStartTime = Date()
 
-        // Auto-detect agent:
-        // • Orchestratoren gewählt + einfache Aufgabe → besten gewählten Agent nehmen
-        // • Sonst: Trigger-Keywords prüfen
-        let triggerAgent: String?
-        if orchestratorMode, let bestId = selectedOrchestrators.first {
-            triggerAgent = bestId
-        } else {
-            triggerAgent = autoTriggerAgent(for: text)?.id
-        }
+        // Auto-detect agent via Trigger-Keywords (orchestratorMode erreicht diesen Pfad nicht mehr)
+        let triggerAgent: String? = autoTriggerAgent(for: text)?.id
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
