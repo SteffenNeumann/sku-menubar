@@ -574,12 +574,27 @@ private struct AgentBaseballCard: View {
                 }
 
                 // ── Skills badge ──────────────────────────────
-                if let s = agent.skillsUpdatedAt {
+                // For regular agents: show date from their 🛠 section
+                // For the researcher: show the last successful dispatch date from the run log
+                let skillsBadgeDate: String? = {
+                    if let s = agent.skillsUpdatedAt { return s }
+                    // Researcher has no 🛠 section in its own file — derive from last successful run
+                    if agent.name.lowercased() == "researcher",
+                       lastStatus == .success,
+                       let run = lastRun {
+                        let fmt = DateFormatter()
+                        fmt.dateFormat = "yyyy-MM-dd"
+                        return fmt.string(from: run)
+                    }
+                    return nil
+                }()
+                if let s = skillsBadgeDate {
+                    let isResearcher = agent.name.lowercased() == "researcher"
                     HStack(spacing: 4) {
                         Image(systemName: "wrench.and.screwdriver.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.teal.opacity(0.85))
-                        Text("Skills: \(s)")
+                        Text(isResearcher ? "Skills verteilt: \(s)" : "Skills: \(s)")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.teal.opacity(0.85))
                     }
