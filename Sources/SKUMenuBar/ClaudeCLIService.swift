@@ -211,7 +211,9 @@ final class ClaudeCLIService: ObservableObject {
     func runWithStdin(_ args: [String], stdin stdinText: String, workingDirectory: String? = nil) async throws -> String {
         let path = claudePath
         return try await withCheckedThrowingContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
+            // DispatchQueue.global statt Task.detached — waitUntilExit() darf keinen
+            // Swift-Concurrency-Thread blockieren (erschöpft den Cooperative Thread Pool).
+            DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 let home = NSHomeDirectory()
                 process.executableURL = URL(fileURLWithPath: path)
@@ -306,9 +308,11 @@ final class ClaudeCLIService: ObservableObject {
     // MARK: - Run claude command (non-streaming, returns full stdout)
 
     func runCommand(_ args: [String]) async throws -> String {
-        let path = claudePath   // capture MainActor property before Task.detached
+        let path = claudePath   // capture MainActor property before leaving actor
         return try await withCheckedThrowingContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
+            // DispatchQueue.global statt Task.detached — waitUntilExit() darf keinen
+            // Swift-Concurrency-Thread blockieren (erschöpft den Cooperative Thread Pool).
+            DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
                 let home = NSHomeDirectory()
                 process.executableURL = URL(fileURLWithPath: path)

@@ -2463,7 +2463,9 @@ struct SingleChatSessionView: View {
             gitBranches = []
             return
         }
-        Task.detached(priority: .utility) {
+        // DispatchQueue.global statt Task.detached — waitUntilExit() darf keinen
+        // Swift-Concurrency-Thread blockieren (erschöpft den Cooperative Thread Pool).
+        DispatchQueue.global(qos: .utility).async {
             // Current branch
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -2491,16 +2493,17 @@ struct SingleChatSessionView: View {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty } ?? []
 
-            await MainActor.run {
-                gitBranch = current
-                gitBranches = branchList
+            DispatchQueue.main.async {
+                self.gitBranch = current
+                self.gitBranches = branchList
             }
         }
     }
 
     private func switchGitBranch(_ branch: String) {
         guard let cwd = workingDirectory, !cwd.isEmpty else { return }
-        Task.detached(priority: .utility) {
+        // DispatchQueue.global statt Task.detached — waitUntilExit() blockiert sonst Cooperative Thread Pool.
+        DispatchQueue.global(qos: .utility).async {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             proc.arguments = ["-C", cwd, "checkout", branch]
@@ -2508,8 +2511,8 @@ struct SingleChatSessionView: View {
             proc.standardError = Pipe()
             try? proc.run()
             proc.waitUntilExit()
-            await MainActor.run {
-                gitBranch = branch
+            DispatchQueue.main.async {
+                self.gitBranch = branch
             }
         }
     }
