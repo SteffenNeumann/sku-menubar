@@ -3265,14 +3265,15 @@ struct SingleChatSessionView: View {
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if orchestratorMode {
-            // User hat Agents manuell gewählt → immer orchestrieren.
-            // Der Planer entscheidet intern ob einfach oder komplex.
-            sendOrchestrator()
-            return
-        }
-
-        // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
-        if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
+            if isComplexTask(routingText) {
+                // Komplexe Aufgabe → volle Orchestrierung
+                sendOrchestrator()
+                return
+            }
+            // Kurze/einfache Anfrage (≤20 Wörter) → bester gewählter Agent, kein Overhead
+            // (fall-through zum normalen Einzel-Agent-Pfad)
+        } else if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
+            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
             sendOrchestrator(autoAgentList: state.agentService.agents)
             return
         }
@@ -3336,8 +3337,11 @@ struct SingleChatSessionView: View {
 
         isStreaming = true; streamingStartTime = Date()
 
-        // Auto-detect agent via Trigger-Keywords (orchestratorMode erreicht diesen Pfad nicht mehr)
-        let triggerAgent: String? = autoTriggerAgent(for: text)?.id
+        // Bei einfacher Anfrage mit Orchestrator-Auswahl → besten gewählten Agent nehmen
+        // Sonst: Trigger-Keywords prüfen
+        let triggerAgent: String? = orchestratorMode
+            ? selectedOrchestrators.first
+            : autoTriggerAgent(for: text)?.id
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
