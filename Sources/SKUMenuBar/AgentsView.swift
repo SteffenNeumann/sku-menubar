@@ -420,6 +420,7 @@ private struct AgentBaseballCard: View {
 
     @State private var hovered = false
     @State private var hoveredAction: String? = nil
+    @State private var showSkillsPopover = false
 
     private var headerGradient: LinearGradient {
         let c1: Color, c2: Color
@@ -590,18 +591,27 @@ private struct AgentBaseballCard: View {
                 }()
                 if let s = skillsBadgeDate {
                     let isResearcher = agent.name.lowercased() == "researcher"
-                    HStack(spacing: 4) {
-                        Image(systemName: "wrench.and.screwdriver.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.teal.opacity(0.85))
-                        Text(isResearcher ? "Skills verteilt: \(s)" : "Skills: \(s)")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Color.teal.opacity(0.85))
+                    Button { showSkillsPopover = true } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "wrench.and.screwdriver.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.teal.opacity(0.85))
+                            Text(isResearcher ? "Skills verteilt: \(s)" : "Skills: \(s)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Color.teal.opacity(0.85))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(Color.teal.opacity(0.60))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.teal.opacity(0.10), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.teal.opacity(0.30), lineWidth: 0.5))
                     }
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.teal.opacity(0.10), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.30), lineWidth: 0.5))
+                    .buttonStyle(.plain)
                     .padding(.top, 2)
+                    .popover(isPresented: $showSkillsPopover, arrowEdge: .bottom) {
+                        SkillsPopover(agent: agent, isResearcher: isResearcher, theme: theme)
+                    }
                 }
 
                 // ── Scheduled-only: output, status, last run ──
@@ -840,6 +850,101 @@ private struct AgentBaseballCard: View {
         .help(Self.tooltips[id] ?? "")
         .onHover { hoveredAction = $0 ? id : nil }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+// MARK: - Skills Popover
+
+private struct SkillsPopover: View {
+    let agent: AgentDefinition
+    let isResearcher: Bool
+    let theme: AppTheme
+
+    /// For regular agents: extract ## 🛠 Skill Recommendations from promptBody.
+    private var agentSkills: String {
+        let body = agent.promptBody
+        guard let range = body.range(of: "## 🛠 Skill Recommendations") else {
+            return "Keine Skills gefunden."
+        }
+        let fromSection = String(body[range.lowerBound...])
+        if let nextHeader = fromSection.range(of: "\n## ", options: [],
+            range: fromSection.index(after: fromSection.startIndex)..<fromSection.endIndex) {
+            return String(fromSection[..<nextHeader.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return fromSection.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// For the researcher: parse the latest daily report and extract Skills section.
+    private var researcherSkillsSummary: String {
+        let home = NSHomeDirectory()
+        let memDir = URL(fileURLWithPath: "\(home)/.claude/agent-memory/researcher")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: memDir, includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return "Kein Daily Report gefunden." }
+
+        // Find most recent *_daily_report.txt
+        let reports = files
+            .filter { $0.lastPathComponent.hasSuffix("_daily_report.txt") }
+            .sorted {
+                let d1 = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                let d2 = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                return d1 > d2
+            }
+        guard let latest = reports.first,
+              let content = try? String(contentsOf: latest, encoding: .utf8) else {
+            return "Daily Report konnte nicht gelesen werden."
+        }
+
+        // Extract everything between "Skills updated:" and the next section header
+        var lines = content.components(separatedBy: "\n")
+        var result: [String] = []
+        var inSkillsSection = false
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix("skills updated:") {
+                inSkillsSection = true
+                result.append("**Skills verteilt** (aus \(latest.deletingPathExtension().lastPathComponent))")
+                continue
+            }
+            if inSkillsSection {
+                if trimmed.isEmpty || (!trimmed.hasPrefix("-") && !trimmed.hasPrefix("•")) {
+                    if !trimmed.isEmpty { break } // next section
+                    continue
+                }
+                result.append(trimmed)
+            }
+        }
+        return result.isEmpty
+            ? "Kein 'Skills updated' Abschnitt im letzten Report.\n\nTipp: Der neue Researcher-Prompt schreibt Skills ab dem nächsten Lauf."
+            : result.joined(separator: "\n")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "wrench.and.screwdriver.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.teal)
+                Text(isResearcher ? "Skills verteilt an Agents" : "Skill Recommendations")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+            }
+
+            Divider()
+
+            ScrollView {
+                Text(isResearcher ? researcherSkillsSummary : agentSkills)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(theme.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: 320)
+        }
+        .padding(16)
+        .frame(width: 400)
+        .background(theme.windowBg)
     }
 }
 
