@@ -211,10 +211,14 @@ final class ChatHistoryService: ObservableObject {
                     // Use firstUserMessage as preview if history.jsonl shows a slash-command or empty
                     let rawPreview = e.preview
                     let preview: String
-                    let looksLikePath = rawPreview.hasPrefix("/") && !rawPreview.contains(" ")
-                    if rawPreview.isEmpty || looksLikePath
-                        || rawPreview.hasPrefix("[Image") || rawPreview.hasPrefix("[Pasted") {
-                        preview = firstUserMessage(sessionId: e.session, projectPath: path) ?? rawPreview
+                    let needsLookup = rawPreview.isEmpty
+                        || rawPreview.hasPrefix("/")
+                        || rawPreview.hasPrefix("[Image")
+                        || rawPreview.hasPrefix("[Pasted")
+                        || (rawPreview.hasPrefix("/") && !rawPreview.contains(" "))
+                    if needsLookup {
+                        // If no real user message found, force "" so the session gets dropped
+                        preview = firstUserMessage(sessionId: e.session, projectPath: path) ?? ""
                     } else {
                         preview = rawPreview
                     }

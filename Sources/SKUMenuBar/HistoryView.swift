@@ -1,9 +1,17 @@
 import SwiftUI
 
 enum ProjectSortMode: String, CaseIterable {
-    case recent   = "Neueste zuerst"
-    case name     = "Name A–Z"
-    case count    = "Meiste Sessions"
+    case recent = "Neueste zuerst"
+    case name   = "Name A–Z"
+    case count  = "Meiste Sessions"
+
+    var icon: String {
+        switch self {
+        case .recent: return "clock.arrow.circlepath"
+        case .name:   return "textformat.abc"
+        case .count:  return "chart.bar.fill"
+        }
+    }
 }
 
 struct HistoryView: View {
@@ -118,22 +126,23 @@ struct HistoryView: View {
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(theme.cardBorder, lineWidth: 0.5))
             .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 6)
 
-            // Sort bar
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
+            // Sort bar — icon buttons
+            HStack(spacing: 4) {
                 ForEach(ProjectSortMode.allCases, id: \.self) { mode in
                     Button {
                         sortMode = mode
                     } label: {
-                        Text(mode.rawValue)
-                            .font(.system(size: 11, weight: sortMode == mode ? .semibold : .regular))
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 13, weight: sortMode == mode ? .semibold : .regular))
                             .foregroundStyle(sortMode == mode ? accentColor : theme.tertiaryText)
-                            .padding(.horizontal, 6).padding(.vertical, 3)
-                            .background(sortMode == mode ? accentColor.opacity(0.12) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 5))
+                            .frame(width: 30, height: 26)
+                            .background(
+                                sortMode == mode ? accentColor.opacity(0.12) : .clear,
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
                     }
                     .buttonStyle(.plain)
+                    .help(mode.rawValue)
                 }
                 Spacer()
             }
