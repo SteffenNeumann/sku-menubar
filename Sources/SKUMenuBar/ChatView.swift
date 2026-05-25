@@ -1600,6 +1600,9 @@ struct SingleChatSessionView: View {
             }
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
 
+            // ─── Word count / routing feedback badge ───
+            orchestratorRoutingBadge
+
             // ─── Subtle control strip ───
             controlStrip
         }
@@ -2134,6 +2137,52 @@ struct SingleChatSessionView: View {
     }
 
     // Minimal icon row at the very bottom of the input card
+    @ViewBuilder
+    private var orchestratorRoutingBadge: some View {
+        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wordCount = trimmed.isEmpty ? 0 : trimmed.split(separator: " ").count
+        let complex = !trimmed.isEmpty && isComplexTask(trimmed)
+        let hasAgents = state.agentService.agents.count >= 2
+
+        if orchestratorMode && !trimmed.isEmpty {
+            // Orchestrator manuell gewählt — zeige Routing-Entscheidung
+            let willOrchestrate = complex
+            let bestAgentName = selectedOrchestrators.first
+                .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
+                ?? "Agent"
+            let label = willOrchestrate
+                ? "\(wordCount) Wörter · Orchestrierung startet"
+                : "\(wordCount) Wörter · Direkt → \(bestAgentName)"
+            let color: Color = willOrchestrate ? accentColor : theme.tertiaryText
+
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 5, height: 5)
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(color)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeInOut(duration: 0.2), value: willOrchestrate)
+        } else if !orchestratorMode && complex && hasAgents && !trimmed.isEmpty {
+            // Kein Orchestrator gewählt, aber Auto-Orchestrierung würde greifen
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 5, height: 5)
+                Text("\(wordCount) Wörter · Auto-Orchestrierung")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.orange)
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var controlStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 0) {
