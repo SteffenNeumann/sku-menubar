@@ -332,18 +332,25 @@ struct SingleChatSessionView: View {
         let words = text.split(separator: " ")
         guard words.count > 20 else { return false }   // Kurz → immer einfach
         guard words.count <= 300 else { return true }  // Sehr lang → immer komplex
+        if words.count > 40 { return true }            // Mittellang & ausführlich → komplex
+
         let lower = text.lowercased()
-        // Aufgaben-Verben die eigenständige Teilaufgaben signalisieren
+        // Aufgaben-Verben (breite Liste inkl. Imperativ + Infinitiv)
         let taskVerbs = ["erstelle", "entwickle", "implementiere", "analysiere",
-                         "überprüfe", "schreibe", "entwerfe", "plane", "optimiere",
-                         "recherchiere", "vergleiche", "bewerte", "dokumentiere",
-                         "strukturiere", "baue", "konfiguriere", "konzipiere"]
+                         "überprüfe", "prüfe", "untersuche", "schreibe", "entwerfe",
+                         "plane", "optimiere", "recherchiere", "vergleiche", "bewerte",
+                         "dokumentiere", "strukturiere", "baue", "konfiguriere",
+                         "konzipiere", "stelle", "finde", "erkläre", "beschreibe",
+                         "zeige", "führe", "gib", "list", "erstell", "entwickl",
+                         "identifiziere", "schlage", "empfehle", "überleg"]
         let verbCount = taskVerbs.filter { lower.contains($0) }.count
         if verbCount >= 2 { return true }
         // Konjunktionen die einen neuen Themenbereich einleiten
         let complexConjunctions = [" sowie ", " außerdem ", " zusätzlich ",
                                    " darüber hinaus ", " einerseits ", " andererseits ",
-                                   " zum einen ", " zum anderen ", " gleichzeitig "]
+                                   " zum einen ", " zum anderen ", " gleichzeitig ",
+                                   " und auch ", " aber auch ", " und prüfe",
+                                   " und analysiere", " und stelle", " und finde"]
         return complexConjunctions.contains { lower.contains($0) }
     }
 
