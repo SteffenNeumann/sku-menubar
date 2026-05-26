@@ -2141,45 +2141,39 @@ struct SingleChatSessionView: View {
     private var orchestratorRoutingBadge: some View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let wordCount = trimmed.isEmpty ? 0 : trimmed.split(separator: " ").count
-        let complex = !trimmed.isEmpty && isComplexTask(trimmed)
-        let hasAgents = state.agentService.agents.count >= 2
 
-        if orchestratorMode && !trimmed.isEmpty {
-            // Orchestrator manuell gewählt — zeige Routing-Entscheidung
-            let willOrchestrate = complex
-            let bestAgentName = selectedOrchestrators.first
-                .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
-                ?? "Agent"
-            let label = willOrchestrate
-                ? "\(wordCount) Wörter · Orchestrierung startet"
-                : "\(wordCount) Wörter · Direkt → \(bestAgentName)"
-            let color: Color = willOrchestrate ? accentColor : theme.tertiaryText
-
+        if wordCount > 0 {
+            let info = routingBadgeInfo(wordCount: wordCount, trimmed: trimmed)
             HStack(spacing: 5) {
                 Circle()
-                    .fill(color)
+                    .fill(info.color)
                     .frame(width: 5, height: 5)
-                Text(label)
+                Text(info.label)
                     .font(.system(size: 11))
-                    .foregroundStyle(color)
+                    .foregroundStyle(info.color)
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeInOut(duration: 0.2), value: willOrchestrate)
-        } else if !orchestratorMode && complex && hasAgents && !trimmed.isEmpty {
-            // Kein Orchestrator gewählt, aber Auto-Orchestrierung würde greifen
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(Color.orange)
-                    .frame(width: 5, height: 5)
-                Text("\(wordCount) Wörter · Auto-Orchestrierung")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.orange)
+            .animation(.easeInOut(duration: 0.2), value: wordCount)
+        }
+    }
+
+    private func routingBadgeInfo(wordCount: Int, trimmed: String) -> (color: Color, label: String) {
+        let complex = isComplexTask(trimmed)
+        if orchestratorMode {
+            if complex {
+                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
+            } else {
+                let name = selectedOrchestrators.first
+                    .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
+                    ?? "Agent"
+                return (theme.tertiaryText, "\(wordCount) Wörter · Direkt → \(name)")
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if complex && state.agentService.agents.count >= 2 {
+            return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung")
+        } else {
+            return (theme.tertiaryText, "\(wordCount == 1 ? "1 Wort" : "\(wordCount) Wörter")")
         }
     }
 
