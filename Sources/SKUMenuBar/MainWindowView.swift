@@ -1,5 +1,40 @@
 import SwiftUI
 
+// MARK: - FrozenSectionLayout
+//
+// PROBLEM: frame(0,0) verhindert NICHT die Kind-Messung durch _FlexFrameLayout.sizeThatFits —
+// SwiftUI ruft trotzdem child.sizeThatFits() auf (für Placement), was die gesamte Kaskade
+// (NavigationStackLayout → _ZStackLayout → MessageBubble × N → QLFilePreviewView …) bei JEDEM
+// 60fps-AnimationsFrame triggert (z.B. SidebarView-Pulse, BouncingDot).
+// Mit 3+ GB Speicher / hunderten MessageBubbleViews dauert ein Layout-Pass länger als 16 ms →
+// Frames stauen sich auf → 100 % CPU → Hang.
+//
+// LÖSUNG: Swift Layout-Protokoll. FrozenSectionLayout.sizeThatFits() liest bei isActive=false
+// die Subviews NICHT → kein AttributeGraph-Dependency auf das Kind → Layout-Kaskade entfällt.
+// Das Kind bleibt in der Hierarchie (gleiche Identität, @State bleibt erhalten).
+private struct FrozenSectionLayout: Layout {
+    var isActive: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        // KRITISCH: bei isActive=false keine Kind-Messung → O(1) Layout-Cost statt O(N×Messages).
+        // Das unterbricht die AttributeGraph-Abhängigkeit zwischen dem teuren Kind und dem
+        // umgebenden ZStack, sodass 60fps-Animationen keinen Layout-Loop auslösen.
+        guard isActive, let child = subviews.first else { return .zero }
+        return child.sizeThatFits(proposal)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        if isActive {
+            child.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+        } else {
+            // Platzierung mit .zero-Proposal hält das Kind im Graph (State erhalten),
+            // ohne einen teuren Placement-Pass zu erzwingen.
+            child.place(at: bounds.origin, proposal: .zero)
+        }
+    }
+}
+
 struct MainWindowView: View {
     @EnvironmentObject var state: AppState
     @State private var selectedSection: AppSection = .home
@@ -72,52 +107,40 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         ZStack {
-            // Schwere Views erst beim ersten Besuch in den Baum aufnehmen (Lazy Init)
+            // Schwere Views: FrozenSectionLayout bricht die AttributeGraph-Abhängigkeit
+            // zwischen dem inaktiven Kind und dem äußeren ZStack. Bei isActive=false wird
+            // sizeThatFits() des Kindes NICHT aufgerufen → kein Layout-Loop bei Animationen.
             if chatLoaded {
-                ChatView()
-                    .opacity(selectedSection == .chat ? 1 : 0)
-                    .allowsHitTesting(selectedSection == .chat)
-                    .accessibilityHidden(selectedSection != .chat)
-                    // frame(0,0) verhindert ZStack-Layout-Messung der schweren View
-                    // wenn sie nicht aktiv ist (Fix: Layout-Loop beim Panel-Switch).
-                    .frame(
-                        width:  selectedSection == .chat ? nil : 0,
-                        height: selectedSection == .chat ? nil : 0
-                    )
-                    .clipped()
+                FrozenSectionLayout(isActive: selectedSection == .chat) {
+                    ChatView()
+                        .opacity(selectedSection == .chat ? 1 : 0)
+                        .allowsHitTesting(selectedSection == .chat)
+                        .accessibilityHidden(selectedSection != .chat)
+                }
             }
             if filesLoaded {
-                FileExplorerView()
-                    .opacity(selectedSection == .files ? 1 : 0)
-                    .allowsHitTesting(selectedSection == .files)
-                    .accessibilityHidden(selectedSection != .files)
-                    .frame(
-                        width:  selectedSection == .files ? nil : 0,
-                        height: selectedSection == .files ? nil : 0
-                    )
-                    .clipped()
+                FrozenSectionLayout(isActive: selectedSection == .files) {
+                    FileExplorerView()
+                        .opacity(selectedSection == .files ? 1 : 0)
+                        .allowsHitTesting(selectedSection == .files)
+                        .accessibilityHidden(selectedSection != .files)
+                }
             }
             if codeReviewLoaded {
-                CodeReviewView()
-                    .opacity(selectedSection == .codeReview ? 1 : 0)
-                    .allowsHitTesting(selectedSection == .codeReview)
-                    .accessibilityHidden(selectedSection != .codeReview)
-                    .frame(
-                        width:  selectedSection == .codeReview ? nil : 0,
-                        height: selectedSection == .codeReview ? nil : 0
-                    )
-                    .clipped()
+                FrozenSectionLayout(isActive: selectedSection == .codeReview) {
+                    CodeReviewView()
+                        .opacity(selectedSection == .codeReview ? 1 : 0)
+                        .allowsHitTesting(selectedSection == .codeReview)
+                        .accessibilityHidden(selectedSection != .codeReview)
+                }
             }
             if linearLoaded {
-                LinearView()
-                    .opacity(selectedSection == .linear ? 1 : 0)
-                    .allowsHitTesting(selectedSection == .linear)
-                    .accessibilityHidden(selectedSection != .linear)
-                    .frame(
-                        width:  selectedSection == .linear ? nil : 0,
-                        height: selectedSection == .linear ? nil : 0
-                    )
-                    .clipped()
+                FrozenSectionLayout(isActive: selectedSection == .linear) {
+                    LinearView()
+                        .opacity(selectedSection == .linear ? 1 : 0)
+                        .allowsHitTesting(selectedSection == .linear)
+                        .accessibilityHidden(selectedSection != .linear)
+                }
             }
 
             // Alle anderen Sections werden normal gerendert
