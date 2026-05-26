@@ -2168,9 +2168,13 @@ struct SingleChatSessionView: View {
 
     private func routingBadgeInfo(wordCount: Int, trimmed: String) -> (color: Color, label: String) {
         let complex = isComplexTask(trimmed)
+        // Orchestrierung wenn: Folge-Nachricht (History) ODER komplexe Aufgabe
+        let willOrchestrate = !orchestratorHistory.isEmpty || complex
         if orchestratorMode {
-            if complex {
-                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
+            if willOrchestrate {
+                let suffix = !orchestratorHistory.isEmpty && !complex
+                    ? "Weiter als Orchestrierung" : "Orchestrierung startet"
+                return (accentColor, "\(wordCount) Wörter · \(suffix)")
             } else {
                 let name = selectedOrchestrators.first
                     .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
@@ -3323,12 +3327,15 @@ struct SingleChatSessionView: View {
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if orchestratorMode {
-            if isComplexTask(routingText) {
-                // Komplexe Aufgabe → volle Orchestrierung
+            // Immer orchestrieren wenn:
+            //  a) Folge-Nachricht (orchestratorHistory nicht leer) → "go" / "bitte fixen" etc.
+            //  b) Aufgabe komplex (>20 Wörter)
+            // Nur bei FRISCHER, kurzer Frage ohne Prior-Kontext → direkter Agent
+            if !orchestratorHistory.isEmpty || isComplexTask(routingText) {
                 sendOrchestrator()
                 return
             }
-            // Kurze/einfache Anfrage (≤20 Wörter) → bester gewählter Agent, kein Overhead
+            // Kurze, frische Frage (≤20 Wörter, kein Prior-Kontext) → bester Agent direkt
             // (fall-through zum normalen Einzel-Agent-Pfad)
         } else if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
             // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
