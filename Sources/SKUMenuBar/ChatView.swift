@@ -2705,9 +2705,10 @@ struct SingleChatSessionView: View {
 
         messages.append(ChatMessage(role: .user, content: displayText))
 
-        // Agent-Liste: manuell gewählt oder automatisch (alle verfügbaren)
+        // Agent-Liste: manuell gewählt oder automatisch (nur Nicht-Personas)
         let isAutoOrchestrated = autoAgentList != nil
-        let agents = autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
+        let agents = (autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) })
+            .filter { !$0.isPersona }   // Personas nie orchestrieren — nur für Validierung
         guard !agents.isEmpty else { return }
 
         isStreaming = true; streamingStartTime = Date()
@@ -2759,6 +2760,8 @@ struct SingleChatSessionView: View {
             AUFGABE: <Konkrete, ANDERE Teilaufgabe — KEINE Wiederholung>
 
             Regeln:
+            - Weise NUR Agents zu die für DIESE Aufgabe wirklich relevant sind — irrelevante WEGLASSEN
+            - Lieber 2 gut passende Agents als 6 mit erzwungenen Aufgaben
             - Jeder Agent bekommt eine ANDERE Aufgabe — Überlappung = Fehler
             - Bei einfachen Aufträgen: nur 1 Agent arbeitet inhaltlich, Rest prüft/ergänzt
             - Formuliere so, dass der Agent genau weiß was ER und NUR ER tun soll
@@ -2819,11 +2822,16 @@ struct SingleChatSessionView: View {
             messages[progressIdx].content = ""
 
             for (i, agent) in agents.enumerated() {
+                // Agents ohne Plan-Eintrag überspringen — kein sinnloser Token-Verbrauch
+                guard let specificTask = agentTasks[agent.id] else {
+                    let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
+                    messages[progressIdx].content = doneLines + "⏸ \(agent.name) — nicht relevant, übersprungen\n"
+                    continue
+                }
+
                 // Show spinning indicator for current agent
                 let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
-
-                let specificTask = agentTasks[agent.id] ?? text
 
                 // Build context: prior conversation + previous agent outputs in this run
                 var contextParts: [String] = []
