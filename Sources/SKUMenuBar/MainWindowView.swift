@@ -53,9 +53,9 @@ struct MainWindowView: View {
                 guard flags.contains(.command), flags.contains(.control),
                       event.keyCode == 123 || event.keyCode == 124,
                       let prev = previousSection else { return event }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    selectedSection = prev
-                }
+                // Kein withAnimation — Spring-Animation beim ZStack-Switch mit hidden Views
+                // führt zu Layout-Loop (jeder Frame misst ALLE ZStack-Kinder inkl. ChatView).
+                selectedSection = prev
                 return nil
             }
         }
@@ -78,24 +78,46 @@ struct MainWindowView: View {
                     .opacity(selectedSection == .chat ? 1 : 0)
                     .allowsHitTesting(selectedSection == .chat)
                     .accessibilityHidden(selectedSection != .chat)
+                    // frame(0,0) verhindert ZStack-Layout-Messung der schweren View
+                    // wenn sie nicht aktiv ist (Fix: Layout-Loop beim Panel-Switch).
+                    .frame(
+                        width:  selectedSection == .chat ? nil : 0,
+                        height: selectedSection == .chat ? nil : 0
+                    )
+                    .clipped()
             }
             if filesLoaded {
                 FileExplorerView()
                     .opacity(selectedSection == .files ? 1 : 0)
                     .allowsHitTesting(selectedSection == .files)
                     .accessibilityHidden(selectedSection != .files)
+                    .frame(
+                        width:  selectedSection == .files ? nil : 0,
+                        height: selectedSection == .files ? nil : 0
+                    )
+                    .clipped()
             }
             if codeReviewLoaded {
                 CodeReviewView()
                     .opacity(selectedSection == .codeReview ? 1 : 0)
                     .allowsHitTesting(selectedSection == .codeReview)
                     .accessibilityHidden(selectedSection != .codeReview)
+                    .frame(
+                        width:  selectedSection == .codeReview ? nil : 0,
+                        height: selectedSection == .codeReview ? nil : 0
+                    )
+                    .clipped()
             }
             if linearLoaded {
                 LinearView()
                     .opacity(selectedSection == .linear ? 1 : 0)
                     .allowsHitTesting(selectedSection == .linear)
                     .accessibilityHidden(selectedSection != .linear)
+                    .frame(
+                        width:  selectedSection == .linear ? nil : 0,
+                        height: selectedSection == .linear ? nil : 0
+                    )
+                    .clipped()
             }
 
             // Alle anderen Sections werden normal gerendert
