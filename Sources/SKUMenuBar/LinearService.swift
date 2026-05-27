@@ -258,6 +258,13 @@ final class LinearService: ObservableObject {
         ])
     }
 
+    // identifier = menschenlesbarer Key wie "INT-236" (nicht UUID)
+    func deleteIssue(identifier: String) async throws {
+        try await ensureConnected()
+        guard let session else { throw LinearError.notConfigured }
+        _ = try await session.callTool(name: "linear_delete_issue", arguments: ["id": identifier])
+    }
+
     func addComment(issueId: String, body: String) async throws {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }

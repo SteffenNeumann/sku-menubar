@@ -120,6 +120,7 @@ struct LinearView: View {
     @State private var colWidthProject: CGFloat = 220
     @State private var colWidthIssue: CGFloat = 340
     @State private var showNewIssueSheet = false
+    @State private var showNewProjectSheet = false
     @State private var configured = false
     @State private var hoveredIssueId: String?
     @State private var showStatusPopover = false
@@ -130,6 +131,8 @@ struct LinearView: View {
     @State private var isLoadingComments = false
     @State private var collapsedStatusGroups: Set<String> = []
     @State private var copiedIdentifier = false
+    @State private var issueToDelete: LinearIssue? = nil
+    @State private var showDeleteConfirmation = false
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -170,6 +173,23 @@ struct LinearView: View {
                 }
             })
         }
+        .sheet(isPresented: $showNewProjectSheet) {
+            NewProjectSheet(service: service, onCreated: {
+                Task { await setupAndLoad() }
+            })
+        }
+        .confirmationDialog(
+            "Issue \(issueToDelete?.identifier ?? "") löschen?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Löschen", role: .destructive) {
+                if let issue = issueToDelete { Task { await performDeleteIssue(issue) } }
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("\"\(issueToDelete?.title ?? "")\" wird unwiderruflich gelöscht.")
+        }
     }
 
     // MARK: - Setup
@@ -203,6 +223,16 @@ struct LinearView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.primaryText)
                 Spacer()
+                Button {
+                    showNewProjectSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: 22, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(theme.primaryText.opacity(0.05)))
+                }
+                .buttonStyle(.plain)
                 if service.isLoading {
                     ProgressView().scaleEffect(0.6)
                         .frame(width: 14, height: 14)
@@ -655,6 +685,14 @@ struct LinearView: View {
         }
         .buttonStyle(.plain)
         .onHover { hoveredIssueId = $0 ? issue.id : nil }
+        .contextMenu {
+            Button(role: .destructive) {
+                issueToDelete = issue
+                showDeleteConfirmation = true
+            } label: {
+                Label("Issue löschen", systemImage: "trash")
+            }
+        }
     }
 
     // MARK: - Detail Column
@@ -734,6 +772,19 @@ struct LinearView: View {
                         }
                         .help("In Linear öffnen")
                     }
+
+                    Button {
+                        issueToDelete = issue
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(theme.statusRed.opacity(0.8))
+                            .frame(width: 28, height: 28)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(theme.primaryText.opacity(0.05)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Issue löschen")
                 }
                 .padding(16)
 
@@ -1302,6 +1353,21 @@ struct LinearView: View {
         state.pendingNavigateToChat = true
     }
 
+    private func performDeleteIssue(_ issue: LinearIssue) async {
+        do {
+            try await service.deleteIssue(identifier: issue.identifier)
+            // Optimistisch aus lokaler Liste entfernen
+            if let projId = selectedProject?.id {
+                var snapshot = service.issues
+                snapshot[projId]?.removeAll { $0.id == issue.id }
+                service.issues = snapshot
+            }
+            if selectedIssue?.id == issue.id {
+                DispatchQueue.main.async { self.selectedIssue = nil }
+            }
+        } catch { /* silently ignore — issue may already be deleted */ }
+    }
+
     // MARK: - Grouped Projects
 
     private var groupedProjects: [(header: String, projects: [LinearProject])] {
@@ -1461,142 +1527,385 @@ struct NewIssueSheet: View {
     @State private var description = ""
     @State private var selectedTeamId = ""
     @State private var priority = LinearPriority.noPriority
+    @State private var projectSelection = "none"
+    @State private var newProjectName = ""
+    @State private var isCreating = false
+    @State private var error: String?
+
+    private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
+
+    private var availableProjects: [LinearProject] {
+        guard !selectedTeamId.isEmpty else { return service.projects }
+        return service.projects.filter { $0.teamIds.contains(selectedTeamId) }
+    }
+
+    private var selectedTeamStates: [LinearIssueState] {
+        let order = ["backlog": 0, "unstarted": 1, "started": 2, "completed": 3, "cancelled": 4]
+        let states = teams.first { $0.id == selectedTeamId }?.states ?? []
+        return states.sorted { (order[$0.type] ?? 5) < (order[$1.type] ?? 5) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // ── Header ──────────────────────────────────────────
+            HStack(spacing: 8) {
+                LinearLogoShape()
+                    .fill(linearPurple)
+                    .frame(width: 13, height: 13)
+                Text("Neues Issue")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                if let err = error {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.statusRed)
+                }
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
+                        .frame(width: 22, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5)
+                            .fill(theme.primaryText.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+
+            // ── 2-column body ───────────────────────────────────
+            HStack(spacing: 0) {
+
+                // Left: Title + Description
+                VStack(alignment: .leading, spacing: 0) {
+                    TextField("Issue-Titel…", text: $title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(theme.primaryText)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 16)
+                        .padding(.bottom, 12)
+
+                    Rectangle().fill(theme.cardBorder.opacity(0.25)).frame(height: 0.5)
+                        .padding(.horizontal, 18)
+
+                    ZStack(alignment: .topLeading) {
+                        if description.isEmpty {
+                            Text("Beschreibung hinzufügen…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                                .padding(.top, 10)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $description)
+                            .font(.system(size: 12))
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                // Vertical divider
+                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5)
+
+                // Right: Properties
+                VStack(spacing: 0) {
+                    // Team
+                    propRow(label: "Team") {
+                        Picker("", selection: $selectedTeamId) {
+                            ForEach(teams) { t in Text(t.name).tag(t.id) }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .onAppear {
+                            if selectedTeamId.isEmpty, let first = teams.first {
+                                selectedTeamId = first.id
+                            }
+                        }
+                    }
+                    propDivider()
+
+                    // Projekt
+                    propRow(label: "Projekt") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker("", selection: $projectSelection) {
+                                Text("Kein Projekt").tag("none")
+                                if !availableProjects.isEmpty {
+                                    Divider()
+                                    ForEach(availableProjects) { p in
+                                        Text(p.name).tag(p.id)
+                                    }
+                                    Divider()
+                                }
+                                Text("+ Neues Projekt…").tag("new")
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            if projectSelection == "new" {
+                                TextField("Projektname", text: $newProjectName)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11))
+                            }
+                        }
+                    }
+                    propDivider()
+
+                    // Priorität
+                    propRow(label: "Priorität") {
+                        Picker("", selection: $priority) {
+                            ForEach(LinearPriority.allCases, id: \.rawValue) { p in
+                                Label(p.label, systemImage: p.icon).tag(p)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+                    propDivider()
+
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 210)
+                .padding(.top, 4)
+            }
+            .frame(maxHeight: .infinity)
+
+            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+
+            // ── Footer ──────────────────────────────────────────
+            HStack {
+                Spacer()
+                Button("Abbrechen") { dismiss() }
+                    .keyboardShortcut(.escape)
+                    .foregroundStyle(theme.secondaryText)
+                Button {
+                    Task { await create() }
+                } label: {
+                    if isCreating {
+                        ProgressView().scaleEffect(0.7).frame(width: 60)
+                    } else {
+                        Text("Erstellen")
+                            .frame(width: 60)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(linearPurple)
+                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty
+                          || selectedTeamId.isEmpty
+                          || isCreating
+                          || (projectSelection == "new" && newProjectName.trimmingCharacters(in: .whitespaces).isEmpty))
+                .keyboardShortcut(.return)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .frame(width: 680, height: 400)
+        .background(theme.windowBg)
+    }
+
+    @ViewBuilder
+    private func propRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(theme.tertiaryText)
+                .frame(width: 62, alignment: .leading)
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func propDivider() -> some View {
+        Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+            .padding(.horizontal, 14)
+    }
+
+    private func create() async {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmedTitle.isEmpty, !selectedTeamId.isEmpty else { return }
+        isCreating = true
+        error = nil
+        do {
+            var projectId: String? = nil
+            if projectSelection == "new" {
+                let trimmed = newProjectName.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    let result = try await service.createProject(teamId: selectedTeamId, name: trimmed)
+                    if !result.id.isEmpty { projectId = result.id }
+                    await service.loadProjects()
+                }
+            } else if projectSelection != "none" {
+                projectId = projectSelection
+            }
+            _ = try await service.createIssue(
+                teamId: selectedTeamId,
+                title: trimmedTitle,
+                description: description,
+                priority: priority.rawValue,
+                projectId: projectId)
+            onCreated()
+            dismiss()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isCreating = false
+    }
+}
+
+// MARK: - New Project Sheet
+
+struct NewProjectSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.appTheme) var theme
+    @ObservedObject var service: LinearService
+    let onCreated: () -> Void
+
+    @State private var name = ""
+    @State private var projectDescription = ""
+    @State private var selectedTeamId = ""
     @State private var isCreating = false
     @State private var error: String?
 
     private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header with Linear logo
-            HStack {
-                HStack(spacing: 6) {
-                    LinearLogoShape()
-                        .fill(linearPurple)
-                        .frame(width: 14, height: 14)
-                    Text("Neues Issue")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
-                }
+        VStack(spacing: 0) {
+            // ── Header ──────────────────────────────────────────
+            HStack(spacing: 8) {
+                LinearLogoShape()
+                    .fill(linearPurple)
+                    .frame(width: 13, height: 13)
+                Text("Neues Projekt")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.primaryText)
                 Spacer()
+                if let err = error {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.statusRed)
+                }
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(theme.tertiaryText)
-                        .frame(width: 24, height: 24)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(theme.primaryText.opacity(0.05)))
+                        .frame(width: 22, height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5)
+                            .fill(theme.primaryText.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
 
             Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Team picker
-                    if !teams.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Team")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(theme.tertiaryText)
-                            Picker("Team", selection: $selectedTeamId) {
-                                ForEach(teams) { team in
-                                    Text(team.name).tag(team.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .onAppear {
-                                if selectedTeamId.isEmpty, let first = teams.first {
-                                    selectedTeamId = first.id
-                                }
-                            }
-                        }
-                    }
+            // ── Content ─────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 0) {
+                TextField("Projektname…", text: $name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(theme.primaryText)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
 
-                    // Title
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Titel")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(theme.tertiaryText)
-                        TextField("Issue-Titel", text: $title)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 13))
-                    }
+                Rectangle().fill(theme.cardBorder.opacity(0.25)).frame(height: 0.5)
+                    .padding(.horizontal, 18)
 
-                    // Priority
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Priorität")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(theme.tertiaryText)
-                        Picker("Priorität", selection: $priority) {
-                            ForEach(LinearPriority.allCases, id: \.rawValue) { p in
-                                HStack {
-                                    Image(systemName: p.icon)
-                                    Text(p.label)
-                                }.tag(p)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-
-                    // Description
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Beschreibung")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(theme.tertiaryText)
-                        TextEditor(text: $description)
+                ZStack(alignment: .topLeading) {
+                    if projectDescription.isEmpty {
+                        Text("Beschreibung hinzufügen…")
                             .font(.system(size: 12))
-                            .frame(minHeight: 80)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(theme.cardBorder, lineWidth: 0.5)
-                            )
+                            .foregroundStyle(theme.tertiaryText.opacity(0.7))
+                            .padding(.top, 10)
+                            .padding(.leading, 4)
+                            .allowsHitTesting(false)
                     }
-
-                    if let err = error {
-                        Text(err)
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.statusRed)
-                    }
+                    TextEditor(text: $projectDescription)
+                        .font(.system(size: 12))
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
                 }
-                .padding(16)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .frame(maxHeight: .infinity)
+
+                Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+
+                // Team row
+                HStack(spacing: 10) {
+                    Text("Team")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.tertiaryText)
+                        .frame(width: 50, alignment: .leading)
+                    if !service.teams.isEmpty {
+                        Picker("", selection: $selectedTeamId) {
+                            ForEach(service.teams) { t in Text(t.name).tag(t.id) }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .onAppear {
+                            if selectedTeamId.isEmpty, let first = service.teams.first {
+                                selectedTeamId = first.id
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
             }
+            .frame(maxHeight: .infinity)
 
             Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
 
+            // ── Footer ──────────────────────────────────────────
             HStack {
                 Spacer()
                 Button("Abbrechen") { dismiss() }
                     .keyboardShortcut(.escape)
+                    .foregroundStyle(theme.secondaryText)
                 Button {
                     Task { await create() }
                 } label: {
                     if isCreating {
-                        ProgressView().scaleEffect(0.7)
+                        ProgressView().scaleEffect(0.7).frame(width: 60)
                     } else {
-                        Text("Erstellen")
+                        Text("Erstellen").frame(width: 60)
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(linearPurple)
-                .disabled(title.isEmpty || selectedTeamId.isEmpty || isCreating)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
+                          || selectedTeamId.isEmpty || isCreating)
                 .keyboardShortcut(.return)
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .frame(width: 380, height: 460)
+        .frame(width: 500, height: 340)
+        .background(theme.windowBg)
     }
 
     private func create() async {
-        guard !title.isEmpty, !selectedTeamId.isEmpty else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !selectedTeamId.isEmpty else { return }
         isCreating = true
         error = nil
         do {
-            _ = try await service.createIssue(teamId: selectedTeamId,
-                                               title: title,
-                                               description: description,
-                                               priority: priority.rawValue)
+            _ = try await service.createProject(
+                teamId: selectedTeamId,
+                name: trimmed,
+                description: projectDescription)
+            await service.loadProjects()
             onCreated()
             dismiss()
         } catch {
