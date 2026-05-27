@@ -1355,7 +1355,7 @@ struct LinearView: View {
 
     private func performDeleteIssue(_ issue: LinearIssue) async {
         do {
-            try await service.deleteIssue(identifier: issue.identifier)
+            try await service.deleteIssue(issueId: issue.id)
             // Optimistisch aus lokaler Liste entfernen
             if let projId = selectedProject?.id {
                 var snapshot = service.issues
@@ -1365,7 +1365,9 @@ struct LinearView: View {
             if selectedIssue?.id == issue.id {
                 DispatchQueue.main.async { self.selectedIssue = nil }
             }
-        } catch { /* silently ignore — issue may already be deleted */ }
+        } catch {
+            service.error = "Löschen fehlgeschlagen: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Grouped Projects

@@ -258,11 +258,13 @@ final class LinearService: ObservableObject {
         ])
     }
 
-    // identifier = menschenlesbarer Key wie "INT-236" (nicht UUID)
-    func deleteIssue(identifier: String) async throws {
+    // issueId = interne UUID (NICHT menschenlesbare Identifier wie "INT-236")
+    // Das linear_delete_issue MCP-Tool description sagt "ENG-123", aber intern
+    // geht es direkt als GraphQL issueDelete(ids:) → Linear API erwartet UUID.
+    func deleteIssue(issueId: String) async throws {
         try await ensureConnected()
         guard let session else { throw LinearError.notConfigured }
-        _ = try await session.callTool(name: "linear_delete_issue", arguments: ["id": identifier])
+        _ = try await session.callTool(name: "linear_delete_issue", arguments: ["id": issueId])
     }
 
     func addComment(issueId: String, body: String) async throws {
