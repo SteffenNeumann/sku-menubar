@@ -1534,20 +1534,22 @@ struct NewIssueSheet: View {
 
     private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
 
+    private var selectedTeam: LinearTeam? { teams.first { $0.id == selectedTeamId } }
+
     private var availableProjects: [LinearProject] {
         guard !selectedTeamId.isEmpty else { return service.projects }
         return service.projects.filter { $0.teamIds.contains(selectedTeamId) }
     }
 
-    private var selectedTeamStates: [LinearIssueState] {
-        let order = ["backlog": 0, "unstarted": 1, "started": 2, "completed": 3, "cancelled": 4]
-        let states = teams.first { $0.id == selectedTeamId }?.states ?? []
-        return states.sorted { (order[$0.type] ?? 5) < (order[$1.type] ?? 5) }
+    private var selectedProject: LinearProject? {
+        guard projectSelection != "none", projectSelection != "new" else { return nil }
+        return availableProjects.first { $0.id == projectSelection }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Header ──────────────────────────────────────────
+
+            // ── Header ─────────────────────────────────────────────────
             HStack(spacing: 8) {
                 LinearLogoShape()
                     .fill(linearPurple)
@@ -1560,10 +1562,11 @@ struct NewIssueSheet: View {
                     Text(err)
                         .font(.system(size: 11))
                         .foregroundStyle(theme.statusRed)
+                        .lineLimit(1)
                 }
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .frame(width: 22, height: 22)
                         .background(RoundedRectangle(cornerRadius: 5)
@@ -1571,58 +1574,63 @@ struct NewIssueSheet: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .padding(.vertical, 12)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
 
-            // ── 2-column body ───────────────────────────────────
+            // ── Two columns ────────────────────────────────────────────
             HStack(spacing: 0) {
 
-                // Left: Title + Description
+                // Left — Title + Description
                 VStack(alignment: .leading, spacing: 0) {
                     TextField("Issue-Titel…", text: $title)
                         .font(.system(size: 15, weight: .semibold))
                         .textFieldStyle(.plain)
                         .foregroundStyle(theme.primaryText)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 16)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 18)
                         .padding(.bottom, 12)
 
-                    Rectangle().fill(theme.cardBorder.opacity(0.25)).frame(height: 0.5)
-                        .padding(.horizontal, 18)
+                    Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+                        .padding(.horizontal, 20)
 
                     ZStack(alignment: .topLeading) {
                         if description.isEmpty {
                             Text("Beschreibung hinzufügen…")
                                 .font(.system(size: 12))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.7))
-                                .padding(.top, 10)
-                                .padding(.leading, 4)
+                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
                                 .allowsHitTesting(false)
+                                .padding(.top, 10)
+                                .padding(.leading, 5)
                         }
                         TextEditor(text: $description)
                             .font(.system(size: 12))
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
+                            .foregroundStyle(theme.primaryText)
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 4)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 // Vertical divider
-                Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(width: 0.5)
+                Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(width: 0.5)
 
-                // Right: Properties
-                VStack(spacing: 0) {
+                // Right — Properties
+                VStack(alignment: .leading, spacing: 0) {
+
                     // Team
-                    propRow(label: "Team") {
-                        Picker("", selection: $selectedTeamId) {
-                            ForEach(teams) { t in Text(t.name).tag(t.id) }
+                    propRow("Team") {
+                        Menu {
+                            ForEach(teams) { t in
+                                Button(t.name) { selectedTeamId = t.id }
+                            }
+                        } label: {
+                            menuLabel(selectedTeam?.name ?? "Auswählen…")
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
+                        .menuStyle(.borderlessButton)
                         .onAppear {
                             if selectedTeamId.isEmpty, let first = teams.first {
                                 selectedTeamId = first.id
@@ -1632,100 +1640,149 @@ struct NewIssueSheet: View {
                     propDivider()
 
                     // Projekt
-                    propRow(label: "Projekt") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Picker("", selection: $projectSelection) {
-                                Text("Kein Projekt").tag("none")
+                    propRow("Projekt") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Menu {
+                                Button("Kein Projekt") { projectSelection = "none" }
                                 if !availableProjects.isEmpty {
                                     Divider()
                                     ForEach(availableProjects) { p in
-                                        Text(p.name).tag(p.id)
+                                        Button(p.name) { projectSelection = p.id }
                                     }
-                                    Divider()
                                 }
-                                Text("+ Neues Projekt…").tag("new")
+                                Divider()
+                                Button("+ Neues Projekt…") { projectSelection = "new" }
+                            } label: {
+                                menuLabel(
+                                    projectSelection == "none" ? "Kein Projekt"
+                                    : projectSelection == "new" ? "+ Neues Projekt…"
+                                    : (selectedProject?.name ?? "Auswählen…")
+                                )
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
+                            .menuStyle(.borderlessButton)
                             if projectSelection == "new" {
                                 TextField("Projektname", text: $newProjectName)
-                                    .textFieldStyle(.roundedBorder)
+                                    .textFieldStyle(.plain)
                                     .font(.system(size: 11))
+                                    .foregroundStyle(theme.primaryText)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .fill(theme.primaryText.opacity(0.04))
+                                            .overlay(RoundedRectangle(cornerRadius: 5)
+                                                .strokeBorder(theme.cardBorder, lineWidth: 1))
+                                    )
                             }
                         }
                     }
                     propDivider()
 
                     // Priorität
-                    propRow(label: "Priorität") {
-                        Picker("", selection: $priority) {
+                    propRow("Priorität") {
+                        Menu {
                             ForEach(LinearPriority.allCases, id: \.rawValue) { p in
-                                Label(p.label, systemImage: p.icon).tag(p)
+                                Button {
+                                    priority = p
+                                } label: {
+                                    Label(p.label, systemImage: p.icon)
+                                }
                             }
+                        } label: {
+                            menuLabel(priority.label)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
+                        .menuStyle(.borderlessButton)
                     }
                     propDivider()
 
                     Spacer(minLength: 0)
                 }
-                .frame(width: 210)
-                .padding(.top, 4)
+                .frame(width: 218)
+                .padding(.vertical, 4)
             }
             .frame(maxHeight: .infinity)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
 
-            // ── Footer ──────────────────────────────────────────
-            HStack {
+            // ── Footer ─────────────────────────────────────────────────
+            HStack(spacing: 10) {
                 Spacer()
                 Button("Abbrechen") { dismiss() }
-                    .keyboardShortcut(.escape)
+                    .buttonStyle(.plain)
                     .foregroundStyle(theme.secondaryText)
+                    .font(.system(size: 12))
+                    .keyboardShortcut(.escape)
                 Button {
                     Task { await create() }
                 } label: {
-                    if isCreating {
-                        ProgressView().scaleEffect(0.7).frame(width: 60)
-                    } else {
-                        Text("Erstellen")
-                            .frame(width: 60)
+                    Group {
+                        if isCreating {
+                            ProgressView().scaleEffect(0.65)
+                        } else {
+                            Text("Erstellen")
+                        }
                     }
+                    .frame(minWidth: 70)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(linearPurple)
+                .font(.system(size: 12, weight: .medium))
                 .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty
                           || selectedTeamId.isEmpty
                           || isCreating
-                          || (projectSelection == "new" && newProjectName.trimmingCharacters(in: .whitespaces).isEmpty))
+                          || (projectSelection == "new"
+                              && newProjectName.trimmingCharacters(in: .whitespaces).isEmpty))
                 .keyboardShortcut(.return)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
         }
-        .frame(width: 680, height: 400)
+        .frame(width: 680, height: 420)
         .background(theme.windowBg)
     }
 
+    // MARK: helpers
+
     @ViewBuilder
-    private func propRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 10) {
+    private func propRow<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {
+        HStack(spacing: 0) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(theme.tertiaryText)
-                .frame(width: 62, alignment: .leading)
+                .frame(width: 70, alignment: .leading)
             content()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
     }
 
     @ViewBuilder
     private func propDivider() -> some View {
-        Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+        Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
             .padding(.horizontal, 14)
+    }
+
+    @ViewBuilder
+    private func menuLabel(_ text: String) -> some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(theme.tertiaryText)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(theme.primaryText.opacity(0.04))
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(theme.cardBorder, lineWidth: 1))
+        )
     }
 
     private func create() async {
@@ -1755,6 +1812,7 @@ struct NewIssueSheet: View {
             dismiss()
         } catch {
             self.error = error.localizedDescription
+            isCreating = false
         }
         isCreating = false
     }
@@ -1775,10 +1833,12 @@ struct NewProjectSheet: View {
     @State private var error: String?
 
     private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
+    private var selectedTeam: LinearTeam? { service.teams.first { $0.id == selectedTeamId } }
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Header ──────────────────────────────────────────
+
+            // ── Header ─────────────────────────────────────────────────
             HStack(spacing: 8) {
                 LinearLogoShape()
                     .fill(linearPurple)
@@ -1791,10 +1851,11 @@ struct NewProjectSheet: View {
                     Text(err)
                         .font(.system(size: 11))
                         .foregroundStyle(theme.statusRed)
+                        .lineLimit(1)
                 }
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.tertiaryText)
                         .frame(width: 22, height: 22)
                         .background(RoundedRectangle(cornerRadius: 5)
@@ -1802,94 +1863,122 @@ struct NewProjectSheet: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 18)
             .padding(.vertical, 12)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
 
-            // ── Content ─────────────────────────────────────────
+            // ── Content ────────────────────────────────────────────────
             VStack(alignment: .leading, spacing: 0) {
                 TextField("Projektname…", text: $name)
                     .font(.system(size: 15, weight: .semibold))
                     .textFieldStyle(.plain)
                     .foregroundStyle(theme.primaryText)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 16)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
                     .padding(.bottom, 12)
 
-                Rectangle().fill(theme.cardBorder.opacity(0.25)).frame(height: 0.5)
-                    .padding(.horizontal, 18)
+                Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+                    .padding(.horizontal, 20)
 
                 ZStack(alignment: .topLeading) {
                     if projectDescription.isEmpty {
                         Text("Beschreibung hinzufügen…")
                             .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText.opacity(0.7))
-                            .padding(.top, 10)
-                            .padding(.leading, 4)
+                            .foregroundStyle(theme.tertiaryText.opacity(0.6))
                             .allowsHitTesting(false)
+                            .padding(.top, 10)
+                            .padding(.leading, 5)
                     }
                     TextEditor(text: $projectDescription)
                         .font(.system(size: 12))
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
+                        .foregroundStyle(theme.primaryText)
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 4)
                 .frame(maxHeight: .infinity)
 
-                Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
+                Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
 
                 // Team row
-                HStack(spacing: 10) {
+                HStack(spacing: 0) {
                     Text("Team")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.tertiaryText)
-                        .frame(width: 50, alignment: .leading)
+                        .frame(width: 52, alignment: .leading)
                     if !service.teams.isEmpty {
-                        Picker("", selection: $selectedTeamId) {
-                            ForEach(service.teams) { t in Text(t.name).tag(t.id) }
+                        Menu {
+                            ForEach(service.teams) { t in
+                                Button(t.name) { selectedTeamId = t.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(selectedTeam?.name ?? "Auswählen…")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.primaryText)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(theme.primaryText.opacity(0.04))
+                                    .overlay(RoundedRectangle(cornerRadius: 6)
+                                        .strokeBorder(theme.cardBorder, lineWidth: 1))
+                            )
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
+                        .menuStyle(.borderlessButton)
+                        .frame(maxWidth: 200)
                         .onAppear {
                             if selectedTeamId.isEmpty, let first = service.teams.first {
                                 selectedTeamId = first.id
                             }
                         }
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
             }
             .frame(maxHeight: .infinity)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.5)).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
 
-            // ── Footer ──────────────────────────────────────────
-            HStack {
+            // ── Footer ─────────────────────────────────────────────────
+            HStack(spacing: 10) {
                 Spacer()
                 Button("Abbrechen") { dismiss() }
-                    .keyboardShortcut(.escape)
+                    .buttonStyle(.plain)
                     .foregroundStyle(theme.secondaryText)
+                    .font(.system(size: 12))
+                    .keyboardShortcut(.escape)
                 Button {
                     Task { await create() }
                 } label: {
-                    if isCreating {
-                        ProgressView().scaleEffect(0.7).frame(width: 60)
-                    } else {
-                        Text("Erstellen").frame(width: 60)
+                    Group {
+                        if isCreating {
+                            ProgressView().scaleEffect(0.65)
+                        } else {
+                            Text("Erstellen")
+                        }
                     }
+                    .frame(minWidth: 70)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(linearPurple)
+                .font(.system(size: 12, weight: .medium))
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
                           || selectedTeamId.isEmpty || isCreating)
                 .keyboardShortcut(.return)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
         }
         .frame(width: 500, height: 340)
         .background(theme.windowBg)
@@ -1910,6 +1999,7 @@ struct NewProjectSheet: View {
             dismiss()
         } catch {
             self.error = error.localizedDescription
+            isCreating = false
         }
         isCreating = false
     }
