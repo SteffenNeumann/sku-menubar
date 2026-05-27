@@ -133,6 +133,8 @@ struct LinearView: View {
     @State private var copiedIdentifier = false
     @State private var issueToDelete: LinearIssue? = nil
     @State private var showDeleteConfirmation = false
+    @State private var deleteError: String? = nil
+    @State private var showDeleteError = false
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -189,6 +191,11 @@ struct LinearView: View {
             Button("Abbrechen", role: .cancel) {}
         } message: {
             Text("\"\(issueToDelete?.title ?? "")\" wird unwiderruflich gelöscht.")
+        }
+        .alert("Löschen fehlgeschlagen", isPresented: $showDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "Unbekannter Fehler")
         }
     }
 
@@ -1357,16 +1364,22 @@ struct LinearView: View {
         do {
             try await service.deleteIssue(issueId: issue.id)
             // Optimistisch aus lokaler Liste entfernen
+            var snapshot = service.issues
+            // Aus dem aktuell gewählten Projekt entfernen
             if let projId = selectedProject?.id {
-                var snapshot = service.issues
                 snapshot[projId]?.removeAll { $0.id == issue.id }
-                service.issues = snapshot
             }
+            // Sicherheitshalber auch aus allen Projekten entfernen
+            for key in snapshot.keys {
+                snapshot[key]?.removeAll { $0.id == issue.id }
+            }
+            service.issues = snapshot
             if selectedIssue?.id == issue.id {
                 DispatchQueue.main.async { self.selectedIssue = nil }
             }
         } catch {
-            service.error = "Löschen fehlgeschlagen: \(error.localizedDescription)"
+            deleteError = error.localizedDescription
+            showDeleteError = true
         }
     }
 

@@ -258,13 +258,33 @@ final class LinearService: ObservableObject {
         ])
     }
 
-    // issueId = interne UUID (NICHT menschenlesbare Identifier wie "INT-236")
-    // Das linear_delete_issue MCP-Tool description sagt "ENG-123", aber intern
-    // geht es direkt als GraphQL issueDelete(ids:) → Linear API erwartet UUID.
+    // Delete via GraphQL direkt — das MCP-Tool ist kaputt (nutzt ids:[String] statt id:String)
     func deleteIssue(issueId: String) async throws {
-        try await ensureConnected()
-        guard let session else { throw LinearError.notConfigured }
-        _ = try await session.callTool(name: "linear_delete_issue", arguments: ["id": issueId])
+        guard let token = linearAccessToken,
+              let url = URL(string: "https://api.linear.app/graphql") else {
+            throw LinearError.notConfigured
+        }
+        let mutation = """
+        mutation { issueDelete(id: "\(issueId)") { success } }
+        """
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(token, forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["query": mutation])
+        let (data, _) = try await URLSession.shared.data(for: req)
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let errors = json["errors"] as? [[String: Any]],
+               let msg = errors.first?["message"] as? String {
+                throw LinearError.apiError(msg)
+            }
+            if let dataObj = json["data"] as? [String: Any],
+               let result = dataObj["issueDelete"] as? [String: Any],
+               let success = result["success"] as? Bool,
+               !success {
+                throw LinearError.apiError("Delete returned success=false")
+            }
+        }
     }
 
     func addComment(issueId: String, body: String) async throws {
@@ -581,5 +601,11 @@ final class LinearService: ObservableObject {
 
 enum LinearError: LocalizedError {
     case notConfigured
-    var errorDescription: String? { "Linear MCP nicht konfiguriert" }
+    case apiError(String)
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured: return "Linear nicht konfiguriert"
+        case .apiError(let msg): return "Linear API Fehler: \(msg)"
+        }
+    }
 }
