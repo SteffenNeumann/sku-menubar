@@ -136,6 +136,7 @@ struct ChatMessage: Identifiable, Equatable {
     var gitDiffExpanded: Bool = false
     var currentTodos: [TodoItem]? = nil   // latest TodoWrite state
     var finishedCleanly: Bool = false     // result-Event ohne Fehler empfangen
+    var resultSubtype: String? = nil     // "max_turns" | "interrupted" | "error" | nil
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming

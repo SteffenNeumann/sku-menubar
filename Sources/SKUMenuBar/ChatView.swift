@@ -2857,6 +2857,7 @@ struct SingleChatSessionView: View {
                 messages[planIdx].content += "\n⚠️ Plan-Fehler: \(error.localizedDescription)"
             }
             messages[planIdx].isStreaming = false
+            messages[planIdx].finishedCleanly = true
             activePlan = planText
 
             // Master Plan parsen → Todos + AgentTasks
@@ -2965,6 +2966,7 @@ struct SingleChatSessionView: View {
                 messages[progressIdx].content = allDoneLines
             }
             messages[progressIdx].isStreaming = false
+            messages[progressIdx].finishedCleanly = true
 
             // ── Phase 3: Synthesis ────────────────────────────────────────
             // Guard: kein Agent ausgeführt → klare Meldung statt leere Synthese
@@ -3029,6 +3031,7 @@ struct SingleChatSessionView: View {
                     messages[synthIdx].content += "\n⚠️ Synthese-Fehler: \(error.localizedDescription)"
                 }
                 messages[synthIdx].isStreaming = false
+                messages[synthIdx].finishedCleanly = true
 
                 let fullRoundSummary = agentOutputs
                     .map { "[\($0.name)] \($0.output.prefix(500))" }
@@ -3888,6 +3891,9 @@ struct SingleChatSessionView: View {
                             }
                             if messages.indices.contains(assistantIndex) {
                                 messages[assistantIndex].isStreaming = false
+                                // Max-Turns: eigenen Subtype setzen (≠ Fehler, ≠ User-Abbruch)
+                                messages[assistantIndex].resultSubtype =
+                                    subtype == "error_max_turns" ? "max_turns" : "interrupted"
                             }
                             isStreaming = false
                             return
@@ -5858,34 +5864,45 @@ struct MessageBubbleView: View, Equatable {
 
     private var tokenFooter: some View {
         HStack(spacing: 8) {
-            // Abschluss-Status — immer sichtbar für assistant-Messages
+            // Abschluss-Status
             if message.finishedCleanly {
+                // ✓ Sauberes Ende
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.statusGreen.opacity(0.65))
+                    .foregroundStyle(Color.green.opacity(0.65))
                 Text("Fertig")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.statusGreen.opacity(0.6))
-            } else {
-                Image(systemName: "xmark.circle")
+                    .foregroundStyle(Color.green.opacity(0.6))
+            } else if message.resultSubtype == "max_turns" {
+                // Agent hat Turn-Limit erreicht — kein Fehler, nur Hinweis
+                Image(systemName: "arrow.trianglehead.2.clockwise")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.statusOrange.opacity(0.6))
-                Text("Unterbrochen")
+                    .foregroundStyle(Color.blue.opacity(0.55))
+                Text("Max. Turns")
                     .font(.system(size: 11))
-                    .foregroundStyle(theme.statusOrange.opacity(0.55))
+                    .foregroundStyle(Color.blue.opacity(0.5))
+            } else if message.resultSubtype == "error" {
+                // Echter Fehler
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.red.opacity(0.6))
+                Text("Fehler")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.red.opacity(0.55))
             }
+            // "interrupted" (User-Stopp) und unbekannte Enden → kein Label
 
             if message.inputTokens > 0 {
-                Text("·")
-                    .foregroundStyle(theme.tertiaryText)
+                if message.finishedCleanly || message.resultSubtype != nil {
+                    Text("·").foregroundStyle(theme.tertiaryText)
+                }
                 Label("\(message.inputTokens) in", systemImage: "arrow.down")
                     .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
                 Label("\(message.outputTokens) out", systemImage: "arrow.up")
                     .font(.system(size: 11)).foregroundStyle(theme.tertiaryText)
             }
             if let cost = message.costUsd, cost > 0 {
-                Text("·")
-                    .foregroundStyle(theme.tertiaryText)
+                Text("·").foregroundStyle(theme.tertiaryText)
                 Text(String(format: "$%.4f", cost))
                     .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.tertiaryText)
             }
