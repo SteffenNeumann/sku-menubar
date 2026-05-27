@@ -2888,21 +2888,13 @@ struct SingleChatSessionView: View {
 
             for (i, agent) in agents.enumerated() {
                 guard let specificTask = agentTasks[agent.id] else {
-                    // Todo-Status: übersprungen
-                    for j in masterTodos.indices
-                        where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
-                        masterTodos[j].status = .skipped
-                    }
+                    setTodoStatus(for: agent.name, to: .skipped)
                     let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                     messages[progressIdx].content = doneLines + "⏸ \(agent.name) — nicht relevant, übersprungen\n"
                     continue
                 }
 
-                // Todo-Status: aktiv
-                for j in masterTodos.indices
-                    where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
-                    masterTodos[j].status = .active
-                }
+                setTodoStatus(for: agent.name, to: .active)
                 let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
 
@@ -2967,19 +2959,22 @@ struct SingleChatSessionView: View {
                 }
                 agentOutputs.append((name: agent.name, output: agentOutput))
 
-                // Todo-Status: erledigt
-                for j in masterTodos.indices
-                    where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
-                    masterTodos[j].status = .done
-                }
+                setTodoStatus(for: agent.name, to: .done)
 
                 let allDoneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = allDoneLines
-                if i == agents.count - 1 { messages[progressIdx].isStreaming = false }
             }
             messages[progressIdx].isStreaming = false
 
             // ── Phase 3: Synthesis ────────────────────────────────────────
+            // Guard: kein Agent ausgeführt → klare Meldung statt leere Synthese
+            guard !agentOutputs.isEmpty else {
+                messages.append(ChatMessage(role: .assistant,
+                    content: "⚠️ Kein Agent konnte ausgeführt werden — der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents prüfen."))
+                isStreaming = false
+                return
+            }
+
             if agents.count > 1 {
                 var synthPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 synthPlaceholder.model = "📋 Synthese"
@@ -3075,66 +3070,98 @@ struct SingleChatSessionView: View {
 
     /// Parst den hierarchischen Master-Plan (ZIEL: + 1. / 1.1 → Agent Format).
     /// Gibt (goal, todos, agentTasks) zurück.
+    ///
+    /// Robust gegenüber LLM-Artefakten:
+    ///  - Markdown-Fettdruck (**), führende Listenzeichen (-, •, *)
+    ///  - Trailing-Interpunktion am Nummerntoken (1.1:, 1.1., 1))
+    ///  - Mehrere Sub-Items pro Agent → werden zusammengeführt
+    ///  - Canonical Agent-Name gespeichert (nicht roher LLM-String)
+    ///  - Exakter Match bevorzugt vor fuzzy Contains
     private func parseMasterPlan(_ plan: String, agents: [AgentDefinition])
         -> (goal: String, todos: [MasterTodoItem], agentTasks: [String: String]) {
 
         var goal = ""
         var todos: [MasterTodoItem] = []
         var agentTasks: [String: String] = [:]
+        let trailingPunct = CharacterSet(charactersIn: ".:)")
+        let listChars    = CharacterSet(charactersIn: "-•* \t")
 
         for line in plan.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
+            let raw = line.trimmingCharacters(in: .whitespaces)
+            guard !raw.isEmpty else { continue }
 
             // ZIEL: Zeile
-            if trimmed.uppercased().hasPrefix("ZIEL:") {
-                goal = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if raw.uppercased().hasPrefix("ZIEL:") {
+                goal = String(raw.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                 continue
             }
 
-            // Ersten Token (bis zum ersten Leerzeichen) extrahieren
-            let spaceIdx  = trimmed.firstIndex(of: " ") ?? trimmed.endIndex
-            let firstToken = String(trimmed[..<spaceIdx])
-            let rest = spaceIdx < trimmed.endIndex
-                ? String(trimmed[trimmed.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
+            // Normalisieren: **Markdown** + führende Listenzeichen entfernen
+            let normalized = raw
+                .replacingOccurrences(of: "**", with: "")
+                .trimmingCharacters(in: listChars)
+            guard !normalized.isEmpty else { continue }
+
+            // Nummerierungstoken + Rest extrahieren
+            let spaceIdx = normalized.firstIndex(of: " ") ?? normalized.endIndex
+            // Trailing-Interpunktion am Token abschneiden ("1.1:" → "1.1", "1." → "1")
+            let firstToken = String(normalized[..<spaceIdx])
+                .trimmingCharacters(in: trailingPunct)
+            let rest = spaceIdx < normalized.endIndex
+                ? String(normalized[normalized.index(after: spaceIdx)...])
+                    .trimmingCharacters(in: .whitespaces)
                 : ""
             guard !rest.isEmpty else { continue }
 
             let dotParts = firstToken.components(separatedBy: ".")
 
-            // Sub-Item: "1.1" — dotParts = ["1","1"], beide nicht leer + beide Int
+            // Sub-Item: "1.1" — beide Komponenten nicht leer + beide Int
             if dotParts.count == 2,
                let _ = Int(dotParts[0]),
                !dotParts[1].isEmpty,
                let _ = Int(dotParts[1]) {
 
                 let num = firstToken
-                // "→" (Unicode) oder "->" (ASCII)
                 let sep = rest.contains("→") ? "→" : "->"
                 let parts = rest.components(separatedBy: sep)
                 let title = parts[0].trimmingCharacters(in: .whitespaces)
-                let agentName: String? = parts.count > 1
+                let rawAgent: String? = parts.count > 1
                     ? parts[1].trimmingCharacters(in: .whitespaces) : nil
 
-                if let agentName, !agentName.isEmpty,
-                   let agent = agents.first(where: {
-                       $0.name.localizedCaseInsensitiveCompare(agentName) == .orderedSame
-                       || $0.name.lowercased().contains(agentName.lowercased())
-                       || agentName.lowercased().contains($0.name.lowercased())
-                   }) {
-                    agentTasks[agent.id] = title
+                // Exakter Match bevorzugt, dann fuzzy Contains
+                // → verhindert Kreuz-Matches bei ähnlichen Namen ("Designer" vs "UX-Designer")
+                let resolved: AgentDefinition? = rawAgent.flatMap { name in
+                    agents.first(where: {
+                        $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+                    }) ?? agents.first(where: {
+                        !$0.name.isEmpty && (
+                            $0.name.lowercased().contains(name.lowercased())
+                            || name.lowercased().contains($0.name.lowercased())
+                        )
+                    })
+                }
+                // Canonical name (aus Agent-Profil, nicht roher LLM-String) für zuverlässige Status-Updates
+                let canonicalName = resolved?.name ?? rawAgent
+
+                if let agent = resolved {
+                    // Mehrere Sub-Items pro Agent → zusammenführen statt überschreiben
+                    if let existing = agentTasks[agent.id] {
+                        agentTasks[agent.id] = existing + "\n- " + title
+                    } else {
+                        agentTasks[agent.id] = title
+                    }
                 }
 
                 todos.append(MasterTodoItem(id: num, number: num, title: title,
-                                            assignedAgent: agentName, level: 1, status: .pending))
+                                            assignedAgent: canonicalName, level: 1, status: .pending))
                 continue
             }
 
-            // Top-Level: "1." — dotParts = ["1",""], dotParts[1] leer
-            if dotParts.count == 2,
-               let _ = Int(dotParts[0]),
-               dotParts[1].isEmpty {
-
+            // Top-Level Kategorie: "1." → dotParts = ["1",""] oder "1" (nach trailing strip)
+            let isTopLevel = (dotParts.count == 2 && Int(dotParts[0]) != nil && dotParts[1].isEmpty)
+                          || (dotParts.count == 1 && Int(dotParts[0]) != nil
+                              && (raw.contains(".") || raw.contains(")")))
+            if isTopLevel {
                 let num = dotParts[0]
                 todos.append(MasterTodoItem(id: "\(num).", number: "\(num).", title: rest,
                                             assignedAgent: nil, level: 0, status: .pending))
@@ -3142,6 +3169,14 @@ struct SingleChatSessionView: View {
         }
 
         return (goal, todos, agentTasks)
+    }
+
+    /// Setzt Status aller Todos die einem Agent gehören — nutzt canonical name (exact lowercase).
+    private func setTodoStatus(for agentName: String, to status: MasterTodoStatus) {
+        let key = agentName.lowercased()
+        for j in masterTodos.indices where masterTodos[j].assignedAgent?.lowercased() == key {
+            masterTodos[j].status = status
+        }
     }
 
     /// Formatiert den aktuellen Master Plan als lesbaren Text für Kontext-Injektion.
