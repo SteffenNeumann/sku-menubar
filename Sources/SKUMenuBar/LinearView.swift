@@ -1548,37 +1548,74 @@ struct NewIssueSheet: View {
     @State private var error: String?
 
     private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
-
     private var selectedTeam: LinearTeam? { teams.first { $0.id == selectedTeamId } }
-
     private var availableProjects: [LinearProject] {
         guard !selectedTeamId.isEmpty else { return service.projects }
         return service.projects.filter { $0.teamIds.contains(selectedTeamId) }
     }
-
     private var selectedProject: LinearProject? {
         guard projectSelection != "none", projectSelection != "new" else { return nil }
         return availableProjects.first { $0.id == projectSelection }
+    }
+    private var canCreate: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty
+        && !selectedTeamId.isEmpty
+        && !isCreating
+        && !(projectSelection == "new" && newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     var body: some View {
         VStack(spacing: 0) {
 
-            // ── Header ─────────────────────────────────────────────────
-            HStack(spacing: 8) {
-                LinearLogoShape()
-                    .fill(linearPurple)
-                    .frame(width: 13, height: 13)
-                Text("Neues Issue")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
+            // ── Breadcrumb header ───────────────────────────────────────
+            HStack(spacing: 5) {
+                // Team breadcrumb — clickable to switch team
+                Menu {
+                    ForEach(teams) { t in
+                        Button(t.name) { selectedTeamId = t.id }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        LinearLogoShape()
+                            .fill(linearPurple)
+                            .frame(width: 11, height: 11)
+                        Text(selectedTeam?.key ?? "Team")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 5)
+                        .fill(theme.primaryText.opacity(0.05)))
+                }
+                .menuStyle(.borderlessButton)
+                .onAppear {
+                    if selectedTeamId.isEmpty, let first = teams.first {
+                        selectedTeamId = first.id
+                    }
+                }
+
+                // Show project in breadcrumb if one is selected
+                if let proj = selectedProject {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.tertiaryText)
+                    Text(proj.name)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                }
+
                 Spacer()
+
                 if let err = error {
                     Text(err)
                         .font(.system(size: 11))
                         .foregroundStyle(theme.statusRed)
                         .lineLimit(1)
+                        .frame(maxWidth: 220)
                 }
+
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
@@ -1588,217 +1625,171 @@ struct NewIssueSheet: View {
                             .fill(theme.primaryText.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(.escape)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
-            Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
+            Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
 
-            // ── Two columns ────────────────────────────────────────────
-            HStack(spacing: 0) {
-
-                // Left — Title + Description
+            // ── Content: title + description ────────────────────────────
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    TextField("Issue-Titel…", text: $title)
-                        .font(.system(size: 15, weight: .semibold))
+
+                    // Title — large and prominent like Linear
+                    TextField("Issue title", text: $title, axis: .vertical)
+                        .font(.system(size: 17, weight: .medium))
                         .textFieldStyle(.plain)
                         .foregroundStyle(theme.primaryText)
-                        .padding(.horizontal, 20)
+                        .lineLimit(1...3)
+                        .padding(.horizontal, 18)
                         .padding(.top, 18)
                         .padding(.bottom, 12)
 
-                    Rectangle().fill(theme.cardBorder.opacity(0.3)).frame(height: 0.5)
-                        .padding(.horizontal, 20)
-
+                    // Description
                     ZStack(alignment: .topLeading) {
                         if description.isEmpty {
-                            Text("Beschreibung hinzufügen…")
-                                .font(.system(size: 12))
-                                .foregroundStyle(theme.tertiaryText.opacity(0.6))
+                            Text("Add description…")
+                                .font(.system(size: 13))
+                                .foregroundStyle(theme.tertiaryText.opacity(0.5))
                                 .allowsHitTesting(false)
-                                .padding(.top, 10)
-                                .padding(.leading, 5)
+                                .padding(.top, 1)
                         }
                         TextEditor(text: $description)
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
                             .foregroundStyle(theme.primaryText)
+                            .frame(minHeight: 64)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 14)
+
+                    // Inline new-project input (appears when "+ Neues Projekt…" is tapped)
+                    if projectSelection == "new" {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 11))
+                                .foregroundStyle(linearPurple)
+                            TextField("Projektname", text: $newProjectName)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.primaryText)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(linearPurple.opacity(0.06))
+                                .overlay(RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(linearPurple.opacity(0.25), lineWidth: 1))
+                        )
+                        .padding(.horizontal, 18)
+                        .padding(.top, 10)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                // Vertical divider
-                Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(width: 0.5)
-
-                // Right — Properties
-                VStack(alignment: .leading, spacing: 0) {
-
-                    // Team
-                    propRow("Team") {
-                        Menu {
-                            ForEach(teams) { t in
-                                Button(t.name) { selectedTeamId = t.id }
-                            }
-                        } label: {
-                            menuLabel(selectedTeam?.name ?? "Auswählen…")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .onAppear {
-                            if selectedTeamId.isEmpty, let first = teams.first {
-                                selectedTeamId = first.id
-                            }
-                        }
-                    }
-                    propDivider()
-
-                    // Projekt
-                    propRow("Projekt") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Menu {
-                                Button("Kein Projekt") { projectSelection = "none" }
-                                if !availableProjects.isEmpty {
-                                    Divider()
-                                    ForEach(availableProjects) { p in
-                                        Button(p.name) { projectSelection = p.id }
-                                    }
-                                }
-                                Divider()
-                                Button("+ Neues Projekt…") { projectSelection = "new" }
-                            } label: {
-                                menuLabel(
-                                    projectSelection == "none" ? "Kein Projekt"
-                                    : projectSelection == "new" ? "+ Neues Projekt…"
-                                    : (selectedProject?.name ?? "Auswählen…")
-                                )
-                            }
-                            .menuStyle(.borderlessButton)
-                            if projectSelection == "new" {
-                                TextField("Projektname", text: $newProjectName)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(theme.primaryText)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .fill(theme.primaryText.opacity(0.04))
-                                            .overlay(RoundedRectangle(cornerRadius: 5)
-                                                .strokeBorder(theme.cardBorder, lineWidth: 1))
-                                    )
-                            }
-                        }
-                    }
-                    propDivider()
-
-                    // Priorität
-                    propRow("Priorität") {
-                        Menu {
-                            ForEach(LinearPriority.allCases, id: \.rawValue) { p in
-                                Button {
-                                    priority = p
-                                } label: {
-                                    Label(p.label, systemImage: p.icon)
-                                }
-                            }
-                        } label: {
-                            menuLabel(priority.label)
-                        }
-                        .menuStyle(.borderlessButton)
-                    }
-                    propDivider()
-
-                    Spacer(minLength: 0)
-                }
-                .frame(width: 218)
-                .padding(.vertical, 4)
+                .padding(.bottom, 10)
             }
             .frame(maxHeight: .infinity)
 
             Rectangle().fill(theme.cardBorder.opacity(0.6)).frame(height: 0.5)
 
-            // ── Footer ─────────────────────────────────────────────────
-            HStack(spacing: 10) {
+            // ── Chip toolbar + create button ────────────────────────────
+            HStack(spacing: 6) {
+                // Status — always Backlog for new issues (dashed circle = Linear's backlog icon)
+                HStack(spacing: 5) {
+                    Circle()
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                        .foregroundStyle(theme.tertiaryText.opacity(0.65))
+                        .frame(width: 12, height: 12)
+                    Text("Backlog")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .chipStyle(theme: theme, active: false, accent: .clear)
+
+                // Priority
+                Menu {
+                    ForEach(LinearPriority.allCases, id: \.rawValue) { p in
+                        Button { priority = p } label: { Label(p.label, systemImage: p.icon) }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: priority.icon)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(priority == .noPriority ? theme.tertiaryText : priority.color)
+                        Text(priority.label)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(priority == .noPriority ? theme.secondaryText : theme.primaryText)
+                    }
+                    .chipStyle(theme: theme,
+                               active: priority != .noPriority,
+                               accent: priority.color)
+                }
+                .menuStyle(.borderlessButton)
+
+                // Project
+                Menu {
+                    Button("Kein Projekt") { projectSelection = "none" }
+                    if !availableProjects.isEmpty {
+                        Divider()
+                        ForEach(availableProjects) { p in
+                            Button(p.name) { projectSelection = p.id }
+                        }
+                    }
+                    Divider()
+                    Button("+ Neues Projekt…") { projectSelection = "new" }
+                } label: {
+                    let isActive = projectSelection != "none"
+                    let lbl: String = projectSelection == "none"  ? "Projekt"
+                                    : projectSelection == "new"   ? "Neues Projekt…"
+                                    : (selectedProject?.name ?? "Projekt")
+                    HStack(spacing: 5) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 10))
+                            .foregroundStyle(isActive ? linearPurple : theme.tertiaryText)
+                        Text(lbl)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(isActive ? theme.primaryText : theme.secondaryText)
+                            .lineLimit(1)
+                    }
+                    .chipStyle(theme: theme, active: isActive, accent: linearPurple)
+                }
+                .menuStyle(.borderlessButton)
+
                 Spacer()
-                Button("Abbrechen") { dismiss() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.secondaryText)
-                    .font(.system(size: 12))
-                    .keyboardShortcut(.escape)
+
+                // Create issue button
                 Button {
                     Task { await create() }
                 } label: {
-                    Group {
+                    HStack(spacing: 6) {
                         if isCreating {
-                            ProgressView().scaleEffect(0.65)
-                        } else {
-                            Text("Erstellen")
+                            ProgressView()
+                                .scaleEffect(0.65)
+                                .frame(width: 14, height: 14)
                         }
+                        Text(isCreating ? "Erstellen…" : "Issue erstellen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white)
                     }
-                    .frame(minWidth: 70)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(linearPurple.opacity(canCreate ? 1.0 : 0.45)))
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(linearPurple)
-                .font(.system(size: 12, weight: .medium))
-                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty
-                          || selectedTeamId.isEmpty
-                          || isCreating
-                          || (projectSelection == "new"
-                              && newProjectName.trimmingCharacters(in: .whitespaces).isEmpty))
-                .keyboardShortcut(.return)
+                .buttonStyle(.plain)
+                .disabled(!canCreate)
+                .keyboardShortcut(.return, modifiers: .command)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .frame(width: 680, height: 420)
+        .frame(width: 600, height: 350)
         .background(theme.windowBg)
+        .preferredColorScheme(theme.isLight ? .light : .dark)
     }
 
-    // MARK: helpers
-
-    @ViewBuilder
-    private func propRow<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {
-        HStack(spacing: 0) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(theme.tertiaryText)
-                .frame(width: 70, alignment: .leading)
-            content()
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-    }
-
-    @ViewBuilder
-    private func propDivider() -> some View {
-        Rectangle().fill(theme.cardBorder.opacity(0.4)).frame(height: 0.5)
-            .padding(.horizontal, 14)
-    }
-
-    @ViewBuilder
-    private func menuLabel(_ text: String) -> some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(theme.primaryText)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(theme.tertiaryText)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(theme.primaryText.opacity(0.04))
-                .overlay(RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(theme.cardBorder, lineWidth: 1))
-        )
-    }
+    // MARK: - Create action
 
     private func create() async {
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
@@ -2017,5 +2008,41 @@ struct NewProjectSheet: View {
             isCreating = false
         }
         isCreating = false
+    }
+}
+
+
+// MARK: - ChipStyle modifier (shared by NewIssueSheet toolbar chips)
+
+private struct ChipStyleModifier: ViewModifier {
+    let theme: AppTheme
+    let active: Bool
+    let accent: Color
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(active && accent != .clear
+                          ? accent.opacity(0.09)
+                          : theme.primaryText.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(
+                                active && accent != .clear
+                                ? accent.opacity(0.28)
+                                : theme.cardBorder.opacity(0.4),
+                                lineWidth: 0.5
+                            )
+                    )
+            )
+    }
+}
+
+private extension View {
+    func chipStyle(theme: AppTheme, active: Bool, accent: Color) -> some View {
+        modifier(ChipStyleModifier(theme: theme, active: active, accent: accent))
     }
 }
