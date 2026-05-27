@@ -243,6 +243,8 @@ struct SingleChatSessionView: View {
     @State private var showBranchPicker = false
     @State private var selectedOrchestrators: Set<String> = []
     @State private var orchestratorHistory: [(role: String, content: String)] = []
+    @State private var masterTodos: [MasterTodoItem] = []   // Hierarchische Todo-Liste
+    @State private var masterGoal: String = ""              // Sticky Ziel-Header
     @State private var showModelPicker    = false
     @State private var showAgentPicker    = false
     @State private var showOrchPicker     = false
@@ -2659,6 +2661,8 @@ struct SingleChatSessionView: View {
             attachedFiles = []
             sessionTitle = ""
             orchestratorHistory = []
+            masterTodos = []
+            masterGoal = ""
             autoTriggeredAgentName = nil
             showCompactBanner = false
             compactBannerSeenAt = 0
@@ -2678,7 +2682,7 @@ struct SingleChatSessionView: View {
         }
     }
 
-    // MARK: - Orchestrator: Plan → Execute → Synthesize
+    // MARK: - Orchestrator: Analyse → Master Plan → Execute → Synthesize
 
     /// - autoAgentList: wenn gesetzt, werden diese Agents verwendet (Auto-Orchestrierung).
     ///   nil = Agents aus selectedOrchestrators (manuell).
@@ -2693,13 +2697,9 @@ struct SingleChatSessionView: View {
         // Capture & clear attached files before the task runs
         let sentFiles = attachedFiles
         attachedFiles = []
-
-        // Collect image paths for CLI (base64 via stream-json)
         let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
-        // Collect dirs for --add-dir
         let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
 
-        // Build display text (show file names to user)
         var displayText = text
         if !sentFiles.isEmpty {
             let names = sentFiles.map { $0.name }.joined(separator: ", ")
@@ -2709,24 +2709,17 @@ struct SingleChatSessionView: View {
 
         messages.append(ChatMessage(role: .user, content: displayText))
 
-        // Agent-Liste: manuell gewählt oder automatisch (nur Nicht-Personas)
         let isAutoOrchestrated = autoAgentList != nil
         let agents = (autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) })
-            .filter { !$0.isPersona }   // Personas nie orchestrieren — nur für Validierung
+            .filter { !$0.isPersona }
         guard !agents.isEmpty else { return }
 
         isStreaming = true; streamingStartTime = Date()
-
-        // Persist user message in orchestrator history for follow-up context
         orchestratorHistory.append((role: "user", content: displayText))
 
         Task { @MainActor in
 
-            // ── Phase 1: Planning ──────────────────────────────────────
-            let agentProfiles = agents.map { a in
-                "- **\(a.name)**: \(a.description.isEmpty ? String(a.promptBody.prefix(200)) : a.description)"
-            }.joined(separator: "\n")
-
+            // Bisheriger Kontext für Folgegespräche
             let priorContext: String
             if orchestratorHistory.count > 1 {
                 let history = orchestratorHistory.dropLast()
@@ -2737,59 +2730,113 @@ struct SingleChatSessionView: View {
                 priorContext = ""
             }
 
-            let planPrompt = """
-            Du bist ein Orchestrator. Analysiere den Auftrag und verteile die Arbeit intelligent.
-            \(priorContext)
-            Verfügbare Agents:
-            \(agentProfiles)
-
-            Benutzer-Auftrag: \(text)
-
-            WICHTIG — Entscheide zuerst: Ist der Auftrag einfach oder komplex?
-
-            EINFACHER Auftrag (Erklärung, einzelne Frage, eine klare Aufgabe):
-            → Weise dem best-geeigneten Agent die HAUPTAUFGABE zu.
-            → Andere Agents bekommen komplementäre Rollen: Review, Qualitätsprüfung, Gegenperspektive, Ergänzung aus Fachsicht.
-            → NIEMALS die gleiche Aufgabe an mehrere Agents vergeben!
-
-            KOMPLEXER Auftrag (mehrere Aspekte, verschiedene Fachbereiche nötig):
-            → Zerlege in NICHT-ÜBERLAPPENDE Teilaufgaben passend zu den Agent-Profilen.
-            → Jeder Agent bekommt einen eigenen, klar abgegrenzten Teil.
-
-            Antworte NUR in diesem exakten Format (kein anderer Text):
-            AGENT: <AgentName>
-            AUFGABE: <Konkrete Teilaufgabe in 1-3 Sätzen>
-
-            AGENT: <AgentName>
-            AUFGABE: <Konkrete, ANDERE Teilaufgabe — KEINE Wiederholung>
-
-            Regeln:
-            - Weise NUR Agents zu die für DIESE Aufgabe wirklich relevant sind — irrelevante WEGLASSEN
-            - Lieber 2 gut passende Agents als 6 mit erzwungenen Aufgaben
-            - Jeder Agent bekommt eine ANDERE Aufgabe — Überlappung = Fehler
-            - Bei einfachen Aufträgen: nur 1 Agent arbeitet inhaltlich, Rest prüft/ergänzt
-            - Formuliere so, dass der Agent genau weiß was ER und NUR ER tun soll
-            - Beziehe dich auf den bisherigen Kontext wenn vorhanden
-            """
-
-            var planPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
-            planPlaceholder.model = "🎯 Orchestrator"
-            messages.append(planPlaceholder)
-            let planIdx = messages.count - 1
-            messages[planIdx].content = isAutoOrchestrated
-                ? "🤖 **Auto-Orchestrierung** — \(agents.map { $0.name }.joined(separator: ", "))\n\n**🎯 Plan**\n"
-                : "**🎯 Orchestrator-Plan**\n"
-
-            // Panel sofort öffnen — zeigt "Wird erstellt…" bis erste Chunks ankommen
+            // Panel sofort öffnen (zeigt Phase-0-Indikator)
             diffPanelDismissed = false
             rightPanelShowsPlan = true
             activePlan = ""
+            masterTodos = []
+            masterGoal = ""
+
+            let headerLine = isAutoOrchestrated
+                ? "🤖 **Auto-Orchestrierung** — \(agents.map { $0.name }.joined(separator: ", "))\n\n"
+                : ""
+
+            // ── Phase 0: Domain-Analyse pro Agent (Haiku 4.5) ─────────────
+            var planPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+            planPlaceholder.model = "📊 Haiku 4.5"
+            messages.append(planPlaceholder)
+            let planIdx = messages.count - 1
+            messages[planIdx].content = headerLine + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+
+            var agentAnalyses: [(name: String, analysis: String)] = []
+
+            for agent in agents {
+                // Fortschritt: erledigte ✓, aktueller ⏳, ausstehende ⬜
+                let doneLines   = agentAnalyses.map { "✓ \($0.name)\n" }.joined()
+                let remaining   = agents.dropFirst(agentAnalyses.count + 1).map { "⬜ \($0.name)\n" }.joined()
+                messages[planIdx].content = headerLine
+                    + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+                    + doneLines + "⏳ \(agent.name)…\n" + remaining
+
+                let profile = agent.description.isEmpty
+                    ? String(agent.promptBody.prefix(150))
+                    : agent.description
+
+                let analysisPrompt = """
+                Agent-Profil: \(agent.name) — \(profile)
+
+                Aufgabe: \(text)
+
+                Beschreibe in max. 3 Sätzen: Was kannst du konkret beitragen? Welche Teilschritte und Abhängigkeiten siehst du?
+                """
+
+                var analysis = ""
+                let aStream = state.cliService.send(
+                    message: analysisPrompt,
+                    systemPrompt: "Antworte knapp und konkret auf Deutsch.",
+                    model: "claude-haiku-4-5-20251001",
+                    workingDirectory: workingDirectory
+                )
+                do {
+                    for try await event in aStream {
+                        if case "assistant" = event.type, let content = event.message?.content {
+                            for block in content where block.type == "text" {
+                                if let t = block.text, !t.isEmpty { analysis += t }
+                            }
+                        }
+                    }
+                } catch { analysis = "(Analyse nicht verfügbar)" }
+
+                agentAnalyses.append((name: agent.name, analysis: analysis))
+            }
+
+            // Alle ✓
+            messages[planIdx].content = headerLine
+                + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+                + agentAnalyses.map { "✓ \($0.name)\n" }.joined()
+
+            // ── Phase 1: Master Plan (Haiku 4.5) ─────────────────────────
+            let analysisBlock = agentAnalyses
+                .map { "**\($0.name):** \($0.analysis)" }
+                .joined(separator: "\n")
+            let agentNamesList = agents.map { $0.name }.joined(separator: ", ")
+
+            let masterPlanPrompt = """
+            Erstelle einen detaillierten, hierarchischen Master-Plan als strukturierte Todo-Liste.
+            \(priorContext)
+            Agent-Analysen:
+            \(analysisBlock)
+
+            Benutzer-Auftrag: \(text)
+
+            Verfügbare Agents: \(agentNamesList)
+
+            Antworte AUSSCHLIESSLICH in diesem Format — kein anderer Text:
+            ZIEL: [Hauptziel in einem Satz — was am Ende erreicht sein soll]
+
+            1. [Übergeordnete Phase oder Bereich — kein Agent zugewiesen]
+               1.1 [Konkrete Teilaufgabe, max. 1 Satz] → AgentName
+               1.2 [Andere Teilaufgabe, max. 1 Satz] → AgentName
+
+            2. [Übergeordnete Phase oder Bereich]
+               2.1 [Teilaufgabe] → AgentName
+
+            Regeln:
+            - ZIEL: immer als erste Zeile
+            - X. = Top-Level Kategorie (kein Agent); X.Y = ausführbarer Schritt mit "→ AgentName"
+            - Nur Agents aus der Liste verwenden: \(agentNamesList)
+            - Lieber 2-3 fokussierte Schritte als viele oberflächliche
+            - Jeder Agent erhält eine ANDERE Aufgabe — keine Wiederholungen
+            - Beziehe bisherigen Kontext ein wenn vorhanden
+            """
+
+            messages[planIdx].content += "\n**🗂 Master Plan** *(Haiku 4.5)*\n"
 
             var planText = ""
             let planStream = state.cliService.send(
-                message: planPrompt,
-                systemPrompt: "Du bist ein Task-Planer. Antworte kurz und strukturiert.",
-                model: selectedModel,
+                message: masterPlanPrompt,
+                systemPrompt: "Erstelle strukturierte Pläne. Halte das Format exakt ein.",
+                model: "claude-haiku-4-5-20251001",
                 workingDirectory: workingDirectory,
                 addDirs: fileDirs,
                 imagePaths: imgPaths
@@ -2810,15 +2857,29 @@ struct SingleChatSessionView: View {
                 messages[planIdx].content += "\n⚠️ Plan-Fehler: \(error.localizedDescription)"
             }
             messages[planIdx].isStreaming = false
-            activePlan = planText   // Finale Version für geparste Agent-Karten
+            activePlan = planText
 
-            // Parse plan into per-agent tasks
-            let agentTasks = parseOrchestratorPlan(planText, agents: agents)
+            // Master Plan parsen → Todos + AgentTasks
+            let (parsedGoal, parsedTodos, parsedAgentTasks) = parseMasterPlan(planText, agents: agents)
+            masterGoal = parsedGoal
 
-            // ── Phase 2: Execution (compact — only synthesis is shown in full) ──
+            // Fallback: wenn neues Format nicht erkannt → altes AGENT:/AUFGABE: Format
+            let agentTasks: [String: String]
+            if !parsedAgentTasks.isEmpty {
+                masterTodos = parsedTodos
+                agentTasks = parsedAgentTasks
+            } else {
+                let legacyTasks = parseOrchestratorPlan(planText, agents: agents)
+                agentTasks = legacyTasks
+                masterTodos = legacyTasks.compactMap { (agentId, task) in
+                    guard let agent = agents.first(where: { $0.id == agentId }) else { return nil }
+                    return MasterTodoItem(id: agentId, number: "•", title: task,
+                                         assignedAgent: agent.name, level: 1, status: .pending)
+                }
+            }
+
+            // ── Phase 2: Execution mit Master-Plan-Kontext-Anker ──────────
             var agentOutputs: [(name: String, output: String)] = []
-
-            // Single progress message for all agents
             var progressMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
             progressMsg.model = "⚙️ Agents"
             messages.append(progressMsg)
@@ -2826,19 +2887,32 @@ struct SingleChatSessionView: View {
             messages[progressIdx].content = ""
 
             for (i, agent) in agents.enumerated() {
-                // Agents ohne Plan-Eintrag überspringen — kein sinnloser Token-Verbrauch
                 guard let specificTask = agentTasks[agent.id] else {
+                    // Todo-Status: übersprungen
+                    for j in masterTodos.indices
+                        where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
+                        masterTodos[j].status = .skipped
+                    }
                     let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                     messages[progressIdx].content = doneLines + "⏸ \(agent.name) — nicht relevant, übersprungen\n"
                     continue
                 }
 
-                // Show spinning indicator for current agent
+                // Todo-Status: aktiv
+                for j in masterTodos.indices
+                    where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
+                    masterTodos[j].status = .active
+                }
                 let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
 
-                // Build context: prior conversation + previous agent outputs in this run
+                // Kontext aufbauen: Master-Plan-Anker + History + vorige Agent-Outputs
                 var contextParts: [String] = []
+
+                // ═══ Master-Plan immer als erster Kontext-Anker ═══
+                let planAnchor = formatMasterPlanText()
+                contextParts.append("══════ MASTER PLAN — Kontext-Anker ══════\n\(planAnchor)\n══════════════════════════════════════")
+
                 if orchestratorHistory.count > 1 {
                     let history = orchestratorHistory.dropLast()
                         .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(800))" }
@@ -2852,13 +2926,18 @@ struct SingleChatSessionView: View {
                     contextParts.append("Ergebnisse der anderen Agents in dieser Runde:\n\(prior)")
                 }
 
-                let contextBlock = contextParts.isEmpty ? "" : contextParts.joined(separator: "\n\n---\n\n") + "\n\n---\n\n"
+                let contextBlock = contextParts.joined(separator: "\n\n---\n\n") + "\n\n---\n\n"
+
+                let stepLabel = masterTodos
+                    .first(where: { $0.assignedAgent?.lowercased() == agent.name.lowercased() && $0.level == 1 })
+                    .map { " (Schritt \($0.number))" } ?? ""
 
                 let agentMessage = """
-                \(contextBlock)Deine spezifische Aufgabe: \(specificTask)
+                \(contextBlock)DEINE AUFGABE\(stepLabel): \(specificTask)
 
                 Ursprünglicher Benutzer-Auftrag: \(text)
-                Fokussiere dich NUR auf deine Teilaufgabe. Wiederhole nicht, was andere Agents bereits geliefert haben.
+                Fokussiere dich NUR auf deinen Schritt. Verliere nie das Gesamtziel aus den Augen.
+                Wiederhole nicht, was andere Agents bereits geliefert haben.
                 """
 
                 let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent)
@@ -2878,9 +2957,7 @@ struct SingleChatSessionView: View {
                         case "assistant":
                             guard let content = event.message?.content else { break }
                             for block in content where block.type == "text" {
-                                if let t = block.text, !t.isEmpty {
-                                    agentOutput += t
-                                }
+                                if let t = block.text, !t.isEmpty { agentOutput += t }
                             }
                         default: break
                         }
@@ -2890,17 +2967,19 @@ struct SingleChatSessionView: View {
                 }
                 agentOutputs.append((name: agent.name, output: agentOutput))
 
-                // Update progress: mark this agent as done
-                let allDoneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
-                if i < agents.count - 1 {
-                    messages[progressIdx].content = allDoneLines
-                } else {
-                    messages[progressIdx].content = allDoneLines
-                    messages[progressIdx].isStreaming = false
+                // Todo-Status: erledigt
+                for j in masterTodos.indices
+                    where masterTodos[j].assignedAgent?.lowercased() == agent.name.lowercased() {
+                    masterTodos[j].status = .done
                 }
-            }
 
-            // ── Phase 3: Synthesis ─────────────────────────────────────
+                let allDoneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
+                messages[progressIdx].content = allDoneLines
+                if i == agents.count - 1 { messages[progressIdx].isStreaming = false }
+            }
+            messages[progressIdx].isStreaming = false
+
+            // ── Phase 3: Synthesis ────────────────────────────────────────
             if agents.count > 1 {
                 var synthPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 synthPlaceholder.model = "📋 Synthese"
@@ -2913,7 +2992,12 @@ struct SingleChatSessionView: View {
                     .joined(separator: "\n\n---\n\n")
 
                 let synthPrompt = """
-                Du bist ein Synthese-Agent. Fasse die Ergebnisse mehrerer Agents zu einer kohärenten Antwort zusammen.
+                Du fasst die Ergebnisse mehrerer Agents zusammen.
+
+                🎯 Gesamtziel: \(masterGoal.isEmpty ? text : masterGoal)
+
+                Master Plan (zur Orientierung):
+                \(formatMasterPlanText())
 
                 Benutzer-Auftrag: \(text)
 
@@ -2921,11 +3005,11 @@ struct SingleChatSessionView: View {
                 \(allOutputs)
 
                 Erstelle eine zusammenhängende Zusammenfassung:
-                1. Kernpunkte aus allen Agent-Beiträgen
+                1. Kernpunkte aus allen Agent-Beiträgen (bezogen auf das Gesamtziel)
                 2. Wie die Teile zusammenspielen
                 3. Konkrete nächste Schritte (falls relevant)
 
-                Sei prägnant — keine Wiederholung der Einzelergebnisse, sondern Mehrwert durch Verknüpfung.
+                Sei prägnant — kein Wiederholen der Einzelergebnisse, sondern Mehrwert durch Verknüpfung.
                 """
 
                 var synthOutput = ""
@@ -2951,11 +3035,12 @@ struct SingleChatSessionView: View {
                 }
                 messages[synthIdx].isStreaming = false
 
-                // Store synthesis in orchestrator history for follow-up context
-                let fullRoundSummary = agentOutputs.map { "[\($0.name)] \($0.output.prefix(500))" }.joined(separator: "\n\n")
-                orchestratorHistory.append((role: "orchestrator", content: "Plan:\n\(planText.prefix(500))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
+                let fullRoundSummary = agentOutputs
+                    .map { "[\($0.name)] \($0.output.prefix(500))" }
+                    .joined(separator: "\n\n")
+                orchestratorHistory.append((role: "orchestrator",
+                    content: "Plan:\n\(planText.prefix(300))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
             } else {
-                // Single agent — show output directly (no synthesis needed)
                 if let first = agentOutputs.first {
                     var singleMsg = ChatMessage(role: .assistant, content: first.output)
                     singleMsg.model = first.name
@@ -2968,7 +3053,7 @@ struct SingleChatSessionView: View {
         }
     }
 
-    /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan.
+    /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan (Legacy-Format).
     private func parseOrchestratorPlan(_ plan: String, agents: [AgentDefinition]) -> [String: String] {
         var result: [String: String] = [:]
         let lines = plan.components(separatedBy: .newlines)
@@ -2986,6 +3071,100 @@ struct SingleChatSessionView: View {
             }
         }
         return result
+    }
+
+    /// Parst den hierarchischen Master-Plan (ZIEL: + 1. / 1.1 → Agent Format).
+    /// Gibt (goal, todos, agentTasks) zurück.
+    private func parseMasterPlan(_ plan: String, agents: [AgentDefinition])
+        -> (goal: String, todos: [MasterTodoItem], agentTasks: [String: String]) {
+
+        var goal = ""
+        var todos: [MasterTodoItem] = []
+        var agentTasks: [String: String] = [:]
+
+        for line in plan.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // ZIEL: Zeile
+            if trimmed.uppercased().hasPrefix("ZIEL:") {
+                goal = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                continue
+            }
+
+            // Ersten Token (bis zum ersten Leerzeichen) extrahieren
+            let spaceIdx  = trimmed.firstIndex(of: " ") ?? trimmed.endIndex
+            let firstToken = String(trimmed[..<spaceIdx])
+            let rest = spaceIdx < trimmed.endIndex
+                ? String(trimmed[trimmed.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
+                : ""
+            guard !rest.isEmpty else { continue }
+
+            let dotParts = firstToken.components(separatedBy: ".")
+
+            // Sub-Item: "1.1" — dotParts = ["1","1"], beide nicht leer + beide Int
+            if dotParts.count == 2,
+               let _ = Int(dotParts[0]),
+               !dotParts[1].isEmpty,
+               let _ = Int(dotParts[1]) {
+
+                let num = firstToken
+                // "→" (Unicode) oder "->" (ASCII)
+                let sep = rest.contains("→") ? "→" : "->"
+                let parts = rest.components(separatedBy: sep)
+                let title = parts[0].trimmingCharacters(in: .whitespaces)
+                let agentName: String? = parts.count > 1
+                    ? parts[1].trimmingCharacters(in: .whitespaces) : nil
+
+                if let agentName, !agentName.isEmpty,
+                   let agent = agents.first(where: {
+                       $0.name.localizedCaseInsensitiveCompare(agentName) == .orderedSame
+                       || $0.name.lowercased().contains(agentName.lowercased())
+                       || agentName.lowercased().contains($0.name.lowercased())
+                   }) {
+                    agentTasks[agent.id] = title
+                }
+
+                todos.append(MasterTodoItem(id: num, number: num, title: title,
+                                            assignedAgent: agentName, level: 1, status: .pending))
+                continue
+            }
+
+            // Top-Level: "1." — dotParts = ["1",""], dotParts[1] leer
+            if dotParts.count == 2,
+               let _ = Int(dotParts[0]),
+               dotParts[1].isEmpty {
+
+                let num = dotParts[0]
+                todos.append(MasterTodoItem(id: "\(num).", number: "\(num).", title: rest,
+                                            assignedAgent: nil, level: 0, status: .pending))
+            }
+        }
+
+        return (goal, todos, agentTasks)
+    }
+
+    /// Formatiert den aktuellen Master Plan als lesbaren Text für Kontext-Injektion.
+    private func formatMasterPlanText() -> String {
+        var lines: [String] = []
+        if !masterGoal.isEmpty {
+            lines.append("🎯 ZIEL: \(masterGoal)")
+            lines.append("")
+        }
+        for item in masterTodos {
+            let indent = item.level == 1 ? "   " : ""
+            let icon: String
+            switch item.status {
+            case .pending:  icon = "○"
+            case .active:   icon = "▶"
+            case .done:     icon = "✓"
+            case .skipped:  icon = "⏸"
+            case .blocked:  icon = "⚠"
+            }
+            let agent = item.assignedAgent.map { " → \($0)" } ?? ""
+            lines.append("\(indent)\(icon) \(item.number) \(item.title)\(agent)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var streamingTask: Task<Void, Never>? = nil
@@ -3257,6 +3436,8 @@ struct SingleChatSessionView: View {
             isAuthError = false
             sessionTitle = ""
             orchestratorHistory = []
+            masterTodos = []
+            masterGoal = ""
             activePlan = nil
         }
     }
@@ -4146,26 +4327,48 @@ extension SingleChatSessionView {
         .buttonStyle(.plain)
     }
 
-    // MARK: Plan Side Panel
+    // MARK: - Master Plan Panel
+
+    // Datenstrukturen
+    private enum MasterTodoStatus: Equatable {
+        case pending, active, done, skipped, blocked
+    }
+    private struct MasterTodoItem: Identifiable {
+        let id: String
+        let number: String
+        let title: String
+        let assignedAgent: String?
+        let level: Int              // 0 = Top-Level Kategorie, 1 = ausführbarer Schritt
+        var status: MasterTodoStatus
+    }
 
     func planSidePanel(_ plan: String) -> some View {
-        let entries = parsePlanForPanel(plan)
-        let isLoading = plan.isEmpty || (entries.isEmpty && !plan.isEmpty)
+        let hasTodos   = !masterTodos.isEmpty
+        let hasContent = !plan.isEmpty           // Plan streamt gerade
+        let doneCount  = masterTodos.filter { $0.status == .done  }.count
+        let totalCount = masterTodos.filter { $0.level == 1       }.count
+        let isComplete = totalCount > 0 && doneCount == totalCount
 
         return VStack(spacing: 0) {
-            // Header
+            // ── Header ──────────────────────────────────────────────────
             HStack(spacing: 8) {
-                Image(systemName: "list.clipboard")
+                Image(systemName: "checklist")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.orange)
-                Text("Orchestrator-Plan")
+                Text("Master Plan")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
-                if isLoading {
+
+                if !hasTodos {
                     ProgressView().scaleEffect(0.55)
+                } else if totalCount > 0 {
+                    Text("\(doneCount)/\(totalCount)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(isComplete ? .green : theme.tertiaryText)
+                        .animation(.easeInOut, value: doneCount)
                 }
+
                 Spacer()
-                // Kein eigener Close-Button wenn Tab-Leiste schon Close hat
                 if activeDiff == nil {
                     Button {
                         withAnimation(.spring(response: 0.3)) { diffPanelDismissed = true }
@@ -4183,64 +4386,127 @@ extension SingleChatSessionView {
 
             Rectangle().fill(theme.cardBorder).frame(height: 0.5)
 
-            // Agent-Karten
+            // ── Sticky Ziel-Header ───────────────────────────────────────
+            if !masterGoal.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("🎯")
+                        .font(.system(size: 12))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ZIEL")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.orange.opacity(0.65))
+                        Text(masterGoal)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(theme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.orange.opacity(0.07))
+
+                Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+            }
+
+            // ── Todo-Liste ───────────────────────────────────────────────
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if !entries.isEmpty {
-                        ForEach(Array(entries.enumerated()), id: \.offset) { idx, entry in
-                            planAgentCard(number: idx + 1,
-                                         agentName: entry.agent,
-                                         task: entry.task)
+                VStack(alignment: .leading, spacing: 2) {
+                    if hasTodos {
+                        ForEach(masterTodos) { item in
+                            masterTodoRow(item)
                         }
-                    } else if isLoading {
+                    } else if hasContent {
+                        // Phase 1: Plan streamt gerade
                         HStack(spacing: 8) {
                             ProgressView().scaleEffect(0.7)
-                            Text("Plan wird erstellt…")
+                            Text("Master Plan wird erstellt…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .padding(12)
+                    } else {
+                        // Phase 0: Domain-Analyse läuft
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.7)
+                            Text("Analysiere Domain-Beiträge…")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.secondaryText)
                         }
                         .padding(12)
                     }
                 }
-                .padding(10)
+                .padding(.vertical, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(white: theme.isLight ? 0.96 : 0.06))
     }
 
-    // MARK: Plan-Karte pro Agent
+    // MARK: - Master Todo Row
 
     @ViewBuilder
-    private func planAgentCard(number: Int, agentName: String, task: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            // Nummer-Badge
-            ZStack {
-                Circle().fill(Color.orange)
-                Text("\(number)")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+    private func masterTodoRow(_ item: MasterTodoItem) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            if item.level > 0 {
+                Spacer().frame(width: 14)
             }
-            .frame(width: 22, height: 22)
+
+            // Status-Icon
+            Group {
+                switch item.status {
+                case .pending:
+                    Image(systemName: item.level == 0 ? "folder" : "square")
+                        .foregroundStyle(item.level == 0
+                            ? Color.orange.opacity(0.55) : theme.tertiaryText)
+                case .active:
+                    ProgressView().scaleEffect(0.48)
+                case .done:
+                    Image(systemName: "checkmark.square.fill")
+                        .foregroundStyle(.green)
+                case .skipped:
+                    Image(systemName: "minus.square")
+                        .foregroundStyle(theme.tertiaryText)
+                case .blocked:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            }
+            .font(.system(size: 12))
+            .frame(width: 14, height: 14)
             .padding(.top, 1)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(agentName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                Text(task)
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(item.number)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(theme.tertiaryText)
+                    Text(item.title)
+                        .font(item.level == 0
+                              ? .system(size: 12, weight: .semibold)
+                              : .system(size: 12))
+                        .foregroundStyle(item.status == .done
+                            ? theme.tertiaryText : theme.primaryText)
+                        .strikethrough(item.status == .done, color: theme.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let agent = item.assignedAgent, item.level > 0 {
+                    Text("→ \(agent)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(accentColor.opacity(0.7))
+                }
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.cardBg.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 10)
+        .padding(.vertical, item.level == 0 ? 5 : 3)
+        .background(
+            item.status == .active ? accentColor.opacity(0.06) :
+            (item.level == 0 ? theme.cardBorder.opacity(0.25) : Color.clear)
+        )
+        .animation(.easeInOut(duration: 0.2), value: item.status)
     }
 
-    // MARK: Plan-Parser
+    // MARK: - Legacy Plan Parser (Fallback für AGENT:/AUFGABE: Format)
 
     private struct PlanPanelEntry { let agent: String; let task: String }
 
