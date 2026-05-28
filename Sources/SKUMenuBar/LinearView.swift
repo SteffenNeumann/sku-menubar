@@ -169,17 +169,15 @@ struct LinearView: View {
         }
         // Refresh when an agent updates a Linear issue via MCP in the chat
         .onReceive(NotificationCenter.default.publisher(for: .linearMCPDidChange)) { _ in
-            guard selectedProject != nil,
-                  Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
+            guard Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
             lastLinearRefresh = Date()
-            Task { await refreshCurrentIssue() }
+            Task { await forceRefresh() }
         }
-        // Refresh when user navigates to the Linear section (no background timer needed)
+        // Refresh when user navigates to the Linear section (keyboard shortcut or sidebar tap)
         .onReceive(NotificationCenter.default.publisher(for: .linearViewBecameVisible)) { _ in
-            guard selectedProject != nil,
-                  Date().timeIntervalSince(lastLinearRefresh) > 5 else { return }
+            guard Date().timeIntervalSince(lastLinearRefresh) > 3 else { return }
             lastLinearRefresh = Date()
-            Task { await refreshCurrentIssue() }
+            Task { await forceRefresh() }
         }
         .sheet(isPresented: $showNewIssueSheet) {
             NewIssueSheet(service: service,
@@ -229,6 +227,21 @@ struct LinearView: View {
             await service.loadTeams()
         } else {
             service.error = "Linear MCP nicht konfiguriert. Bitte in MCP-Einstellungen aktivieren."
+        }
+    }
+
+    /// Refresh ohne Guard — für Refresh-Button und Section-Switch.
+    /// Lädt Projects + Teams neu und aktualisiert das aktuell gewählte Projekt.
+    private func forceRefresh() async {
+        guard configured else { await setupAndLoad(); return }
+        async let p: () = service.loadProjects()
+        async let t: () = service.loadTeams()
+        _ = await (p, t)
+        if let proj = selectedProject {
+            await service.loadIssues(projectId: proj.id)
+            if let currentId = selectedIssue?.id {
+                selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
+            }
         }
     }
 
@@ -298,7 +311,7 @@ struct LinearView: View {
             // Refresh button at bottom
             HStack {
                 Button {
-                    Task { await setupAndLoad() }
+                    Task { await forceRefresh() }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.clockwise")
