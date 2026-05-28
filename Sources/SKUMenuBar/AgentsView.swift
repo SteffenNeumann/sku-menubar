@@ -575,19 +575,39 @@ private struct AgentBaseballCard: View {
                 }
 
                 // ── Skills badge ──────────────────────────────
-                // For regular agents: show date from their 🛠 section
-                // For the researcher: show the last successful dispatch date from the run log
+                // Regular agents: date from their own 🛠 section.
+                // Researcher: find the newest skillsUpdatedAt across ALL agent files
+                // (= when skills were last actually written, not just when researcher ran).
                 let skillsBadgeDate: String? = {
                     if let s = agent.skillsUpdatedAt { return s }
-                    // Researcher has no 🛠 section in its own file — derive from last successful run
-                    if agent.name.lowercased() == "researcher",
-                       lastStatus == .success,
-                       let run = lastRun {
-                        let fmt = DateFormatter()
-                        fmt.dateFormat = "yyyy-MM-dd"
-                        return fmt.string(from: run)
+                    guard agent.name.lowercased() == "researcher" else { return nil }
+                    // Scan agents dir for the newest 🛠 date written into any agent file
+                    let home = NSHomeDirectory()
+                    let dir  = URL(fileURLWithPath: "\(home)/.claude/agents")
+                    guard let files = try? FileManager.default.contentsOfDirectory(
+                        at: dir, includingPropertiesForKeys: nil
+                    ) else { return nil }
+                    let fmt = DateFormatter()
+                    fmt.dateFormat = "yyyy-MM-dd"
+                    fmt.locale = Locale(identifier: "en_US_POSIX")
+                    var newest: Date? = nil
+                    for f in files where f.pathExtension == "md" {
+                        guard let text = try? String(contentsOf: f, encoding: .utf8) else { continue }
+                        var inSkills = false
+                        for line in text.components(separatedBy: "\n") {
+                            if line.contains("🛠")       { inSkills = true }
+                            else if line.hasPrefix("## ") { inSkills = false }
+                            if inSkills, line.contains("Last updated:"),
+                               let start = line.range(of: "Last updated:")?.upperBound {
+                                let raw     = String(line[start...]).trimmingCharacters(in: .whitespaces)
+                                let token   = raw.components(separatedBy: " ").first ?? ""
+                                let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "_*"))
+                                if let d = fmt.date(from: cleaned),
+                                   newest == nil || d > newest! { newest = d }
+                            }
+                        }
                     }
-                    return nil
+                    return newest.map { fmt.string(from: $0) }
                 }()
                 if let s = skillsBadgeDate {
                     let isResearcher = agent.name.lowercased() == "researcher"
@@ -596,7 +616,7 @@ private struct AgentBaseballCard: View {
                             Image(systemName: "wrench.and.screwdriver.fill")
                                 .font(.system(size: 10))
                                 .foregroundStyle(Color.teal.opacity(0.85))
-                            Text(isResearcher ? "Skills verteilt: \(s)" : "Skills: \(s)")
+                            Text(isResearcher ? "Skills zuletzt: \(s)" : "Skills: \(s)")
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundStyle(Color.teal.opacity(0.85))
                             Image(systemName: "chevron.down")
@@ -875,15 +895,21 @@ private struct SkillsPopover: View {
         return fromSection.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// For the researcher: parse the latest daily report and extract Skills section.
-    private var researcherSkillsSummary: String {
+    // MARK: - Researcher: parse latest daily report for skills status per agent
+
+    private struct AgentSkillStatus {
+        let name: String
+        let skipped: Bool
+        let reason: String  // e.g. "fresh (updated 2026-05-25, within 14 days)" or tool list
+    }
+
+    private var researcherStatus: (reportName: String, entries: [AgentSkillStatus]) {
         let home = NSHomeDirectory()
         let memDir = URL(fileURLWithPath: "\(home)/.claude/agent-memory/researcher")
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: memDir, includingPropertiesForKeys: [.contentModificationDateKey]
-        ) else { return "Kein Daily Report gefunden." }
+        ) else { return ("—", []) }
 
-        // Find most recent *_daily_report.txt
         let reports = files
             .filter { $0.lastPathComponent.hasSuffix("_daily_report.txt") }
             .sorted {
@@ -892,58 +918,120 @@ private struct SkillsPopover: View {
                 return d1 > d2
             }
         guard let latest = reports.first,
-              let content = try? String(contentsOf: latest, encoding: .utf8) else {
-            return "Daily Report konnte nicht gelesen werden."
-        }
+              let content = try? String(contentsOf: latest, encoding: .utf8)
+        else { return ("—", []) }
 
-        // Extract everything between "Skills updated:" and the next section header
-        var lines = content.components(separatedBy: "\n")
-        var result: [String] = []
-        var inSkillsSection = false
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased().hasPrefix("skills updated:") {
-                inSkillsSection = true
-                result.append("**Skills verteilt** (aus \(latest.deletingPathExtension().lastPathComponent))")
-                continue
+        var entries: [AgentSkillStatus] = []
+        var inSkills = false
+        for line in content.components(separatedBy: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.lowercased().hasPrefix("skills updated:") || t.lowercased().hasPrefix("skills verteilt:") {
+                inSkills = true; continue
             }
-            if inSkillsSection {
-                if trimmed.isEmpty || (!trimmed.hasPrefix("-") && !trimmed.hasPrefix("•")) {
-                    if !trimmed.isEmpty { break } // next section
-                    continue
+            if inSkills {
+                if t.isEmpty { continue }
+                // Stop at next section (non-bullet line)
+                guard t.hasPrefix("-") else { break }
+                // Parse "- agent-name: ..." or "- agent-name: skipped — fresh ..."
+                let body = String(t.dropFirst()).trimmingCharacters(in: .whitespaces)
+                if let colon = body.firstIndex(of: ":") {
+                    let name   = String(body[..<colon]).trimmingCharacters(in: .whitespaces)
+                    let detail = String(body[body.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                    let skipped = detail.lowercased().contains("skipped") || detail.lowercased().contains("fresh")
+                    entries.append(AgentSkillStatus(name: name, skipped: skipped, reason: detail))
                 }
-                result.append(trimmed)
             }
         }
-        return result.isEmpty
-            ? "Kein 'Skills updated' Abschnitt im letzten Report.\n\nTipp: Der neue Researcher-Prompt schreibt Skills ab dem nächsten Lauf."
-            : result.joined(separator: "\n")
+        return (latest.deletingPathExtension().lastPathComponent, entries)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            // ── Header ─────────────────────────────────────────
             HStack(spacing: 6) {
                 Image(systemName: "wrench.and.screwdriver.fill")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.teal)
-                Text(isResearcher ? "Skills verteilt an Agents" : "Skill Recommendations")
+                Text(isResearcher ? "Researcher — Skills-Status" : "Skill Recommendations")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
             }
+            .padding(.bottom, 10)
 
             Divider()
+                .padding(.bottom, 10)
 
-            ScrollView {
-                Text(isResearcher ? researcherSkillsSummary : agentSkills)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundStyle(theme.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+            if isResearcher {
+                // ── Researcher view: status table ───────────────
+                let (reportName, entries) = researcherStatus
+                let allSkipped = entries.allSatisfy { $0.skipped }
+
+                // Status banner
+                HStack(spacing: 6) {
+                    Image(systemName: allSkipped ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                        .foregroundStyle(allSkipped ? Color.orange : Color.teal)
+                    Text(allSkipped
+                         ? "Alle Skills aktuell — kein Update nötig"
+                         : "Skills wurden aktualisiert")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(allSkipped ? Color.orange : Color.teal)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background((allSkipped ? Color.orange : Color.teal).opacity(0.10),
+                             in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder((allSkipped ? Color.orange : Color.teal).opacity(0.30), lineWidth: 0.5))
+                .padding(.bottom, 8)
+
+                if allSkipped {
+                    Text("\"skipped — fresh\" bedeutet: Die Skills wurden vor weniger als 14 Tagen geschrieben und sind noch aktuell. Der Researcher überspringt sie absichtlich um keine funktionierenden Skills zu überschreiben.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.bottom, 10)
+                }
+
+                // Per-agent table
+                if !entries.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(entries, id: \.name) { e in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: e.skipped ? "clock.fill" : "checkmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(e.skipped ? theme.tertiaryText : Color.teal)
+                                    .padding(.top, 1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(e.name)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(theme.primaryText)
+                                    Text(e.reason)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(theme.secondaryText)
+                                }
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+
+                Text("Report: \(reportName)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+            } else {
+                // ── Regular agent view: skill list ──────────────
+                ScrollView {
+                    Text(agentSkills)
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 300)
             }
-            .frame(maxHeight: 320)
         }
         .padding(16)
-        .frame(width: 400)
+        .frame(width: 420)
         .background(theme.windowBg)
     }
 }
