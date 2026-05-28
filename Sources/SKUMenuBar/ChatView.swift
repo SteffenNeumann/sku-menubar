@@ -380,39 +380,57 @@ struct SingleChatSessionView: View {
     private func classifyFollowUp(_ text: String) -> FollowUpIntent {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let words = lower.split(separator: " ")
+        let wordSet = Set(words.map { String($0) })
 
-        // Triviale Bestätigungen/Danke → Chat
-        let trivials = ["danke", "ok danke", "super", "perfekt", "alles klar",
-                        "gut", "thanks", "great", "nice", "cool", "👍"]
-        if trivials.contains(lower) { return .chat }
+        // 1) Triviale Bestätigungen/Danke → Chat
+        //    Exakt-Match ODER Nachricht beginnt mit Trivialem + enthält neue Aufgabe
+        let trivialWords: Set<String> = ["danke", "super", "perfekt", "gut", "cool",
+                                          "thanks", "great", "nice", "passt", "👍"]
+        let trivialPhrases = ["alles klar", "ok danke", "passt danke", "passt soweit",
+                              "sieht gut aus", "looks good"]
+        if trivials(lower, trivialPhrases) || (words.count == 1 && !trivialWords.isDisjoint(with: wordSet)) {
+            return .chat
+        }
 
-        // Fragen → Chat (Einzelagent reicht)
+        // 2) Nachricht beginnt mit Trivialem/Danke + enthält NEUE Anweisung
+        //    → Chat (User hat Orchestrierung abgeschlossen, will was Einfaches)
+        //    z.B. "Passt danke - bitte aufräumen und commit"
+        let startsWithTrivial = trivialWords.contains(where: { lower.hasPrefix($0) })
+            || trivialPhrases.contains(where: { lower.hasPrefix($0) })
+        let hasNewTask: Set<String> = ["aufräumen", "cleanup", "commit", "push",
+                                        "speicher", "save", "memory", "schließ", "close"]
+        if startsWithTrivial && !wordSet.isDisjoint(with: hasNewTask) { return .chat }
+
+        // 3) Fragen → Chat (Einzelagent reicht)
         if lower.hasSuffix("?") { return .chat }
         let questionStarts = ["was ", "wie ", "warum ", "wann ", "wo ", "welche ",
                               "wer ", "kannst ", "what ", "how ", "why ", "when ",
                               "where ", "which ", "who ", "can ", "could "]
         if questionStarts.contains(where: { lower.hasPrefix($0) }) { return .chat }
 
-        // Kurze Ausführungs-Befehle → Fast (kein Phase 0, aber frischer Plan)
-        // Word-Set statt substring-Matching (verhindert "lokal" → "ok", "algorithm" → "go")
-        let wordSet = Set(words.map { String($0) })
-        let executeKeywords: Set<String> = ["go", "ok", "ja", "mach", "weiter", "los",
-                               "proceed", "start", "continue", "implementiere", "umsetzen",
-                               "loslegen", "ausführen", "run", "bitte", "passt",
-                               "einverstanden", "agreed", "machen"]
-        // Multi-Wort-Phrasen separat prüfen
+        // 4) Reine Ausführungs-Befehle (NUR wenn die Nachricht primär ein Befehl ist)
+        //    "go" / "weiter" / "mach das" → fast
+        //    Aber NICHT wenn daneben eine neue eigenständige Aufgabe steht
+        let pureExecuteWords: Set<String> = ["go", "ja", "weiter", "los",
+                               "proceed", "continue", "implementiere", "umsetzen",
+                               "loslegen", "ausführen", "run", "einverstanden", "agreed"]
         let executePhrases = ["mach das", "bitte umsetzen", "fang an", "do it",
                               "genau so", "let's go", "bitte machen"]
-        if words.count <= 10 {
-            if !wordSet.isDisjoint(with: executeKeywords) { return .fast }
+        if words.count <= 6 {
+            if !wordSet.isDisjoint(with: pureExecuteWords) { return .fast }
             if executePhrases.contains(where: { lower.contains($0) }) { return .fast }
         }
 
-        // Längere Nachricht → prüfe ob wirklich komplex
+        // 5) Längere Nachricht → prüfe ob wirklich komplex
         if isComplexTask(text) { return .full }
 
-        // Default: kurze Anweisungen mit Kontext → chat (sicherer als blind orchestrieren)
-        return words.count <= 15 ? .chat : .fast
+        // 6) Default: Chat (sicherer als blind orchestrieren)
+        return .chat
+    }
+
+    /// Prüft ob der gesamte Text einem trivialen Ausdruck entspricht (exact oder prefix+kurz)
+    private func trivials(_ lower: String, _ phrases: [String]) -> Bool {
+        phrases.contains(where: { lower == $0 || (lower.hasPrefix($0) && lower.count <= $0.count + 3) })
     }
 
     /// LLM-basierte Routing-Validierung: Haiku prüft ob Auto-Orchestrierung wirklich nötig ist.
