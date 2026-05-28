@@ -2304,13 +2304,9 @@ struct SingleChatSessionView: View {
                 case .full:
                     return (accentColor, "\(wordCount) Wörter · Volle Orchestrierung")
                 }
-            } else if complex {
-                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
             } else {
-                let name = selectedOrchestrators.first
-                    .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
-                    ?? "Agent"
-                return (theme.tertiaryText, "\(wordCount) Wörter · Direkt → \(name)")
+                // Manuell aktiviert → immer Orchestrierung (kein isComplexTask-Gate)
+                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
             }
         } else if complex && state.agentService.agents.count >= 2 {
             return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
@@ -2929,7 +2925,9 @@ struct SingleChatSessionView: View {
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
                 effectiveAddDirs.insert(wd, at: 0)
             }
-            let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
+            // Orchestrator-Agents brauchen genug Turns für MCP-Tool-Aufrufe (Make/Linear).
+            // settings.maxTurns gilt für normale Einzel-Chats; hier mindestens 15 Turns garantieren.
+            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 15) : nil
 
             // ── Kontext aufbauen (Fix B: Chat-History erhalten) ──────────
             let priorContext: String
@@ -3834,12 +3832,11 @@ struct SingleChatSessionView: View {
                     sendOrchestrator()
                     return
                 }
-            } else if isComplexTask(routingText) {
-                // Frische komplexe Aufgabe → volle Orchestrierung
+            } else {
+                // Manuell aktivierter Orchestrator → immer orchestrieren, kein isComplexTask-Gate
                 sendOrchestrator()
                 return
             }
-            // Kurze, frische Frage ohne Prior-Kontext → bester Agent direkt
         } else if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
             // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung mit LLM-Validierung
             sendAutoOrchestration()
