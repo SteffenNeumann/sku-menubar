@@ -1271,25 +1271,32 @@ struct SingleChatSessionView: View {
             }
             .onAppear { scrollProxy = proxy }
             .onChange(of: messages.count) {
-                // Always scroll when messages are added (user send + assistant placeholder)
-                // Use Task so layout settles before scrollTo fires
-                scrollToBottom(proxy)
+                // New message added — animate only when not streaming (animated scrollTo
+                // ist layout-affecting: treibt 60fps-Passes; bei 50 Token/s → Hang).
+                scrollToBottom(proxy, animated: !isStreaming)
             }
-            // Follow streaming output as it arrives
+            // Follow streaming output as it arrives — niemals animiert während Streaming
             .onChange(of: messages.last?.content) {
-                scrollToBottom(proxy)
+                scrollToBottom(proxy, animated: false)
             }
-            // Scroll once more when streaming ends (ensures final content visible)
+            // Streaming ended — jetzt einmal schön animiert ans Ende scrollen
             .onChange(of: isStreaming) {
-                if !isStreaming { scrollToBottom(proxy) }
+                if !isStreaming { scrollToBottom(proxy, animated: true) }
             }
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        // Defer by one runloop so LazyVStack layout settles before scroll
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        // Defer by one runloop so LazyVStack layout settles before scroll.
+        // KRITISCH: animated=false während Streaming — withAnimation(.easeOut) auf scrollTo
+        // ist eine layout-affecting Animation: triggert 60fps flushTransactions-Passes.
+        // Bei 50 Token/s × 150ms Animation = 7+ überlappende Animationen → Layout-Loop → Hang.
         Task { @MainActor in
-            withAnimation(.easeOut(duration: 0.15)) {
+            if animated {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            } else {
                 proxy.scrollTo("bottom", anchor: .bottom)
             }
         }
