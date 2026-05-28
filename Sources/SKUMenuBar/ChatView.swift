@@ -245,6 +245,8 @@ struct SingleChatSessionView: View {
     @State private var orchestratorHistory: [(role: String, content: String)] = []
     @State private var masterTodos: [MasterTodoItem] = []   // Hierarchische Todo-Liste
     @State private var masterGoal: String = ""              // Sticky Ziel-Header
+    @State private var lastAgentTasks: [String: String] = [:]       // Letzter Plan — TODO: für künftigen Execute-only-Reuse-Pfad
+    @State private var lastOrchestratorAgents: [AgentDefinition] = []  // Agents des letzten Plans — TODO: dito
     @State private var showModelPicker    = false
     @State private var showAgentPicker    = false
     @State private var showOrchPicker     = false
@@ -330,30 +332,122 @@ struct SingleChatSessionView: View {
 
     /// Heuristik: true = Aufgabe ist komplex genug für Orchestrierung.
     /// Berücksichtigt Wortanzahl, mehrere Aufgaben-Verben und Mehrdomain-Konjunktionen.
+    /// Dient als schnelle Vorfilterung — bei Auto-Orchestrierung folgt ein LLM-Validation-Check.
     private func isComplexTask(_ text: String) -> Bool {
         let words = text.split(separator: " ")
-        guard words.count > 20 else { return false }   // Kurz → immer einfach
+        guard words.count > 15 else { return false }   // Kurz → immer einfach
         guard words.count <= 300 else { return true }  // Sehr lang → immer komplex
         if words.count > 40 { return true }            // Mittellang & ausführlich → komplex
 
         let lower = text.lowercased()
-        // Aufgaben-Verben (breite Liste inkl. Imperativ + Infinitiv)
-        let taskVerbs = ["erstelle", "entwickle", "implementiere", "analysiere",
+        // Aufgaben-Verben — DE + EN (Word-Set-Matching statt substring um
+        // "explanation" → "plan", "findings" → "find" etc. zu vermeiden)
+        let taskVerbs: Set<String> = ["erstelle", "entwickle", "implementiere", "analysiere",
                          "überprüfe", "prüfe", "untersuche", "schreibe", "entwerfe",
                          "plane", "optimiere", "recherchiere", "vergleiche", "bewerte",
                          "dokumentiere", "strukturiere", "baue", "konfiguriere",
                          "konzipiere", "stelle", "finde", "erkläre", "beschreibe",
-                         "zeige", "führe", "gib", "list", "erstell", "entwickl",
-                         "identifiziere", "schlage", "empfehle", "überleg"]
-        let verbCount = taskVerbs.filter { lower.contains($0) }.count
+                         "zeige", "führe", "gib", "erstell", "entwickl",
+                         "identifiziere", "schlage", "empfehle", "überleg",
+                         // English verbs
+                         "create", "build", "implement", "analyze", "review",
+                         "investigate", "write", "design", "plan", "optimize",
+                         "research", "compare", "evaluate", "document", "configure",
+                         "find", "explain", "describe", "identify", "recommend"]
+        let wordSet = Set(lower.split(separator: " ").map { String($0) })
+        let verbCount = taskVerbs.intersection(wordSet).count
         if verbCount >= 2 { return true }
         // Konjunktionen die einen neuen Themenbereich einleiten
         let complexConjunctions = [" sowie ", " außerdem ", " zusätzlich ",
                                    " darüber hinaus ", " einerseits ", " andererseits ",
                                    " zum einen ", " zum anderen ", " gleichzeitig ",
                                    " und auch ", " aber auch ", " und prüfe",
-                                   " und analysiere", " und stelle", " und finde"]
+                                   " und analysiere", " und stelle", " und finde",
+                                   " furthermore ", " additionally ", " and also "]
         return complexConjunctions.contains { lower.contains($0) }
+    }
+
+    // MARK: - Follow-Up Intent Classification
+
+    /// Klassifiziert Follow-Up-Nachrichten nach Intent wenn orchestratorHistory vorhanden ist.
+    /// Vermeidet redundantes Re-Planning bei "go" / "ok" / Bestätigungen.
+    private enum FollowUpIntent {
+        case chat       // Frage/Danke → normaler Einzelagent, kein Orchestrator-Overhead
+        case fast       // "go"/"weiter"/"mach das" → Phase 0 überspringen, schnelleres Re-Planning
+        case full       // Komplett neues Thema → volle 4-Phasen-Pipeline
+    }
+
+    private func classifyFollowUp(_ text: String) -> FollowUpIntent {
+        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = lower.split(separator: " ")
+
+        // Triviale Bestätigungen/Danke → Chat
+        let trivials = ["danke", "ok danke", "super", "perfekt", "alles klar",
+                        "gut", "thanks", "great", "nice", "cool", "👍"]
+        if trivials.contains(lower) { return .chat }
+
+        // Fragen → Chat (Einzelagent reicht)
+        if lower.hasSuffix("?") { return .chat }
+        let questionStarts = ["was ", "wie ", "warum ", "wann ", "wo ", "welche ",
+                              "wer ", "kannst ", "what ", "how ", "why ", "when ",
+                              "where ", "which ", "who ", "can ", "could "]
+        if questionStarts.contains(where: { lower.hasPrefix($0) }) { return .chat }
+
+        // Kurze Ausführungs-Befehle → Fast (kein Phase 0, aber frischer Plan)
+        // Word-Set statt substring-Matching (verhindert "lokal" → "ok", "algorithm" → "go")
+        let wordSet = Set(words.map { String($0) })
+        let executeKeywords: Set<String> = ["go", "ok", "ja", "mach", "weiter", "los",
+                               "proceed", "start", "continue", "implementiere", "umsetzen",
+                               "loslegen", "ausführen", "run", "bitte", "passt",
+                               "einverstanden", "agreed", "machen"]
+        // Multi-Wort-Phrasen separat prüfen
+        let executePhrases = ["mach das", "bitte umsetzen", "fang an", "do it",
+                              "genau so", "let's go", "bitte machen"]
+        if words.count <= 10 {
+            if !wordSet.isDisjoint(with: executeKeywords) { return .fast }
+            if executePhrases.contains(where: { lower.contains($0) }) { return .fast }
+        }
+
+        // Längere Nachricht → prüfe ob wirklich komplex
+        if isComplexTask(text) { return .full }
+
+        // Default: kurze Anweisungen mit Kontext → chat (sicherer als blind orchestrieren)
+        return words.count <= 15 ? .chat : .fast
+    }
+
+    /// LLM-basierte Routing-Validierung: Haiku prüft ob Auto-Orchestrierung wirklich nötig ist.
+    /// Verhindert False-Positive-Orchestrierungen bei langen aber einfachen Nachrichten.
+    private func validateAutoOrchestration(_ text: String, agents: [AgentDefinition]) async -> Bool {
+        let agentNames = agents.filter { !$0.isPersona }.map { $0.name }.joined(separator: ", ")
+        let prompt = """
+        Classify this user request. Reply with exactly one word: MULTI or SINGLE.
+
+        MULTI = This task needs multiple specialized perspectives or domains working together (e.g., different expertise areas, analysis + implementation, research + writing).
+        SINGLE = A single AI agent can handle this well enough (e.g., simple question, single-domain task, conversation, clarification, single code change).
+
+        Available specialist agents: \(agentNames)
+        User request: \(text)
+        """
+
+        var result = ""
+        let stream = state.cliService.send(
+            message: prompt,
+            systemPrompt: "Reply with exactly one word: MULTI or SINGLE. Nothing else.",
+            model: "claude-haiku-4-5-20251001",
+            workingDirectory: workingDirectory
+        )
+        do {
+            for try await event in stream {
+                guard !Task.isCancelled else { return false }
+                if case "assistant" = event.type, let content = event.message?.content {
+                    for block in content where block.type == "text" {
+                        if let t = block.text { result += t }
+                    }
+                }
+            }
+        } catch { return true } // Bei Fehler → sicherheitshalber orchestrieren
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().contains("MULTI")
     }
 
     private func closeAllPickers() {
@@ -2170,13 +2264,23 @@ struct SingleChatSessionView: View {
 
     private func routingBadgeInfo(wordCount: Int, trimmed: String) -> (color: Color, label: String) {
         let complex = isComplexTask(trimmed)
-        // Orchestrierung wenn: Folge-Nachricht (History) ODER komplexe Aufgabe
-        let willOrchestrate = !orchestratorHistory.isEmpty || complex
         if orchestratorMode {
-            if willOrchestrate {
-                let suffix = !orchestratorHistory.isEmpty && !complex
-                    ? "Weiter als Orchestrierung" : "Orchestrierung startet"
-                return (accentColor, "\(wordCount) Wörter · \(suffix)")
+            if !orchestratorHistory.isEmpty {
+                // Follow-Up-Intent anzeigen
+                let intent = classifyFollowUp(trimmed)
+                switch intent {
+                case .chat:
+                    let name = selectedOrchestrators.first
+                        .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
+                        ?? "Agent"
+                    return (theme.tertiaryText, "\(wordCount) Wörter · Chat → \(name)")
+                case .fast:
+                    return (accentColor, "\(wordCount) Wörter · ⚡ Schnell-Orchestrierung")
+                case .full:
+                    return (accentColor, "\(wordCount) Wörter · Volle Orchestrierung")
+                }
+            } else if complex {
+                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
             } else {
                 let name = selectedOrchestrators.first
                     .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
@@ -2184,7 +2288,7 @@ struct SingleChatSessionView: View {
                 return (theme.tertiaryText, "\(wordCount) Wörter · Direkt → \(name)")
             }
         } else if complex && state.agentService.agents.count >= 2 {
-            return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung")
+            return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
         } else {
             return (theme.tertiaryText, "\(wordCount == 1 ? "1 Wort" : "\(wordCount) Wörter")")
         }
@@ -2663,6 +2767,8 @@ struct SingleChatSessionView: View {
             orchestratorHistory = []
             masterTodos = []
             masterGoal = ""
+            lastAgentTasks = [:]
+            lastOrchestratorAgents = []
             autoTriggeredAgentName = nil
             showCompactBanner = false
             compactBannerSeenAt = 0
@@ -2682,11 +2788,83 @@ struct SingleChatSessionView: View {
         }
     }
 
+    // MARK: - Auto-Orchestrierung mit LLM-Validierung
+
+    /// Startet Auto-Orchestrierung, prüft aber per Haiku ob wirklich nötig.
+    /// Wenn Haiku "SINGLE" sagt → normaler Einzelagent-Pfad.
+    private func sendAutoOrchestration() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isStreaming else { return }
+
+        // User-Nachricht sofort anzeigen
+        inputText = ""
+        errorMessage = nil
+        isAuthError = false
+
+        let sentFiles = attachedFiles
+        attachedFiles = []
+
+        var displayText = text
+        if !sentFiles.isEmpty {
+            let names = sentFiles.map { $0.name }.joined(separator: ", ")
+            let prefix = "[\(sentFiles.count == 1 ? "Datei" : "\(sentFiles.count) Dateien"): \(names)]"
+            displayText = text.isEmpty ? prefix : "\(prefix)\n\(text)"
+        }
+
+        messages.append(ChatMessage(role: .user, content: displayText))
+        isStreaming = true; streamingStartTime = Date()
+
+        let workAgents = state.agentService.agents.filter { !$0.isPersona }
+
+        streamingTask = Task { @MainActor in
+            // LLM-basierte Routing-Validierung
+            let shouldOrchestrate = await validateAutoOrchestration(text, agents: workAgents)
+            guard !Task.isCancelled else { isStreaming = false; return }
+
+            if shouldOrchestrate {
+                // Orchestrierung bestätigt — inputText wiederherstellen und orchestrieren
+                // Guard: User-Msg sicher entfernen (sendOrchestrator fügt sie selbst hinzu)
+                if let lastMsg = messages.last, lastMsg.role == .user {
+                    messages.removeLast()
+                }
+                inputText = text
+                attachedFiles = sentFiles
+                isStreaming = false
+                sendOrchestrator(autoAgentList: state.agentService.agents)
+            } else {
+                // Einzelagent reicht — normalen Send-Pfad nutzen
+                let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+                messages.append(assistantMsg)
+                let assistantIndex = messages.count - 1
+
+                let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
+                let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
+
+                // C1-Fix: attachedFiles temporär wiederherstellen damit buildMessageWithAttachments
+                // die Datei-Inhalte inline einbetten kann (attachedFiles wurde oben geleert)
+                attachedFiles = sentFiles
+                let fullMessage = buildMessageWithAttachments(text: text, forGitHub: false)
+                attachedFiles = []
+
+                await performSend(
+                    message: fullMessage.isEmpty ? text : fullMessage,
+                    assistantIndex: assistantIndex,
+                    model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+                        ? state.settings.copilotFallbackModel
+                        : selectedModel,
+                    addDirs: fileDirs,
+                    cliImagePaths: imgPaths
+                )
+            }
+        }
+    }
+
     // MARK: - Orchestrator: Analyse → Master Plan → Execute → Synthesize
 
     /// - autoAgentList: wenn gesetzt, werden diese Agents verwendet (Auto-Orchestrierung).
     ///   nil = Agents aus selectedOrchestrators (manuell).
-    private func sendOrchestrator(autoAgentList: [AgentDefinition]? = nil) {
+    /// - skipAnalysis: true = Phase 0 überspringen (bei Follow-Up mit bestehendem Kontext)
+    private func sendOrchestrator(autoAgentList: [AgentDefinition]? = nil, skipAnalysis: Bool = false) {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
@@ -2716,21 +2894,40 @@ struct SingleChatSessionView: View {
 
         isStreaming = true; streamingStartTime = Date()
         orchestratorHistory.append((role: "user", content: displayText))
+        lastOrchestratorAgents = agents
 
-        Task { @MainActor in
+        streamingTask = Task { @MainActor in
 
-            // Bisheriger Kontext für Folgegespräche
+            // ── Gemeinsame Infrastruktur: MCP + addDirs (Fix A) ──────────
+            let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
+            var effectiveAddDirs = fileDirs
+            if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
+                effectiveAddDirs.insert(wd, at: 0)
+            }
+            let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
+
+            // ── Kontext aufbauen (Fix B: Chat-History erhalten) ──────────
             let priorContext: String
             if orchestratorHistory.count > 1 {
+                // Bisherige Orchestrator-Runden
                 let history = orchestratorHistory.dropLast()
                     .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(500))" }
                     .joined(separator: "\n\n")
                 priorContext = "\n\nBisheriger Konversationsverlauf:\n\(history)\n"
+            } else if messages.count > 1 {
+                // Erste Orchestrierung, aber vorheriger normaler Chat → injizieren
+                let chatHistory = messages.dropLast()
+                    .filter { $0.role == .user || $0.role == .assistant }
+                    .suffix(10)
+                    .map { "\($0.role == .user ? "Benutzer" : "Assistent"): \($0.content.prefix(300))" }
+                    .joined(separator: "\n\n")
+                let compactPart = compactedSummary.map { "\n\nZusammenfassung der vorherigen Konversation:\n\($0)\n" } ?? ""
+                priorContext = "\n\nBisheriger Chat-Verlauf:\n\(chatHistory)\(compactPart)\n"
             } else {
                 priorContext = ""
             }
 
-            // Panel sofort öffnen (zeigt Phase-0-Indikator)
+            // Panel sofort öffnen
             diffPanelDismissed = false
             rightPanelShowsPlan = true
             activePlan = ""
@@ -2739,66 +2936,85 @@ struct SingleChatSessionView: View {
 
             let headerLine = isAutoOrchestrated
                 ? "🤖 **Auto-Orchestrierung** — \(agents.map { $0.name }.joined(separator: ", "))\n\n"
-                : ""
+                : skipAnalysis ? "⚡ **Schnell-Orchestrierung** *(Phase 0 übersprungen)*\n\n" : ""
 
-            // ── Phase 0: Domain-Analyse pro Agent (Haiku 4.5) ─────────────
+            // ── Phase 0: Domain-Analyse (Haiku 4.5) — übersprungen bei skipAnalysis ──
             var planPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
             planPlaceholder.model = "📊 Haiku 4.5"
             messages.append(planPlaceholder)
             let planIdx = messages.count - 1
-            messages[planIdx].content = headerLine + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
 
             var agentAnalyses: [(name: String, analysis: String)] = []
 
-            for agent in agents {
-                // Fortschritt: erledigte ✓, aktueller ⏳, ausstehende ⬜
-                let doneLines   = agentAnalyses.map { "✓ \($0.name)\n" }.joined()
-                let remaining   = agents.dropFirst(agentAnalyses.count + 1).map { "⬜ \($0.name)\n" }.joined()
-                messages[planIdx].content = headerLine
-                    + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
-                    + doneLines + "⏳ \(agent.name)…\n" + remaining
+            if !skipAnalysis {
+                messages[planIdx].content = headerLine + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
 
-                let profile = agent.description.isEmpty
-                    ? String(agent.promptBody.prefix(150))
-                    : agent.description
+                for agent in agents {
+                    guard !Task.isCancelled else { break }
 
-                let analysisPrompt = """
-                Agent-Profil: \(agent.name) — \(profile)
+                    let doneLines   = agentAnalyses.map { "✓ \($0.name)\n" }.joined()
+                    let remaining   = agents.dropFirst(agentAnalyses.count + 1).map { "⬜ \($0.name)\n" }.joined()
+                    messages[planIdx].content = headerLine
+                        + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+                        + doneLines + "⏳ \(agent.name)…\n" + remaining
 
-                Aufgabe: \(text)
+                    let profile = agent.description.isEmpty
+                        ? String(agent.promptBody.prefix(150))
+                        : agent.description
 
-                Beschreibe in max. 3 Sätzen: Was kannst du konkret beitragen? Welche Teilschritte und Abhängigkeiten siehst du?
-                """
+                    let analysisPrompt = """
+                    Agent-Profil: \(agent.name) — \(profile)
 
-                var analysis = ""
-                let aStream = state.cliService.send(
-                    message: analysisPrompt,
-                    systemPrompt: "Antworte knapp und konkret auf Deutsch.",
-                    model: "claude-haiku-4-5-20251001",
-                    workingDirectory: workingDirectory
-                )
-                do {
-                    for try await event in aStream {
-                        if case "assistant" = event.type, let content = event.message?.content {
-                            for block in content where block.type == "text" {
-                                if let t = block.text, !t.isEmpty { analysis += t }
+                    Aufgabe: \(text)
+
+                    Beschreibe in max. 3 Sätzen: Was kannst du konkret beitragen? Welche Teilschritte und Abhängigkeiten siehst du?
+                    """
+
+                    var analysis = ""
+                    let aStream = state.cliService.send(
+                        message: analysisPrompt,
+                        systemPrompt: "Antworte knapp und konkret auf Deutsch.",
+                        model: "claude-haiku-4-5-20251001",
+                        workingDirectory: workingDirectory,
+                        addDirs: effectiveAddDirs,
+                        skipPermissions: autoApprove,
+                        mcpConfigJSON: mcpJson,
+                        mcpStrictMode: mcpStrict
+                    )
+                    do {
+                        for try await event in aStream {
+                            guard !Task.isCancelled else { break }
+                            if case "assistant" = event.type, let content = event.message?.content {
+                                for block in content where block.type == "text" {
+                                    if let t = block.text, !t.isEmpty { analysis += t }
+                                }
                             }
                         }
-                    }
-                } catch { analysis = "(Analyse nicht verfügbar)" }
+                    } catch { analysis = "(Analyse nicht verfügbar)" }
 
-                agentAnalyses.append((name: agent.name, analysis: analysis))
+                    agentAnalyses.append((name: agent.name, analysis: analysis))
+                }
+
+                messages[planIdx].content = headerLine
+                    + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+                    + agentAnalyses.map { "✓ \($0.name)\n" }.joined()
+            } else {
+                messages[planIdx].content = headerLine + "⚡ Phase 0 übersprungen — nutze vorherigen Kontext\n"
             }
 
-            // Alle ✓
-            messages[planIdx].content = headerLine
-                + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
-                + agentAnalyses.map { "✓ \($0.name)\n" }.joined()
+            // Abbruch-Check nach Phase 0
+            guard !Task.isCancelled else {
+                messages[planIdx].isStreaming = false
+                messages.append(ChatMessage(role: .assistant,
+                    content: "⏹ Orchestrierung abgebrochen."))
+                isStreaming = false
+                return
+            }
 
             // ── Phase 1: Master Plan (Haiku 4.5) ─────────────────────────
-            let analysisBlock = agentAnalyses
-                .map { "**\($0.name):** \($0.analysis)" }
-                .joined(separator: "\n")
+            let analysisBlock = agentAnalyses.isEmpty
+                ? "(Keine Analyse — Schnell-Modus mit Kontext aus vorheriger Runde)"
+                : agentAnalyses.map { "**\($0.name):** \($0.analysis)" }.joined(separator: "\n")
             let agentNamesList = agents.map { $0.name }.joined(separator: ", ")
 
             let masterPlanPrompt = """
@@ -2838,17 +3054,21 @@ struct SingleChatSessionView: View {
                 systemPrompt: "Erstelle strukturierte Pläne. Halte das Format exakt ein.",
                 model: "claude-haiku-4-5-20251001",
                 workingDirectory: workingDirectory,
-                addDirs: fileDirs,
+                addDirs: effectiveAddDirs,
+                skipPermissions: autoApprove,
+                mcpConfigJSON: mcpJson,
+                mcpStrictMode: mcpStrict,
                 imagePaths: imgPaths
             )
             do {
                 for try await event in planStream {
+                    guard !Task.isCancelled else { break }
                     if case "assistant" = event.type, let content = event.message?.content {
                         for block in content where block.type == "text" {
                             if let t = block.text, !t.isEmpty {
                                 planText += t
                                 messages[planIdx].content += t
-                                activePlan = planText   // Live-Update rechtes Panel
+                                activePlan = planText
                             }
                         }
                     }
@@ -2860,11 +3080,18 @@ struct SingleChatSessionView: View {
             messages[planIdx].finishedCleanly = true
             activePlan = planText
 
+            // Abbruch-Check nach Phase 1
+            guard !Task.isCancelled else {
+                messages.append(ChatMessage(role: .assistant,
+                    content: "⏹ Orchestrierung nach Plan-Phase abgebrochen."))
+                isStreaming = false
+                return
+            }
+
             // Master Plan parsen → Todos + AgentTasks
             let (parsedGoal, parsedTodos, parsedAgentTasks) = parseMasterPlan(planText, agents: agents)
             masterGoal = parsedGoal
 
-            // Fallback: wenn neues Format nicht erkannt → altes AGENT:/AUFGABE: Format
             let agentTasks: [String: String]
             if !parsedAgentTasks.isEmpty {
                 masterTodos = parsedTodos
@@ -2879,6 +3106,9 @@ struct SingleChatSessionView: View {
                 }
             }
 
+            // Plan für Follow-Up-Reuse speichern (Fix C)
+            lastAgentTasks = agentTasks
+
             // ── Phase 2: Execution mit Master-Plan-Kontext-Anker ──────────
             var agentOutputs: [(name: String, output: String)] = []
             var progressMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
@@ -2887,7 +3117,9 @@ struct SingleChatSessionView: View {
             let progressIdx = messages.count - 1
             messages[progressIdx].content = ""
 
-            for (i, agent) in agents.enumerated() {
+            for agent in agents {
+                guard !Task.isCancelled else { break }
+
                 guard let specificTask = agentTasks[agent.id] else {
                     setTodoStatus(for: agent.name, to: .skipped)
                     let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
@@ -2899,10 +3131,8 @@ struct SingleChatSessionView: View {
                 let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
 
-                // Kontext aufbauen: Master-Plan-Anker + History + vorige Agent-Outputs
                 var contextParts: [String] = []
 
-                // ═══ Master-Plan immer als erster Kontext-Anker ═══
                 let planAnchor = formatMasterPlanText()
                 contextParts.append("══════ MASTER PLAN — Kontext-Anker ══════\n\(planAnchor)\n══════════════════════════════════════")
 
@@ -2941,11 +3171,16 @@ struct SingleChatSessionView: View {
                     systemPrompt: agentSystemPrompt,
                     model: agent.model.isEmpty ? selectedModel : agent.model,
                     workingDirectory: agent.projectDirectory ?? workingDirectory,
-                    addDirs: fileDirs,
+                    addDirs: effectiveAddDirs,
+                    skipPermissions: autoApprove,
+                    maxTurns: effectiveMaxTurns,
+                    mcpConfigJSON: mcpJson,
+                    mcpStrictMode: mcpStrict,
                     imagePaths: imgPaths
                 )
                 do {
                     for try await event in stream {
+                        guard !Task.isCancelled else { break }
                         switch event.type {
                         case "assistant":
                             guard let content = event.message?.content else { break }
@@ -2968,8 +3203,16 @@ struct SingleChatSessionView: View {
             messages[progressIdx].isStreaming = false
             messages[progressIdx].finishedCleanly = true
 
+            // Abbruch-Check nach Phase 2
+            if Task.isCancelled {
+                let partial = agentOutputs.map { "✓ \($0.name)" }.joined(separator: ", ")
+                messages.append(ChatMessage(role: .assistant,
+                    content: "⏹ Orchestrierung abgebrochen nach Phase 2. Fertige Agents: \(partial.isEmpty ? "keine" : partial)"))
+                isStreaming = false
+                return
+            }
+
             // ── Phase 3: Synthesis ────────────────────────────────────────
-            // Guard: kein Agent ausgeführt → klare Meldung statt leere Synthese
             guard !agentOutputs.isEmpty else {
                 messages.append(ChatMessage(role: .assistant,
                     content: "⚠️ Kein Agent konnte ausgeführt werden — der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents prüfen."))
@@ -3014,10 +3257,15 @@ struct SingleChatSessionView: View {
                     message: synthPrompt,
                     systemPrompt: "Du fasst Ergebnisse zusammen. Sei prägnant und strukturiert.",
                     model: selectedModel,
-                    workingDirectory: workingDirectory
+                    workingDirectory: workingDirectory,
+                    addDirs: effectiveAddDirs,
+                    skipPermissions: autoApprove,
+                    mcpConfigJSON: mcpJson,
+                    mcpStrictMode: mcpStrict
                 )
                 do {
                     for try await event in synthStream {
+                        guard !Task.isCancelled else { break }
                         if case "assistant" = event.type, let content = event.message?.content {
                             for block in content where block.type == "text" {
                                 if let t = block.text, !t.isEmpty {
@@ -3205,7 +3453,7 @@ struct SingleChatSessionView: View {
         return lines.joined(separator: "\n")
     }
 
-    private var streamingTask: Task<Void, Never>? = nil
+    @State private var streamingTask: Task<Void, Never>? = nil
 
     private func stopStreaming() {
         streamingTask?.cancel()
@@ -3476,6 +3724,8 @@ struct SingleChatSessionView: View {
             orchestratorHistory = []
             masterTodos = []
             masterGoal = ""
+            lastAgentTasks = [:]
+            lastOrchestratorAgents = []
             activePlan = nil
         }
     }
@@ -3546,19 +3796,28 @@ struct SingleChatSessionView: View {
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if orchestratorMode {
-            // Immer orchestrieren wenn:
-            //  a) Folge-Nachricht (orchestratorHistory nicht leer) → "go" / "bitte fixen" etc.
-            //  b) Aufgabe komplex (>20 Wörter)
-            // Nur bei FRISCHER, kurzer Frage ohne Prior-Kontext → direkter Agent
-            if !orchestratorHistory.isEmpty || isComplexTask(routingText) {
+            if !orchestratorHistory.isEmpty {
+                // Follow-Up: Intent klassifizieren statt blind voll orchestrieren
+                let intent = classifyFollowUp(routingText)
+                switch intent {
+                case .chat:
+                    break  // Fall-through zum Einzelagent-Pfad
+                case .fast:
+                    sendOrchestrator(skipAnalysis: true)
+                    return
+                case .full:
+                    sendOrchestrator()
+                    return
+                }
+            } else if isComplexTask(routingText) {
+                // Frische komplexe Aufgabe → volle Orchestrierung
                 sendOrchestrator()
                 return
             }
-            // Kurze, frische Frage (≤20 Wörter, kein Prior-Kontext) → bester Agent direkt
-            // (fall-through zum normalen Einzel-Agent-Pfad)
+            // Kurze, frische Frage ohne Prior-Kontext → bester Agent direkt
         } else if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
-            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung
-            sendOrchestrator(autoAgentList: state.agentService.agents)
+            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung mit LLM-Validierung
+            sendAutoOrchestration()
             return
         }
 
@@ -3634,7 +3893,7 @@ struct SingleChatSessionView: View {
             autoTriggeredAgentName = nil
         }
 
-        Task { @MainActor in
+        streamingTask = Task { @MainActor in
             // Collect dirs from all attached files (images + large text/PDF files passed by path)
             let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
             let imageAttachments = buildImageAttachments(from: sentFiles)
