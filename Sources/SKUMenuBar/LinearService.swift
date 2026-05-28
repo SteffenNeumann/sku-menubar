@@ -616,4 +616,7 @@ extension Notification.Name {
     /// Posted whenever a Linear MCP tool call completes in the chat (e.g. issue updated by agent).
     /// LinearView subscribes to this to trigger an immediate data refresh.
     static let linearMCPDidChange = Notification.Name("com.myClaude.linearMCPDidChange")
+    /// Posted by MainWindowView when the user navigates to the Linear section.
+    /// LinearView uses this to refresh stale data without a background polling timer.
+    static let linearViewBecameVisible = Notification.Name("com.myClaude.linearViewBecameVisible")
 }

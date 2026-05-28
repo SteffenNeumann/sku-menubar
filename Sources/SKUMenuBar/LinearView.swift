@@ -167,28 +167,19 @@ struct LinearView: View {
         .task {
             await setupAndLoad()
         }
-        // Auto-refresh when an agent updates a Linear issue via MCP in the chat
+        // Refresh when an agent updates a Linear issue via MCP in the chat
         .onReceive(NotificationCenter.default.publisher(for: .linearMCPDidChange)) { _ in
-            guard let proj = selectedProject,
+            guard selectedProject != nil,
                   Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
             lastLinearRefresh = Date()
-            Task {
-                await service.loadIssues(projectId: proj.id)
-                // Sync selectedIssue with updated data
-                if let currentId = selectedIssue?.id {
-                    selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
-                }
-            }
+            Task { await refreshCurrentIssue() }
         }
-        // Polling fallback: refresh current project every 60s while LinearView is open
-        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
-            guard let proj = selectedProject else { return }
-            Task {
-                await service.loadIssues(projectId: proj.id)
-                if let currentId = selectedIssue?.id {
-                    selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
-                }
-            }
+        // Refresh when user navigates to the Linear section (no background timer needed)
+        .onReceive(NotificationCenter.default.publisher(for: .linearViewBecameVisible)) { _ in
+            guard selectedProject != nil,
+                  Date().timeIntervalSince(lastLinearRefresh) > 5 else { return }
+            lastLinearRefresh = Date()
+            Task { await refreshCurrentIssue() }
         }
         .sheet(isPresented: $showNewIssueSheet) {
             NewIssueSheet(service: service,

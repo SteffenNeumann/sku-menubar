@@ -163,7 +163,10 @@ struct MainWindowView: View {
             if section == .chat       { chatLoaded       = true }
             if section == .files      { filesLoaded      = true }
             if section == .codeReview { codeReviewLoaded = true }
-            if section == .linear     { linearLoaded     = true }
+            if section == .linear {
+                linearLoaded = true
+                NotificationCenter.default.post(name: .linearViewBecameVisible, object: nil)
+            }
         }
     }
 }
