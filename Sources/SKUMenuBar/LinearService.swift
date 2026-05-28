@@ -609,3 +609,11 @@ enum LinearError: LocalizedError {
         }
     }
 }
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    /// Posted whenever a Linear MCP tool call completes in the chat (e.g. issue updated by agent).
+    /// LinearView subscribes to this to trigger an immediate data refresh.
+    static let linearMCPDidChange = Notification.Name("com.myClaude.linearMCPDidChange")
+}

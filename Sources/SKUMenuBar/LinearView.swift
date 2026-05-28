@@ -135,6 +135,7 @@ struct LinearView: View {
     @State private var showDeleteConfirmation = false
     @State private var deleteError: String? = nil
     @State private var showDeleteError = false
+    @State private var lastLinearRefresh: Date = .distantPast
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -165,6 +166,29 @@ struct LinearView: View {
         .background(theme.windowBg)
         .task {
             await setupAndLoad()
+        }
+        // Auto-refresh when an agent updates a Linear issue via MCP in the chat
+        .onReceive(NotificationCenter.default.publisher(for: .linearMCPDidChange)) { _ in
+            guard let proj = selectedProject,
+                  Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
+            lastLinearRefresh = Date()
+            Task {
+                await service.loadIssues(projectId: proj.id)
+                // Sync selectedIssue with updated data
+                if let currentId = selectedIssue?.id {
+                    selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
+                }
+            }
+        }
+        // Polling fallback: refresh current project every 60s while LinearView is open
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+            guard let proj = selectedProject else { return }
+            Task {
+                await service.loadIssues(projectId: proj.id)
+                if let currentId = selectedIssue?.id {
+                    selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
+                }
+            }
         }
         .sheet(isPresented: $showNewIssueSheet) {
             NewIssueSheet(service: service,

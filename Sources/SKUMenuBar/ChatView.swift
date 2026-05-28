@@ -3852,6 +3852,10 @@ struct SingleChatSessionView: View {
                             if let idx = messages[assistantIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
                                 // Cap output to 4000 chars to avoid blowing up the UI
                                 messages[assistantIndex].toolCalls[idx].result = String(resultText.prefix(4000))
+                                // Notify LinearView to refresh when a Linear MCP tool completes
+                                if messages[assistantIndex].toolCalls[idx].name.hasPrefix("mcp__linear__") {
+                                    NotificationCenter.default.post(name: .linearMCPDidChange, object: nil)
+                                }
                             }
                         }
                     }
