@@ -1888,7 +1888,7 @@ struct SingleChatSessionView: View {
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 Divider().padding(.horizontal, 6)
-                ForEach(state.agentService.agents) { a in
+                ForEach(state.agentService.agents.filter { !$0.isPersona }) { a in
                     orchRow(label: a.name, selected: selectedOrchestrators.contains(a.id)) {
                         if selectedOrchestrators.contains(a.id) {
                             selectedOrchestrators.remove(a.id)
@@ -2306,7 +2306,13 @@ struct SingleChatSessionView: View {
                 }
             } else {
                 // Manuell aktiviert → immer Orchestrierung (kein isComplexTask-Gate)
-                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet")
+                let workerCount = state.agentService.agents.filter {
+                    !$0.isPersona && selectedOrchestrators.contains($0.id)
+                }.count
+                if workerCount < 2 {
+                    return (.red, "\(wordCount) Wörter · ⚠ Nur \(workerCount) Agent — min. 2 nötig")
+                }
+                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet (\(workerCount) Agents)")
             }
         } else if complex && state.agentService.agents.count >= 2 {
             return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
@@ -2506,7 +2512,7 @@ struct SingleChatSessionView: View {
                     active: orchestratorMode,
                     isPresented: $showOrchPicker
                 ) {
-                    ForEach(state.agentService.agents) { a in
+                    ForEach(state.agentService.agents.filter { !$0.isPersona }) { a in
                         orchRow(label: a.name, selected: selectedOrchestrators.contains(a.id)) {
                             if selectedOrchestrators.contains(a.id) {
                                 selectedOrchestrators.remove(a.id)
@@ -2889,6 +2895,17 @@ struct SingleChatSessionView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
 
+        // Agents-Check VOR allen Seiteneffekten (vor inputText-Clear, vor message.append)
+        let isAutoOrchestrated = autoAgentList != nil
+        let agents = (autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) })
+            .filter { !$0.isPersona }
+        guard agents.count >= 2 else {
+            errorMessage = agents.isEmpty
+                ? "Orchestrator: Keine Agents ausgewählt — bitte mindestens 2 Worker-Agents wählen."
+                : "Orchestrator benötigt mindestens 2 Agents — nur \(agents.count) ausgewählt."
+            return
+        }
+
         inputText = ""
         errorMessage = nil
         isAuthError = false
@@ -2907,11 +2924,6 @@ struct SingleChatSessionView: View {
         }
 
         messages.append(ChatMessage(role: .user, content: displayText))
-
-        let isAutoOrchestrated = autoAgentList != nil
-        let agents = (autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) })
-            .filter { !$0.isPersona }
-        guard !agents.isEmpty else { return }
 
         isStreaming = true; streamingStartTime = Date()
         orchestratorHistory.append((role: "user", content: displayText))
