@@ -639,8 +639,9 @@ struct MCPView: View {
     }
 
     private func serverNodeCard(_ server: MCPServer) -> some View {
-        let statusText  = healthStatusText(for: server)
-        let statusColor = healthStatusColor(for: server)
+        let statusText     = healthStatusText(for: server)
+        let statusColor    = healthStatusColor(for: server)
+        let isCloudServer  = server.name.hasPrefix("claude.ai ")
         return VStack(alignment: .leading, spacing: 12) {
             // Name + status badge — badge floats top-right
             HStack(alignment: .center, spacing: 6) {
@@ -687,39 +688,45 @@ struct MCPView: View {
                 Spacer(minLength: 8)
                 // Action buttons with 8px gap
                 HStack(spacing: 8) {
-                // Edit (gear)
+                // Edit (gear) — für cloud-Server deaktiviert
                 Button {
                     editingServer = server
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 14))
-                        .foregroundStyle(theme.secondaryText)
+                        .foregroundStyle(isCloudServer ? theme.tertiaryText : theme.secondaryText)
                         .frame(width: 26, height: 26)
                         .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
-                .disabled(removingId != nil)
-                .help("Server bearbeiten")
+                .disabled(removingId != nil || isCloudServer)
+                .help(isCloudServer ? "Cloud-Server – in claude.ai verwalten" : "Server bearbeiten")
 
-                // Delete
+                // Delete (lokal) / Öffne claude.ai (cloud)
                 Button {
-                    Task { await removeServer(server) }
+                    if isCloudServer {
+                        NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/integrations")!)
+                    } else {
+                        Task { await removeServer(server) }
+                    }
                 } label: {
                     if removingId == server.id {
                         ProgressView().scaleEffect(0.5).frame(width: 26, height: 26)
                     } else {
-                        Image(systemName: "minus.circle")
+                        Image(systemName: isCloudServer ? "arrow.up.right.square" : "minus.circle")
                             .font(.system(size: 14))
-                            .foregroundStyle(theme.secondaryText)
+                            .foregroundStyle(isCloudServer
+                                ? Color(red: 0.2, green: 0.7, blue: 1.0)
+                                : theme.secondaryText)
                             .frame(width: 26, height: 26)
                             .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.cardBorder, lineWidth: 0.5))
                     }
                 }
                 .buttonStyle(.plain)
-                .disabled(removingId != nil)
-                .help("Server entfernen")
+                .disabled(removingId != nil && !isCloudServer)
+                .help(isCloudServer ? "In claude.ai Integrations öffnen → Disconnect" : "Server entfernen")
                 } // end HStack buttons
             }
         }
