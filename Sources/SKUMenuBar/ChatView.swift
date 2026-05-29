@@ -436,21 +436,26 @@ struct SingleChatSessionView: View {
     /// LLM-basierte Routing-Validierung: Haiku prüft ob Auto-Orchestrierung wirklich nötig ist.
     /// Verhindert False-Positive-Orchestrierungen bei langen aber einfachen Nachrichten.
     private func validateAutoOrchestration(_ text: String, agents: [AgentDefinition]) async -> Bool {
-        let agentNames = agents.filter { !$0.isPersona }.map { $0.name }.joined(separator: ", ")
+        let workers = agents.filter { !$0.isPersona }
+        let agentDescriptions = workers.map { "\($0.name): \($0.description.prefix(80))" }.joined(separator: "\n")
         let prompt = """
         Classify this user request. Reply with exactly one word: MULTI or SINGLE.
 
-        MULTI = This task needs multiple specialized perspectives or domains working together (e.g., different expertise areas, analysis + implementation, research + writing).
-        SINGLE = A single AI agent can handle this well enough (e.g., simple question, single-domain task, conversation, clarification, single code change).
+        MULTI = The task involves TWO OR MORE distinct work areas where different specialists would each contribute meaningfully. Examples: "build a frontend and configure the backend API", "review the code and update the documentation", "create an automation workflow and design the dashboard".
+        SINGLE = A single specialist can handle this alone. Examples: "fix this CSS bug", "explain how this works", "what's the status?", "write a unit test".
 
-        Available specialist agents: \(agentNames)
+        When in doubt, prefer MULTI — the user explicitly has multiple specialists available.
+
+        Available specialists:
+        \(agentDescriptions)
+
         User request: \(text)
         """
 
         var result = ""
         let stream = state.cliService.send(
             message: prompt,
-            systemPrompt: "Reply with exactly one word: MULTI or SINGLE. Nothing else.",
+            systemPrompt: "Reply MULTI or SINGLE. One word only.",
             model: "claude-haiku-4-5-20251001",
             workingDirectory: workingDirectory
         )
@@ -2872,6 +2877,7 @@ struct SingleChatSessionView: View {
         streamingTask = Task { @MainActor in
             // LLM-basierte Routing-Validierung
             let shouldOrchestrate = await validateAutoOrchestration(text, agents: workAgents)
+            print("🔍 Auto-Orch: Haiku → \(shouldOrchestrate ? "MULTI" : "SINGLE") (\(workAgents.count) Worker-Agents)")
             guard !Task.isCancelled else { isStreaming = false; return }
 
             if shouldOrchestrate {
