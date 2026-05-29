@@ -288,6 +288,23 @@ struct MCPView: View {
     // Scope filter
     @State private var scopeFilter: MCPScope? = nil  // nil = alle
 
+    // Lokal ausgeblendete cloud-Server
+    @AppStorage("hiddenCloudMCPServers") private var hiddenServersRaw: String = ""
+    private var hiddenServers: Set<String> {
+        Set(hiddenServersRaw.split(separator: "|").map(String.init))
+    }
+    private func hideServer(_ name: String) {
+        var s = hiddenServers; s.insert(name)
+        hiddenServersRaw = s.joined(separator: "|")
+    }
+    private func unhideServer(_ name: String) {
+        var s = hiddenServers; s.remove(name)
+        hiddenServersRaw = s.joined(separator: "|")
+    }
+
+    // Popover-State für cloud-Server Aktionsmenü
+    @State private var cloudActionServer: MCPServer? = nil
+
     // Profile management
     @State private var profiles: [MCPProfile] = []
     @State private var isSavingProfile = false
@@ -300,8 +317,8 @@ struct MCPView: View {
     }
 
     private var filteredServers: [MCPServer] {
-        guard let scope = scopeFilter else { return servers }
-        return servers.filter { $0.scope == scope }
+        let base = scopeFilter == nil ? servers : servers.filter { $0.scope == scopeFilter }
+        return base.filter { !hiddenServers.contains($0.name) }
     }
 
     // Derived counts (auf filteredServers)
@@ -438,6 +455,24 @@ struct MCPView: View {
             scopeFilterBar
                 .padding(.horizontal, 22)
                 .padding(.bottom, 12)
+
+            // Hinweis auf ausgeblendete cloud-Server
+            if !hiddenServers.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "eye.slash").font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+                    Text("\(hiddenServers.count) Cloud-Server ausgeblendet")
+                        .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
+                    Spacer()
+                    Button("Einblenden") {
+                        hiddenServersRaw = ""
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(accentColor)
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 22).padding(.bottom, 8)
+                .transition(.opacity)
+            }
 
             // Profile feedback banner
             if let msg = profileFeedback {
@@ -703,10 +738,10 @@ struct MCPView: View {
                 .disabled(removingId != nil || isCloudServer)
                 .help(isCloudServer ? "Cloud-Server – in claude.ai verwalten" : "Server bearbeiten")
 
-                // Delete (lokal) / Öffne claude.ai (cloud)
+                // Delete (lokal) / Cloud-Optionen (ausblenden oder claude.ai öffnen)
                 Button {
                     if isCloudServer {
-                        NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/integrations")!)
+                        cloudActionServer = server
                     } else {
                         Task { await removeServer(server) }
                     }
@@ -726,7 +761,13 @@ struct MCPView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(removingId != nil && !isCloudServer)
-                .help(isCloudServer ? "In claude.ai Integrations öffnen → Disconnect" : "Server entfernen")
+                .help(isCloudServer ? "Optionen für Cloud-Server" : "Server entfernen")
+                .popover(isPresented: Binding(
+                    get: { cloudActionServer?.id == server.id },
+                    set: { if !$0 { cloudActionServer = nil } }
+                ), arrowEdge: .bottom) {
+                    cloudServerActionPopover(server)
+                }
                 } // end HStack buttons
             }
         }
@@ -1078,6 +1119,84 @@ struct MCPView: View {
         defer { removingId = nil }
         let (_, _) = await state.cliService.removeMCPServer(name: server.name, scope: server.scope)
         await load()
+    }
+
+    @ViewBuilder
+    private func cloudServerActionPopover(_ server: MCPServer) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(server.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            Button {
+                hideServer(server.name)
+                cloudActionServer = nil
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.statusOrange)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Lokal ausblenden")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.primaryText)
+                        Text("Nur in dieser App verstecken")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.clear)
+
+            Divider().foregroundStyle(theme.cardBorder)
+
+            Button {
+                NSWorkspace.shared.open(URL(string: "https://claude.ai/settings/integrations")!)
+                cloudActionServer = nil
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(red: 0.2, green: 0.7, blue: 1.0))
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("In claude.ai öffnen")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.primaryText)
+                        Text("Integrations-Einstellungen")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.clear)
+
+            Divider().foregroundStyle(theme.cardBorder)
+            Button("Abbrechen") { cloudActionServer = nil }
+                .font(.system(size: 13))
+                .foregroundStyle(theme.tertiaryText)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .buttonStyle(.plain)
+        }
+        .frame(width: 240)
+        .background(theme.windowBg)
     }
 
     // MARK: - Profile Management
