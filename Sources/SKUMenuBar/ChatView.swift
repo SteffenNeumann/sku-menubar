@@ -4068,6 +4068,13 @@ struct SingleChatSessionView: View {
 
         let effectiveAgent = agentOverride ?? (selectedAgent.isEmpty ? nil : selectedAgent)
 
+        // Agent-Anzeigename für den Antwort-Header setzen (statt rohem Modell)
+        if let agentId = effectiveAgent,
+           let agentDef = state.agentService.agents.first(where: { $0.id == agentId }),
+           messages.indices.contains(assistantIndex) {
+            messages[assistantIndex].agentName = agentDef.name
+        }
+
         // Inject agent system prompt (memory + write instruction + promptBody) on the first message of a session.
         // On resume (currentSessionId != nil) the session already carries the context — skip.
         let agentSystemPrompt: String? = (currentSessionId == nil)
@@ -6060,9 +6067,26 @@ struct MessageBubbleView: View, Equatable {
                     .padding(.vertical, 3)
                     .background(sourceColor.opacity(0.10), in: Capsule())
 
-                    Text(modelLabel)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.secondaryText)
+                    if let agent = message.agentName, !agent.isEmpty {
+                        // Agent-Lauf: Name mit Personen-Icon, Modell dezent dahinter
+                        HStack(spacing: 3) {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(agent)
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(accentColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(accentColor.opacity(0.10), in: Capsule())
+                        Text(modelLabel)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(theme.tertiaryText)
+                    } else {
+                        Text(modelLabel)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.secondaryText)
+                    }
                 }
                 Spacer()
                 if message.isStreaming {

@@ -127,6 +127,7 @@ struct ChatMessage: Identifiable, Equatable {
     var toolCalls: [ToolCall] = []
     var isStreaming: Bool = false
     var model: String?
+    var agentName: String? = nil   // Anzeigename des ausführenden Agents (statt rohem Modell)
     var source: ChatProviderSource?
     var costUsd: Double?
     var inputTokens: Int = 0
