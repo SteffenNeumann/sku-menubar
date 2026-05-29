@@ -438,9 +438,9 @@ struct SingleChatSessionView: View {
     /// Wählt die relevanten Agents für eine Aufgabe aus. Gibt die gefilterte Agent-Liste zurück.
     /// - Bei ≥2 relevanten Agents → Orchestrierung mit nur diesen Agents
     /// - Bei 0–1 relevanten → nil (= Einzelagent, keine Orchestrierung)
-    private func selectRelevantAgents(_ text: String, agents: [AgentDefinition]) async -> [AgentDefinition]? {
+    private func selectRelevantAgents(_ text: String, agents: [AgentDefinition]) async -> [AgentDefinition] {
         let workers = agents.filter { !$0.isPersona }
-        guard workers.count >= 2 else { return nil }
+        guard workers.count >= 2 else { return workers }
 
         let agentList = workers.enumerated().map { "\($0.offset + 1). \($0.element.name): \($0.element.description.prefix(100))" }.joined(separator: "\n")
         let agentNames = workers.map { $0.name }
@@ -464,7 +464,7 @@ struct SingleChatSessionView: View {
         )
         do {
             for try await event in stream {
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled else { return [] }
                 if case "assistant" = event.type, let content = event.message?.content {
                     for block in content where block.type == "text" {
                         if let t = block.text { result += t }
@@ -484,7 +484,8 @@ struct SingleChatSessionView: View {
 
         print("🔍 Auto-Orch: Haiku wählte \(matched.map { $0.name }) aus \(agentNames)")
 
-        guard matched.count >= 2 else { return nil } // <2 → Einzelagent
+        // Gibt die Treffer zurück (0, 1 oder mehr). Caller entscheidet:
+        //   ≥2 → Orchestrierung; ==1 → Einzelagent mit diesem Spezialisten; ==0 → generischer Einzelagent
         return matched
     }
 
@@ -2903,9 +2904,9 @@ struct SingleChatSessionView: View {
                 isStreaming = false; return
             }
 
-            if let agents = selectedAgents, agents.count >= 2 {
-                // Orchestrierung mit nur den relevanten Agents
-                let agentNames = agents.map { $0.name }.joined(separator: ", ")
+            if selectedAgents.count >= 2 {
+                // ── ≥2 relevante Agents → Orchestrierung ──────────────────────
+                let agentNames = selectedAgents.map { $0.name }.joined(separator: ", ")
                 if messages.indices.contains(routingIdx) {
                     messages[routingIdx].content = "🤖 **Auto-Orchestrierung** — \(agentNames)"
                     messages[routingIdx].isStreaming = false
@@ -2918,10 +2919,21 @@ struct SingleChatSessionView: View {
                 inputText = text
                 attachedFiles = sentFiles
                 isStreaming = false
-                sendOrchestrator(autoAgentList: agents)
+                sendOrchestrator(autoAgentList: selectedAgents)
             } else {
-                // Einzelagent reicht — Routing-Hinweis entfernen
-                if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
+                // ── 0–1 relevante Agents → Einzelagent ────────────────────────
+                // Bei genau 1 Treffer DEN Spezialisten verwenden (sein System-Prompt + MCP),
+                // sonst generischer Einzelagent.
+                let soloAgent = selectedAgents.first
+                if messages.indices.contains(routingIdx) {
+                    if let solo = soloAgent {
+                        messages[routingIdx].content = "👤 **Einzelagent** — \(solo.name) *(ein Spezialist reicht)*"
+                        messages[routingIdx].isStreaming = false
+                        messages[routingIdx].finishedCleanly = true
+                    } else {
+                        messages.remove(at: routingIdx)
+                    }
+                }
                 let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 messages.append(assistantMsg)
                 let assistantIndex = messages.count - 1
@@ -2941,6 +2953,7 @@ struct SingleChatSessionView: View {
                     model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
                         ? state.settings.copilotFallbackModel
                         : selectedModel,
+                    agentOverride: soloAgent?.id,
                     addDirs: fileDirs,
                     cliImagePaths: imgPaths
                 )
