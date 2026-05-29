@@ -2870,6 +2870,12 @@ struct SingleChatSessionView: View {
         }
 
         messages.append(ChatMessage(role: .user, content: displayText))
+
+        // Routing-Hinweis anzeigen während Haiku entscheidet
+        var routingMsg = ChatMessage(role: .assistant, content: "🔍 *KI prüft Routing…*", isStreaming: true)
+        routingMsg.model = "Haiku 4.5"
+        messages.append(routingMsg)
+        let routingIdx = messages.count - 1
         isStreaming = true; streamingStartTime = Date()
 
         let workAgents = state.agentService.agents.filter { !$0.isPersona }
@@ -2878,20 +2884,30 @@ struct SingleChatSessionView: View {
             // LLM-basierte Routing-Validierung
             let shouldOrchestrate = await validateAutoOrchestration(text, agents: workAgents)
             print("🔍 Auto-Orch: Haiku → \(shouldOrchestrate ? "MULTI" : "SINGLE") (\(workAgents.count) Worker-Agents)")
-            guard !Task.isCancelled else { isStreaming = false; return }
+            guard !Task.isCancelled else {
+                if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
+                isStreaming = false; return
+            }
 
             if shouldOrchestrate {
-                // Orchestrierung bestätigt — inputText wiederherstellen und orchestrieren
-                // Guard: User-Msg sicher entfernen (sendOrchestrator fügt sie selbst hinzu)
-                if let lastMsg = messages.last, lastMsg.role == .user {
-                    messages.removeLast()
+                // Orchestrierung bestätigt — Routing-Hinweis + User-Msg entfernen
+                // (sendOrchestrator fügt beides selbst hinzu)
+                if messages.indices.contains(routingIdx) {
+                    messages[routingIdx].content = "🤖 **Auto-Orchestrierung** — \(workAgents.count) Agents"
+                    messages[routingIdx].isStreaming = false
+                    messages[routingIdx].finishedCleanly = true
+                }
+                // User-Msg entfernen (sendOrchestrator fügt sie selbst hinzu)
+                if let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) {
+                    messages.remove(at: lastUserIdx)
                 }
                 inputText = text
                 attachedFiles = sentFiles
                 isStreaming = false
                 sendOrchestrator(autoAgentList: workAgents)
             } else {
-                // Einzelagent reicht — normalen Send-Pfad nutzen
+                // Einzelagent reicht — Routing-Hinweis entfernen
+                if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
                 let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 messages.append(assistantMsg)
                 let assistantIndex = messages.count - 1
