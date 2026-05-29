@@ -2319,6 +2319,9 @@ struct SingleChatSessionView: View {
             }
             return (accentColor, "\(wordCount) Wörter · Orchestrierung startet (\(selectedWorkerCount) Agents)")
         } else if complex && workerCount >= 2 {
+            if wordCount > 40 {
+                return (accentColor, "\(wordCount) Wörter · Auto-Orchestrierung startet (\(workerCount) Agents)")
+            }
             return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
         } else {
             return (theme.tertiaryText, "\(wordCount == 1 ? "1 Wort" : "\(wordCount) Wörter")")
@@ -3912,8 +3915,15 @@ struct SingleChatSessionView: View {
             sendOrchestrator()
             return
         } else if isComplexTask(routingText) && !routingText.isEmpty && workerAgentCount >= 2 {
-            // ── Kein Orchestrator, komplexe Aufgabe → Auto-Orchestrierung mit LLM-Prüfung
-            sendAutoOrchestration()
+            // ── Kein Orchestrator, komplexe Aufgabe → Auto-Orchestrierung ──────
+            let wordCount = routingText.split(separator: " ").count
+            if wordCount > 40 {
+                // Klar komplex (>40 Wörter) → direkt orchestrieren, kein Haiku-Gate
+                sendOrchestrator(autoAgentList: state.agentService.agents.filter { !$0.isPersona })
+            } else {
+                // Grenzfall (16–40 Wörter, Verb-Match) → Haiku validiert
+                sendAutoOrchestration()
+            }
             return
         }
 
