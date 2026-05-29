@@ -348,7 +348,45 @@ final class ClaudeCLIService: ObservableObject {
 
     func listMCPServers() async -> [MCPServer] {
         guard let output = try? await runCommand(["mcp", "list"]) else { return [] }
-        return parseMCPList(output)
+        let servers = parseMCPList(output)
+        // claude mcp list nutzt GET für den Health-Check — manche HTTP-Server
+        // (z.B. Google Stitch) erlauben nur POST. Nachprüfen per echtem MCP-POST.
+        return await verifyFailedHttpServers(servers)
+    }
+
+    private func verifyFailedHttpServers(_ servers: [MCPServer]) async -> [MCPServer] {
+        var result = servers
+        await withTaskGroup(of: (Int, Bool).self) { group in
+            for (i, server) in servers.enumerated() {
+                guard (server.type == "http" || server.type == "sse"),
+                      case .error = server.status,
+                      server.detail.hasPrefix("http") else { continue }
+                let url = server.detail
+                group.addTask { (i, await self.pingMCPServer(url: url)) }
+            }
+            for await (i, alive) in group where alive {
+                let s = result[i]
+                result[i] = MCPServer(id: s.id, name: s.name, type: s.type,
+                                      status: .connected, detail: s.detail)
+            }
+        }
+        return result
+    }
+
+    private func pingMCPServer(url: String) async -> Bool {
+        guard let endpoint = URL(string: url) else { return false }
+        var req = URLRequest(url: endpoint, timeoutInterval: 5)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+        req.httpBody = Data("""
+            {"jsonrpc":"2.0","method":"initialize",\
+            "params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}
+            """.utf8)
+        do {
+            let (_, response) = try await URLSession.shared.data(for: req)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch { return false }
     }
 
     private func parseMCPList(_ output: String) -> [MCPServer] {
