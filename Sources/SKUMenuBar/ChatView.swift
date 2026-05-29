@@ -2934,6 +2934,11 @@ struct SingleChatSessionView: View {
                         messages.remove(at: routingIdx)
                     }
                 }
+                // Spezialist wirklich anwenden: frische Agent-Session erzwingen, damit sein
+                // System-Prompt (fullSystemPrompt) injiziert wird — bei laufender Session
+                // (currentSessionId != nil) würde performSend den Agent-Prompt sonst überspringen.
+                if soloAgent != nil { currentSessionId = nil }
+
                 let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 messages.append(assistantMsg)
                 let assistantIndex = messages.count - 1
@@ -2947,12 +2952,16 @@ struct SingleChatSessionView: View {
                 let fullMessage = buildMessageWithAttachments(text: text, forGitHub: false)
                 attachedFiles = []
 
+                // Agent-Modell nutzen wenn gesetzt (sonst Default/Fallback)
+                let baseModel = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+                    ? state.settings.copilotFallbackModel
+                    : selectedModel
+                let effectiveModel = (soloAgent.map { $0.model.isEmpty ? baseModel : $0.model }) ?? baseModel
+
                 await performSend(
                     message: fullMessage.isEmpty ? text : fullMessage,
                     assistantIndex: assistantIndex,
-                    model: state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
-                        ? state.settings.copilotFallbackModel
-                        : selectedModel,
+                    model: effectiveModel,
                     agentOverride: soloAgent?.id,
                     addDirs: fileDirs,
                     cliImagePaths: imgPaths
