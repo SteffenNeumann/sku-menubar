@@ -2289,32 +2289,31 @@ struct SingleChatSessionView: View {
 
     private func routingBadgeInfo(wordCount: Int, trimmed: String) -> (color: Color, label: String) {
         let complex = isComplexTask(trimmed)
-        if orchestratorMode {
-            if !orchestratorHistory.isEmpty {
-                // Follow-Up-Intent anzeigen
-                let intent = classifyFollowUp(trimmed)
-                switch intent {
-                case .chat:
-                    let name = selectedOrchestrators.first
-                        .flatMap { id in state.agentService.agents.first { $0.id == id }?.name }
-                        ?? "Agent"
-                    return (theme.tertiaryText, "\(wordCount) Wörter · Chat → \(name)")
-                case .fast:
-                    return (accentColor, "\(wordCount) Wörter · ⚡ Schnell-Orchestrierung")
-                case .full:
-                    return (accentColor, "\(wordCount) Wörter · Volle Orchestrierung")
-                }
-            } else {
-                // Manuell aktiviert → immer Orchestrierung (kein isComplexTask-Gate)
-                let workerCount = state.agentService.agents.filter {
-                    !$0.isPersona && selectedOrchestrators.contains($0.id)
-                }.count
-                if workerCount < 2 {
-                    return (.red, "\(wordCount) Wörter · ⚠ Nur \(workerCount) Agent — min. 2 nötig")
-                }
-                return (accentColor, "\(wordCount) Wörter · Orchestrierung startet (\(workerCount) Agents)")
+        let workerCount = state.agentService.agents.filter { !$0.isPersona }.count
+
+        // ── Follow-Up in bestehendem Orchestrator-Kontext (unabhängig von orchestratorMode)
+        if !orchestratorHistory.isEmpty {
+            let intent = classifyFollowUp(trimmed)
+            switch intent {
+            case .chat:
+                return (theme.tertiaryText, "\(wordCount) Wörter · Chat-Antwort")
+            case .fast:
+                return (accentColor, "\(wordCount) Wörter · ⚡ Schnell-Orchestrierung")
+            case .full:
+                return (accentColor, "\(wordCount) Wörter · Volle Orchestrierung")
             }
-        } else if complex && state.agentService.agents.count >= 2 {
+        }
+
+        // ── Frischer Start ────────────────────────────────────────────────────
+        if orchestratorMode {
+            let selectedWorkerCount = state.agentService.agents.filter {
+                !$0.isPersona && selectedOrchestrators.contains($0.id)
+            }.count
+            if selectedWorkerCount < 2 {
+                return (.red, "\(wordCount) Wörter · ⚠ Nur \(selectedWorkerCount) Agent — min. 2 nötig")
+            }
+            return (accentColor, "\(wordCount) Wörter · Orchestrierung startet (\(selectedWorkerCount) Agents)")
+        } else if complex && workerCount >= 2 {
             return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
         } else {
             return (theme.tertiaryText, "\(wordCount == 1 ? "1 Wort" : "\(wordCount) Wörter")")
@@ -2857,7 +2856,7 @@ struct SingleChatSessionView: View {
                 inputText = text
                 attachedFiles = sentFiles
                 isStreaming = false
-                sendOrchestrator(autoAgentList: state.agentService.agents)
+                sendOrchestrator(autoAgentList: workAgents)
             } else {
                 // Einzelagent reicht — normalen Send-Pfad nutzen
                 let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
@@ -3830,27 +3829,26 @@ struct SingleChatSessionView: View {
         // ── Smart Routing ─────────────────────────────────────────────────────
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if orchestratorMode {
-            if !orchestratorHistory.isEmpty {
-                // Follow-Up: Intent klassifizieren statt blind voll orchestrieren
-                let intent = classifyFollowUp(routingText)
-                switch intent {
-                case .chat:
-                    break  // Fall-through zum Einzelagent-Pfad
-                case .fast:
-                    sendOrchestrator(skipAnalysis: true)
-                    return
-                case .full:
-                    sendOrchestrator()
-                    return
-                }
-            } else {
-                // Manuell aktivierter Orchestrator → immer orchestrieren, kein isComplexTask-Gate
-                sendOrchestrator()
-                return
+        let workerAgentCount = state.agentService.agents.filter { !$0.isPersona }.count
+
+        if !orchestratorHistory.isEmpty {
+            // ── Follow-Up in bestehendem Orchestrator-Kontext ────────────────────
+            // Gilt für manuellen UND Auto-Orchestrator-Modus (orchestratorHistory unabhängig von Mode)
+            let intent = classifyFollowUp(routingText)
+            switch intent {
+            case .chat:
+                break  // Fall-through zum Einzelagent-Pfad (einfache Antwort/Danke)
+            case .fast:
+                sendOrchestrator(skipAnalysis: true); return
+            case .full:
+                sendOrchestrator(); return
             }
-        } else if isComplexTask(routingText) && !routingText.isEmpty && state.agentService.agents.count >= 2 {
-            // Kein Orchestrator gewählt, aber komplexe Aufgabe → Auto-Orchestrierung mit LLM-Validierung
+        } else if orchestratorMode {
+            // ── Frischer Start, manuell ausgewählte Agents ───────────────────────
+            sendOrchestrator()
+            return
+        } else if isComplexTask(routingText) && !routingText.isEmpty && workerAgentCount >= 2 {
+            // ── Kein Orchestrator, komplexe Aufgabe → Auto-Orchestrierung mit LLM-Prüfung
             sendAutoOrchestration()
             return
         }
