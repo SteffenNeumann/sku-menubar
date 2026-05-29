@@ -2783,6 +2783,12 @@ struct SingleChatSessionView: View {
     }
 
     private func newSession() {
+        // Laufende Orchestrierung/Stream ZUERST abbrechen — sonst schreibt der Hintergrund-Task
+        // nach dem Leeren von messages[] auf gecachte Indizes → Index-out-of-bounds Crash.
+        // Betrifft nur DIESEN Tab (eigener @State streamingTask); andere Tabs laufen unberührt weiter.
+        streamingTask?.cancel()
+        streamingTask = nil
+        isStreaming = false
         withAnimation(.spring(response: 0.3)) {
             messages = []
             currentSessionId = nil
@@ -2822,6 +2828,19 @@ struct SingleChatSessionView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
 
+        // ── Vorarbeit wie im Einzelagent-Pfad — gilt für SINGLE- UND MULTI-Ausgang ──
+        // (sendOrchestrator wiederholt diese Schritte nicht; ohne sie läuft der SINGLE-
+        //  Fallback im Home- statt Projektverzeichnis und der Tab bleibt unbenannt.)
+        let wasEmpty = messages.isEmpty
+        state.tmetricActivity()
+        if tab.tmetricProjectId != nil, !tab.tmetricIsTimerRunning {
+            let tabId = tab.id
+            Task { await state.startTMetricTimer(tabId: tabId) }
+        }
+        if currentSessionId == nil, workingDirectory == nil {
+            openDirectoryPicker()
+        }
+
         // User-Nachricht sofort anzeigen
         inputText = ""
         errorMessage = nil
@@ -2835,6 +2854,14 @@ struct SingleChatSessionView: View {
             let names = sentFiles.map { $0.name }.joined(separator: ", ")
             let prefix = "[\(sentFiles.count == 1 ? "Datei" : "\(sentFiles.count) Dateien"): \(names)]"
             displayText = text.isEmpty ? prefix : "\(prefix)\n\(text)"
+        }
+
+        // Tab beim ersten Beitrag automatisch umbenennen
+        if wasEmpty {
+            let titleSource = text.isEmpty ? displayText : text
+            let words = titleSource.split(separator: " ").prefix(5).joined(separator: " ")
+            let trimmed = String(words.prefix(40))
+            if !trimmed.isEmpty { tab.title = trimmed }
         }
 
         messages.append(ChatMessage(role: .user, content: displayText))
@@ -3013,7 +3040,8 @@ struct SingleChatSessionView: View {
                         addDirs: effectiveAddDirs,
                         skipPermissions: autoApprove,
                         mcpConfigJSON: mcpJson,
-                        mcpStrictMode: mcpStrict
+                        mcpStrictMode: mcpStrict,
+                        imagePaths: imgPaths
                     )
                     do {
                         for try await event in aStream {
@@ -3295,7 +3323,8 @@ struct SingleChatSessionView: View {
                     addDirs: effectiveAddDirs,
                     skipPermissions: autoApprove,
                     mcpConfigJSON: mcpJson,
-                    mcpStrictMode: mcpStrict
+                    mcpStrictMode: mcpStrict,
+                    imagePaths: imgPaths
                 )
                 do {
                     for try await event in synthStream {
@@ -3744,6 +3773,10 @@ struct SingleChatSessionView: View {
         isCompacting = false
         guard let summary = messages.last?.content, !summary.isEmpty else { return }
         compactedSummary = summary
+        // Defense-in-depth: laufenden Task abbrechen bevor messages ersetzt wird (analog newSession)
+        streamingTask?.cancel()
+        streamingTask = nil
+        isStreaming = false
         // Neue Session starten — Summary bleibt als Kontext erhalten
         let summaryNote = ChatMessage(
             role: .assistant,
@@ -3826,9 +3859,18 @@ struct SingleChatSessionView: View {
     }
 
     private func sendMessage() {
-        // ── Smart Routing ─────────────────────────────────────────────────────
+        // ── Slash-Commands ZUERST ─────────────────────────────────────────────
+        // Muss vor dem Smart-Routing stehen, sonst werden /clear, /new, /compact, /model
+        // im orchestratorMode als Aufgabentext an die Pipeline geschickt.
+        // Gleiche Gate-Bedingung wie unten: Dateipfade (/Users/...) gehen als Text durch.
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if routingText.hasPrefix("/"),
+           !routingText.contains(" ") || routingText == "/compact"
+               || routingText.hasPrefix("/files") || routingText.hasPrefix("/agent") {
+            if handleSlashCommand(routingText) { return }
+        }
 
+        // ── Smart Routing ─────────────────────────────────────────────────────
         let workerAgentCount = state.agentService.agents.filter { !$0.isPersona }.count
 
         if !orchestratorHistory.isEmpty {
@@ -3854,13 +3896,8 @@ struct SingleChatSessionView: View {
         }
 
         // ── Normaler Einzel-Agent-Pfad ────────────────────────────────────────
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Handle slash commands before normal send
-        if text.hasPrefix("/"),
-           !text.contains(" ") || text == "/compact"
-               || text.hasPrefix("/files") || text.hasPrefix("/agent") {
-            if handleSlashCommand(text) { return }
-        }
+        // Slash-Commands wurden bereits am Anfang der Funktion behandelt.
+        let text = routingText
         guard !text.isEmpty || !attachedFiles.isEmpty, !isStreaming else { return }
         state.tmetricActivity()
         if tab.tmetricProjectId != nil, !tab.tmetricIsTimerRunning {
