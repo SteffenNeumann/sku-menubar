@@ -435,42 +435,57 @@ struct SingleChatSessionView: View {
 
     /// LLM-basierte Routing-Validierung: Haiku prüft ob Auto-Orchestrierung wirklich nötig ist.
     /// Verhindert False-Positive-Orchestrierungen bei langen aber einfachen Nachrichten.
-    private func validateAutoOrchestration(_ text: String, agents: [AgentDefinition]) async -> Bool {
+    /// Wählt die relevanten Agents für eine Aufgabe aus. Gibt die gefilterte Agent-Liste zurück.
+    /// - Bei ≥2 relevanten Agents → Orchestrierung mit nur diesen Agents
+    /// - Bei 0–1 relevanten → nil (= Einzelagent, keine Orchestrierung)
+    private func selectRelevantAgents(_ text: String, agents: [AgentDefinition]) async -> [AgentDefinition]? {
         let workers = agents.filter { !$0.isPersona }
-        let agentDescriptions = workers.map { "\($0.name): \($0.description.prefix(80))" }.joined(separator: "\n")
+        guard workers.count >= 2 else { return nil }
+
+        let agentList = workers.enumerated().map { "\($0.offset + 1). \($0.element.name): \($0.element.description.prefix(100))" }.joined(separator: "\n")
+        let agentNames = workers.map { $0.name }
         let prompt = """
-        Classify this user request. Reply with exactly one word: MULTI or SINGLE.
-
-        MULTI = The task involves TWO OR MORE distinct work areas where different specialists would each contribute meaningfully. Examples: "build a frontend and configure the backend API", "review the code and update the documentation", "create an automation workflow and design the dashboard".
-        SINGLE = A single specialist can handle this alone. Examples: "fix this CSS bug", "explain how this works", "what's the status?", "write a unit test".
-
-        When in doubt, prefer MULTI — the user explicitly has multiple specialists available.
+        Which of these specialists are RELEVANT for this task? List ONLY the names of specialists who can meaningfully contribute — not all of them.
 
         Available specialists:
-        \(agentDescriptions)
+        \(agentList)
 
         User request: \(text)
+
+        Reply with ONLY the relevant specialist names, one per line. If only one specialist is needed, reply with just that one name.
         """
 
         var result = ""
         let stream = state.cliService.send(
             message: prompt,
-            systemPrompt: "Reply MULTI or SINGLE. One word only.",
+            systemPrompt: "List relevant specialist names, one per line. Nothing else.",
             model: "claude-haiku-4-5-20251001",
             workingDirectory: workingDirectory
         )
         do {
             for try await event in stream {
-                guard !Task.isCancelled else { return false }
+                guard !Task.isCancelled else { return nil }
                 if case "assistant" = event.type, let content = event.message?.content {
                     for block in content where block.type == "text" {
                         if let t = block.text { result += t }
                     }
                 }
             }
-        } catch { return true } // Bei Fehler → sicherheitshalber orchestrieren
+        } catch { return workers } // Bei Fehler → alle Agents
 
-        return result.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().contains("MULTI")
+        // Parse: Zeilen matchen gegen bekannte Agent-Namen (case-insensitive)
+        let lines = result.lowercased().split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let matched = workers.filter { agent in
+            let nameLower = agent.name.lowercased()
+            return lines.contains { line in
+                line.contains(nameLower) || nameLower.contains(line)
+            }
+        }
+
+        print("🔍 Auto-Orch: Haiku wählte \(matched.map { $0.name }) aus \(agentNames)")
+
+        guard matched.count >= 2 else { return nil } // <2 → Einzelagent
+        return matched
     }
 
     private func closeAllPickers() {
@@ -2319,10 +2334,7 @@ struct SingleChatSessionView: View {
             }
             return (accentColor, "\(wordCount) Wörter · Orchestrierung startet (\(selectedWorkerCount) Agents)")
         } else if complex && workerCount >= 2 {
-            if wordCount > 40 {
-                return (accentColor, "\(wordCount) Wörter · Auto-Orchestrierung startet (\(workerCount) Agents)")
-            }
-            return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI prüft)")
+            return (.orange, "\(wordCount) Wörter · Auto-Orchestrierung (KI wählt Agents)")
         } else {
             return (theme.tertiaryText, "\(wordCount == 1 ? "1 Wort" : "\(wordCount) Wörter")")
         }
@@ -2884,19 +2896,18 @@ struct SingleChatSessionView: View {
         let workAgents = state.agentService.agents.filter { !$0.isPersona }
 
         streamingTask = Task { @MainActor in
-            // LLM-basierte Routing-Validierung
-            let shouldOrchestrate = await validateAutoOrchestration(text, agents: workAgents)
-            print("🔍 Auto-Orch: Haiku → \(shouldOrchestrate ? "MULTI" : "SINGLE") (\(workAgents.count) Worker-Agents)")
+            // LLM-basierte Agent-Auswahl: Haiku bestimmt WELCHE Agents relevant sind
+            let selectedAgents = await selectRelevantAgents(text, agents: workAgents)
             guard !Task.isCancelled else {
                 if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
                 isStreaming = false; return
             }
 
-            if shouldOrchestrate {
-                // Orchestrierung bestätigt — Routing-Hinweis + User-Msg entfernen
-                // (sendOrchestrator fügt beides selbst hinzu)
+            if let agents = selectedAgents, agents.count >= 2 {
+                // Orchestrierung mit nur den relevanten Agents
+                let agentNames = agents.map { $0.name }.joined(separator: ", ")
                 if messages.indices.contains(routingIdx) {
-                    messages[routingIdx].content = "🤖 **Auto-Orchestrierung** — \(workAgents.count) Agents"
+                    messages[routingIdx].content = "🤖 **Auto-Orchestrierung** — \(agentNames)"
                     messages[routingIdx].isStreaming = false
                     messages[routingIdx].finishedCleanly = true
                 }
@@ -2907,7 +2918,7 @@ struct SingleChatSessionView: View {
                 inputText = text
                 attachedFiles = sentFiles
                 isStreaming = false
-                sendOrchestrator(autoAgentList: workAgents)
+                sendOrchestrator(autoAgentList: agents)
             } else {
                 // Einzelagent reicht — Routing-Hinweis entfernen
                 if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
@@ -3916,14 +3927,8 @@ struct SingleChatSessionView: View {
             return
         } else if isComplexTask(routingText) && !routingText.isEmpty && workerAgentCount >= 2 {
             // ── Kein Orchestrator, komplexe Aufgabe → Auto-Orchestrierung ──────
-            let wordCount = routingText.split(separator: " ").count
-            if wordCount > 40 {
-                // Klar komplex (>40 Wörter) → direkt orchestrieren, kein Haiku-Gate
-                sendOrchestrator(autoAgentList: state.agentService.agents.filter { !$0.isPersona })
-            } else {
-                // Grenzfall (16–40 Wörter, Verb-Match) → Haiku validiert
-                sendAutoOrchestration()
-            }
+            // Haiku wählt die relevanten Agents aus (nicht MULTI/SINGLE, sondern WELCHE)
+            sendAutoOrchestration()
             return
         }
 
