@@ -2248,16 +2248,14 @@ struct SingleChatSessionView: View {
         // Immer aktive Basis-Server
         let alwaysOn: Set<String> = ["memory", "sequential-thinking"]
 
-        // Projekt-spezifische Heuristik anhand des Pfads
-        var projectMCPs: Set<String> = []
-        if let p = path ?? workingDirectory {
-            let lower = p.lowercased()
-            if lower.contains("linear")                         { projectMCPs.insert("linear") }
-            if lower.contains("figma") || lower.contains("design") { projectMCPs.insert("figma") }
-            if lower.contains("make") || lower.contains("automation") { projectMCPs.insert("make") }
+        // Agent-spezifische MCPs wenn ein Agent erkannt wurde
+        var agentMCPs: Set<String> = []
+        if !selectedAgent.isEmpty,
+           let agent = state.agentService.agents.first(where: { $0.id == selectedAgent }) {
+            agentMCPs = Set(agent.requiredMCPs)
         }
 
-        let wanted = alwaysOn.union(projectMCPs)
+        let wanted = alwaysOn.union(agentMCPs)
         let matched = Set(availableMCPs.filter { wanted.contains($0.name) }.map(\.id))
 
         // Nur setzen wenn aktuell noch im Default-Zustand (alle oder keiner)

@@ -491,6 +491,7 @@ struct AgentDefinition: Identifiable, Hashable {
     let emailDomain: String?    // e.g. "mueller-gmbh.de" — all senders from this domain
     let emailAddress: String?   // e.g. "ceo@mueller-gmbh.de" — exact match, higher priority
     let emailRoutingEnabled: Bool  // false = Automatik pausiert
+    let requiredMCPs: [String]      // MCP server names to auto-activate
 
     var isPersona: Bool { category == "persona" }
 
@@ -606,6 +607,7 @@ struct AgentDraft {
     var emailDomain: String = ""
     var emailAddress: String = ""
     var emailRoutingEnabled: Bool = true
+    var requiredMCPs: [String] = []
 
     var isPersona: Bool { category == "persona" }
 
@@ -638,6 +640,7 @@ struct AgentDraft {
         emailDomain          = agent.emailDomain  ?? ""
         emailAddress         = agent.emailAddress ?? ""
         emailRoutingEnabled  = agent.emailRoutingEnabled
+        requiredMCPs         = agent.requiredMCPs
     }
 }
 

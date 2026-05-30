@@ -137,6 +137,9 @@ final class AgentService: ObservableObject {
         let associatedProjects = fields["associated_projects"].map {
             $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         } ?? []
+        let requiredMCPs = fields["required_mcps"].map {
+            $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        } ?? []
 
         let agentId = url.deletingPathExtension().lastPathComponent
         let contextImages = loadContextImages(for: agentId)
@@ -203,7 +206,8 @@ final class AgentService: ObservableObject {
             contextImages: contextImages,
             emailDomain: emailDomain,
             emailAddress: emailAddress,
-            emailRoutingEnabled: emailRoutingEnabled
+            emailRoutingEnabled: emailRoutingEnabled,
+            requiredMCPs: requiredMCPs
         )
     }
 
@@ -232,6 +236,9 @@ final class AgentService: ObservableObject {
         if draft.tone != "formal"         { lines.append("tone: \(draft.tone)") }
         if !draft.associatedProjects.isEmpty {
             lines.append("associated_projects: \(draft.associatedProjects.joined(separator: ", "))")
+        }
+        if !draft.requiredMCPs.isEmpty {
+            lines.append("required_mcps: \(draft.requiredMCPs.joined(separator: ", "))")
         }
         if !draft.emailAddress.isEmpty { lines.append("email_address: \(draft.emailAddress)") }
         if !draft.emailDomain.isEmpty  { lines.append("email_domain: \(draft.emailDomain)") }

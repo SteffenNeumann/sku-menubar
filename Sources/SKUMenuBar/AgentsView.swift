@@ -2700,6 +2700,7 @@ private struct AgentEditorSheet: View {
     @State private var aiDescription = ""
     @State private var isGenerating = false
     @State private var aiError: String?
+    @State private var availableMCPNames: [String] = []
 
     private let portraitIds = (1...17).map { String(format: "ap%02d", $0) }
 
@@ -2941,6 +2942,71 @@ private struct AgentEditorSheet: View {
                             .strokeBorder(theme.cardBorder, lineWidth: 0.5)
                     )
 
+                    // MCPs Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "server.rack")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255))
+                            Text("MCPs")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.primaryText)
+                        }
+
+                        Text("Diese MCP-Server werden beim Öffnen dieses Projekts automatisch aktiviert.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.secondaryText)
+
+                        // Always-on hint
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(theme.statusGreen)
+                            Text("memory + sequential-thinking immer aktiv")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+
+                        // MCP toggles
+                        if availableMCPNames.isEmpty {
+                            Text("Keine MCPs konfiguriert")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        } else {
+                            let accentColor = Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+                            FlowLayout(spacing: 6) {
+                                ForEach(availableMCPNames, id: \.self) { name in
+                                    let isSelected = draft.requiredMCPs.contains(name)
+                                    Button {
+                                        if isSelected {
+                                            draft.requiredMCPs.removeAll { $0 == name }
+                                        } else {
+                                            draft.requiredMCPs.append(name)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size: 11))
+                                            Text(name)
+                                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                                        }
+                                        .foregroundStyle(isSelected ? accentColor : theme.secondaryText)
+                                        .padding(.horizontal, 8).padding(.vertical, 4)
+                                        .background(isSelected ? accentColor.opacity(0.12) : theme.cardBg, in: Capsule())
+                                        .overlay(Capsule().strokeBorder(isSelected ? accentColor.opacity(0.3) : theme.cardBorder, lineWidth: 0.5))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(theme.cardBg, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(theme.cardBorder, lineWidth: 0.5)
+                    )
+
                     // Portrait section
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
@@ -3115,6 +3181,14 @@ private struct AgentEditorSheet: View {
             }
         }
         .background(theme.windowBg)
+        .task { await loadMCPNames() }
+    }
+
+    private func loadMCPNames() async {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: NSHomeDirectory() + "/.claude.json")),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mcpServers = json["mcpServers"] as? [String: Any] else { return }
+        availableMCPNames = Array(mcpServers.keys).sorted()
     }
 
     private func editorField<Content: View>(_ title: String, hint: String, @ViewBuilder content: () -> Content) -> some View {
