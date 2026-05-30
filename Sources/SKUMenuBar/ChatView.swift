@@ -806,7 +806,7 @@ struct SingleChatSessionView: View {
         }
         .sheet(isPresented: $showSnippetSheet) { snippetSheet }
         .background(PickerDismissMonitor(isActive: anyPickerOpen, onDismiss: { closeAllPickers() }))
-        .task { await loadAvailableMCPs() }
+        .task { await loadAvailableMCPs(); autoSelectMCPsForProject() }
     }
 
     private func handleAppear() {
@@ -821,6 +821,7 @@ struct SingleChatSessionView: View {
             state.pendingChatSetDirectory = nil
             workingDirectory = dir
             if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+            autoSelectMCPsForProject(dir)
         }
         if let wd = tab.workingDirectory { workingDirectory = wd }
         fetchGitBranch()
@@ -951,6 +952,7 @@ struct SingleChatSessionView: View {
         tab.title = URL(fileURLWithPath: path).lastPathComponent
         withAnimation(.spring(response: 0.3)) { showFilePanel = true }
         if let agentId = detectAgentForProject(path) { selectedAgent = agentId }
+        autoSelectMCPsForProject(path)
     }
 
     private func handlePendingMessage() {
@@ -970,6 +972,7 @@ struct SingleChatSessionView: View {
                 state.pendingChatSetDirectory = nil
                 workingDirectory = dir
                 if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+                autoSelectMCPsForProject(dir)
             }
         } else {
             tab.inputText = inputText
@@ -2217,14 +2220,53 @@ struct SingleChatSessionView: View {
 
     // MARK: - Load available MCPs
 
+    // Ausgeblendete cloud-Server aus AppStorage (sync mit MCPView)
+    @AppStorage("hiddenCloudMCPServers") private var hiddenMCPServersRaw: String = ""
+    private var hiddenMCPNames: Set<String> {
+        Set(hiddenMCPServersRaw.split(separator: "|").map(String.init))
+    }
+
     private func loadAvailableMCPs() async {
         isLoadingMCPs = true
         defer { isLoadingMCPs = false }
         let servers = await state.cliService.listMCPServers()
-        // Nur verbundene oder bekannte Server anzeigen
+        let hidden = hiddenMCPNames
+        // Fehlerhafte und lokal ausgeblendete Server nicht anzeigen
         availableMCPs = servers.filter {
             if case .error = $0.status { return false }
+            if hidden.contains($0.name) { return false }
             return true
+        }
+    }
+
+    /// Wählt beim Öffnen eines Projekts passende MCPs vor.
+    /// memory + sequential-thinking sind immer aktiv.
+    /// Weitere Server werden anhand des Projektpfads erkannt.
+    private func autoSelectMCPsForProject(_ path: String? = nil) {
+        guard !availableMCPs.isEmpty else { return }
+
+        // Immer aktive Basis-Server
+        let alwaysOn: Set<String> = ["memory", "sequential-thinking"]
+
+        // Projekt-spezifische Heuristik anhand des Pfads
+        var projectMCPs: Set<String> = []
+        if let p = path ?? workingDirectory {
+            let lower = p.lowercased()
+            if lower.contains("linear")                         { projectMCPs.insert("linear") }
+            if lower.contains("figma") || lower.contains("design") { projectMCPs.insert("figma") }
+            if lower.contains("make") || lower.contains("automation") { projectMCPs.insert("make") }
+        }
+
+        let wanted = alwaysOn.union(projectMCPs)
+        let matched = Set(availableMCPs.filter { wanted.contains($0.name) }.map(\.id))
+
+        // Nur setzen wenn aktuell noch im Default-Zustand (alle oder keiner)
+        if activeMCPIds.isEmpty || activeMCPIds == Set(["__none__"]) {
+            activeMCPIds = matched.isEmpty ? [] : matched
+        } else {
+            // Basis-Server nachrüsten ohne bestehende Auswahl zu überschreiben
+            let baseIds = Set(availableMCPs.filter { alwaysOn.contains($0.name) }.map(\.id))
+            activeMCPIds.formUnion(baseIds)
         }
     }
 
