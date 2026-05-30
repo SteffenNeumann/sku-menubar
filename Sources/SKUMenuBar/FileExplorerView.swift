@@ -1390,16 +1390,27 @@ struct FileExplorerView: View {
     private func loadInitialDirectory() {
         // Restore last used directory (simple path storage; no sandbox so no security-scope needed)
         if let saved = UserDefaults.standard.string(forKey: "fileExplorerLastPath"),
-           FileManager.default.fileExists(atPath: saved) {
+           isValidDirectory(saved) {
             loadRoot(path: saved)
             return
         }
-        // Prefer the working directory of the current chat tab
+        // Prefer the working directory of the current chat tab (only if it still exists)
         let chatWd = state.chatTabs.indices.contains(state.selectedChatTabIndex)
             ? state.chatTabs[state.selectedChatTabIndex].workingDirectory
             : nil
-        let path = chatWd ?? NSHomeDirectory()
+        let path: String
+        if let wd = chatWd, isValidDirectory(wd) {
+            path = wd
+        } else {
+            path = NSHomeDirectory()
+        }
         loadRoot(path: path)
+    }
+
+    /// Returns true only if `path` exists AND is a directory.
+    private func isValidDirectory(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
     private func loadRoot(path: String) {

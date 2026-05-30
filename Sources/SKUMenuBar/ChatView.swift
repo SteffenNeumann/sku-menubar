@@ -5108,9 +5108,15 @@ struct ChatFilePanel: View {
     @State private var searchText: String = ""
     @State private var dirWatcher: DispatchSourceFileSystemObject? = nil
     @State private var dirReloadTrigger: Int = 0
+    @State private var directoryMissing: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
+    }
+
+    private func isValidDirectory(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
     }
 
     private var filteredChildren: [ExplorerNode] {
@@ -5230,12 +5236,34 @@ struct ChatFilePanel: View {
             // Tree / search results
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    if rootNode == nil {
+                    if directoryMissing {
+                        VStack(spacing: 8) {
+                            Image(systemName: "folder.badge.questionmark")
+                                .font(.system(size: 28))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text("Ordner nicht gefunden")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.secondaryText)
+                            Text(rootPath)
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.tertiaryText)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 32)
+                        .padding(.horizontal, 12)
+                    } else if rootNode == nil {
                         ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
                     } else {
                         let nodes = filteredChildren
                         if nodes.isEmpty && !searchText.isEmpty {
                             Text("Keine Treffer")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 20)
+                        } else if nodes.isEmpty {
+                            Text("Ordner ist leer")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -5278,6 +5306,14 @@ struct ChatFilePanel: View {
     private func load() {
         guard currentRoot != rootPath else { return }
         currentRoot = rootPath
+        guard isValidDirectory(rootPath) else {
+            directoryMissing = true
+            rootNode = nil
+            selectedNode = nil
+            onSelectNode(nil)
+            return
+        }
+        directoryMissing = false
         let node = ExplorerNode(url: URL(fileURLWithPath: rootPath))
         node.loadChildren(showHidden: showHidden)
         rootNode = node
