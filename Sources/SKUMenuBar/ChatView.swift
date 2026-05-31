@@ -6472,20 +6472,23 @@ struct MessageBubbleView: View, Equatable {
 private struct BouncingDot: View {
     let color: Color
     let delay: Double
-    @State private var offsetY: CGFloat = 0
+    // KRITISCH: kein withAnimation(.repeatForever) hier — treibt 60fps flushTransactions
+    // auf der aktiven ChatView-Section (FrozenSectionLayout.isActive=true) → Layout-Loop.
+    // TimelineView(.periodic) feuert nur 10fps und triggert KEINE AnimatableAttribute-Knoten.
+    private let startDate = Date()
 
     var body: some View {
-        Circle()
-            .fill(color.opacity(0.75))
-            .frame(width: 7, height: 7)
-            .offset(y: offsetY)
-            .onAppear {
-                withAnimation(
-                    .easeInOut(duration: 0.38)
-                    .repeatForever(autoreverses: true)
-                    .delay(delay)
-                ) { offsetY = -5 }
-            }
+        TimelineView(.periodic(from: startDate, by: 1.0 / 10.0)) { ctx in
+            let raw = ctx.date.timeIntervalSince(startDate) + delay
+            let period = 0.76            // 2 × 0.38 s
+            let t = raw.truncatingRemainder(dividingBy: period) / (period / 2)
+            let tri = t <= 1.0 ? t : 2.0 - t          // Dreieckswelle 0→1→0
+            let eased = tri * tri * (3.0 - 2.0 * tri)  // smoothstep
+            Circle()
+                .fill(color.opacity(0.75))
+                .frame(width: 7, height: 7)
+                .offset(y: CGFloat(-5.0 * eased))
+        }
     }
 }
 
@@ -6529,37 +6532,35 @@ func parseDiffFiles(_ diff: String) -> [DiffFile] {
 
 private struct ResearchAnimationView: View {
     let recentTool: String
-    @State private var rotation: Double = 0
-    @State private var pulse: CGFloat = 1.0
     @Environment(\.appTheme) var theme
+    // KRITISCH: withAnimation(.repeatForever) für rotation/pulse → 60fps flushTransactions.
+    // Ersetzt durch TimelineView(.periodic): render-only, 10fps, kein AnimatableAttribute-Loop.
+    private let startDate = Date()
 
-    /// Darker burnt-amber on light/medium backgrounds for WCAG contrast; bright orange on dark.
     private var searchColor: Color { theme.statusOrange }
     private var bgOpacity: Double { (theme.isLight || theme.isMedium) ? 0.13 : 0.08 }
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .fill(searchColor.opacity(i == 0 ? 0.85 : i == 1 ? 0.5 : 0.25))
-                        .frame(width: i == 0 ? 4 : 3, height: i == 0 ? 4 : 3)
-                        .offset(y: -9)
-                        .rotationEffect(.degrees(rotation + Double(i) * 120))
+            TimelineView(.periodic(from: startDate, by: 0.1)) { ctx in
+                let elapsed = ctx.date.timeIntervalSince(startDate)
+                let rotation = (elapsed * (360.0 / 1.2)).truncatingRemainder(dividingBy: 360.0)
+                let pulsePhase = elapsed.truncatingRemainder(dividingBy: 0.9) / 0.9
+                let pulse = CGFloat(1.0 + 0.25 * abs(sin(.pi * pulsePhase)))
+                ZStack {
+                    ForEach(0..<3, id: \.self) { i in
+                        Circle()
+                            .fill(searchColor.opacity(i == 0 ? 0.85 : i == 1 ? 0.5 : 0.25))
+                            .frame(width: i == 0 ? 4 : 3, height: i == 0 ? 4 : 3)
+                            .offset(y: -9)
+                            .rotationEffect(.degrees(rotation + Double(i) * 120))
+                    }
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(searchColor)
+                        .scaleEffect(pulse)
                 }
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(searchColor)
-                    .scaleEffect(pulse)
-            }
-            .frame(width: 22, height: 22)
-            .onAppear {
-                withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
-                    rotation = 360
-                }
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                    pulse = 1.25
-                }
+                .frame(width: 22, height: 22)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text("Searching…")
@@ -6583,7 +6584,6 @@ private struct LivePlanView: View {
     let toolCalls: [ToolCall]
     let startTime: Date
     var isStreaming: Bool = false
-    @State private var pulse: Bool = false
     @Environment(\.appTheme) var theme
 
     private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
@@ -6606,11 +6606,16 @@ private struct LivePlanView: View {
                             .fill(accentColor.opacity(0.15))
                             .frame(height: 4)
                         if isThinking {
-                            // Pulsierender Balken: Agent schreibt noch
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(accentColor.opacity(pulse ? 0.55 : 0.2))
-                                .frame(width: geo.size.width, height: 4)
-                                .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: pulse)
+                            // Pulsierender Balken: Agent schreibt noch.
+                            // KRITISCH: kein .animation(.repeatForever) — treibt 60fps Layout.
+                            // TimelineView(.periodic) = 10fps, render-only.
+                            TimelineView(.periodic(from: startTime, by: 0.08)) { ctx in
+                                let elapsed = ctx.date.timeIntervalSince(startTime)
+                                let opacity = 0.2 + 0.35 * abs(sin(.pi * elapsed / 0.75))
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(accentColor.opacity(opacity))
+                                    .frame(width: geo.size.width, height: 4)
+                            }
                         } else {
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(accentColor.opacity(0.75))
@@ -6640,8 +6645,6 @@ private struct LivePlanView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 6)
-            .onAppear { pulse = true }
-            .onChange(of: isThinking) { if isThinking { pulse = true } }
 
             // Schritte-Liste
             VStack(alignment: .leading, spacing: 3) {
@@ -6814,7 +6817,6 @@ private struct AgentRunningBanner: View {
     let message: ChatMessage?   // aktuelle Streaming-Message (kann nil/leer sein)
     let startTime: Date
     let theme: AppTheme
-    @State private var pulse: Bool = false
 
     private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
 
@@ -6881,10 +6883,14 @@ private struct AgentRunningBanner: View {
                         .foregroundStyle(accentColor.opacity(0.5))
                 }
 
-                Circle()
-                    .fill(accentColor.opacity(pulse ? 0.75 : 0.2))
-                    .frame(width: 6, height: 6)
-                    .animation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true), value: pulse)
+                // KRITISCH: kein .animation(.repeatForever) → 60fps Layout-Loop.
+                TimelineView(.periodic(from: startTime, by: 0.1)) { ctx in
+                    let elapsed = ctx.date.timeIntervalSince(startTime)
+                    let opacity = 0.2 + 0.55 * abs(sin(.pi * elapsed / 0.75))
+                    Circle()
+                        .fill(accentColor.opacity(opacity))
+                        .frame(width: 6, height: 6)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
@@ -6931,7 +6937,6 @@ private struct AgentRunningBanner: View {
         }
         .background(accentColor.opacity(0.07))
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(accentColor.opacity(0.2)), alignment: .top)
-        .onAppear { pulse = true }
     }
 }
 
@@ -7178,20 +7183,23 @@ private struct SnippetRowView: View {
 
 private struct PersonaValidatingBanner: View {
     let theme: AppTheme
-    @State private var pulse = false
-
+    // KRITISCH: kein @State pulse + withAnimation(.repeatForever) → 60fps Layout-Loop.
+    // TimelineView(.periodic) = 10fps, render-only.
+    private let startDate = Date()
     private let personaColor = Color(red: 0.04, green: 0.57, blue: 0.70)
 
     var body: some View {
         HStack(spacing: 8) {
-            ZStack {
-                Circle().fill(personaColor.opacity(0.15)).frame(width: 26, height: 26)
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 11)).foregroundStyle(personaColor)
+            TimelineView(.periodic(from: startDate, by: 0.1)) { ctx in
+                let elapsed = ctx.date.timeIntervalSince(startDate)
+                let scale = CGFloat(1.0 + 0.08 * abs(sin(.pi * elapsed / 0.8)))
+                ZStack {
+                    Circle().fill(personaColor.opacity(0.15)).frame(width: 26, height: 26)
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 11)).foregroundStyle(personaColor)
+                }
+                .scaleEffect(scale)
             }
-            .scaleEffect(pulse ? 1.08 : 1.0)
-            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-            .onAppear { pulse = true }
 
             ProgressView().controlSize(.mini)
 
