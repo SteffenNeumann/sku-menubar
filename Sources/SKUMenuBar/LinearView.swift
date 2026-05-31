@@ -231,12 +231,13 @@ struct LinearView: View {
     }
 
     /// Refresh ohne Guard — für Refresh-Button und Section-Switch.
-    /// Lädt Projects + Teams neu und aktualisiert das aktuell gewählte Projekt.
+    /// Sequenziell: loadProjects setzt sessionConnected=true, loadTeams kann Verbindung wiederverwenden.
+    /// NICHT async let / parallel — beide rufen ensureConnected() auf; wenn sessionConnected noch
+    /// false ist, würden beide session.connect() aufrufen → Doppel-Connect → Hang/Crash.
     private func forceRefresh() async {
         guard configured else { await setupAndLoad(); return }
-        async let p: () = service.loadProjects()
-        async let t: () = service.loadTeams()
-        _ = await (p, t)
+        await service.loadProjects()          // stellt Verbindung her (sessionConnected→true)
+        await service.loadTeams()             // nutzt bestehende Verbindung
         if let proj = selectedProject {
             await service.loadIssues(projectId: proj.id)
             if let currentId = selectedIssue?.id {
