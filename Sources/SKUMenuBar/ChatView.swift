@@ -1301,6 +1301,8 @@ struct SingleChatSessionView: View {
                             activeDiff = diff
                         }, onAskForResult: msg.role == .assistant && !msg.toolCalls.isEmpty && !msg.isStreaming ? {
                             sendMessage(text: "Bitte teile dein abschließendes Ergebnis und deine konkreten Empfehlungen mit.")
+                        } : nil, onContinue: msg.resultSubtype == "max_turns" ? {
+                            sendMessage(text: "Bitte fahre dort fort, wo du aufgehört hast, und schließe die Aufgabe vollständig ab.")
                         } : nil)
                         .equatable()
                         .id(msg.id)
@@ -4177,7 +4179,9 @@ struct SingleChatSessionView: View {
             }
             // Inject compacted summary as system prompt if no agent prompt is set
             let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
-            let effectiveMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
+            // Agents brauchen mehr Turns für Tool-Calls; mindestens 20 wenn ein Agent aktiv ist.
+            let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
+            let effectiveMaxTurns: Int? = (effectiveAgent != nil) ? rawMaxTurns.map { max($0, 20) } : rawMaxTurns
             let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
             stream = state.cliService.send(
                 message: message,
@@ -6050,6 +6054,7 @@ struct MessageBubbleView: View, Equatable {
     let message: ChatMessage
     var onDiffTap: ((String) -> Void)?
     var onAskForResult: (() -> Void)?
+    var onContinue: (() -> Void)?
     @Environment(\.appTheme) var theme
     @State private var toolsExpanded: Bool = false
     @State private var dot0Up: Bool = false
@@ -6365,13 +6370,26 @@ struct MessageBubbleView: View, Equatable {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.green.opacity(0.6))
             } else if message.resultSubtype == "max_turns" {
-                // Agent hat Turn-Limit erreicht — kein Fehler, nur Hinweis
+                // Agent hat Turn-Limit erreicht — kein Fehler, Hinweis + Weiter-Button
                 Image(systemName: "arrow.trianglehead.2.clockwise")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.blue.opacity(0.55))
                 Text("Max. Turns")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.blue.opacity(0.5))
+                if let cont = onContinue {
+                    Button {
+                        cont()
+                    } label: {
+                        Text("Weiter →")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.6), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Aufgabe in derselben Session fortsetzen")
+                }
             } else if message.resultSubtype == "error" {
                 // Echter Fehler
                 Image(systemName: "exclamationmark.triangle")
