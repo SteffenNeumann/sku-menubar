@@ -157,7 +157,7 @@ struct LinearView: View {
             issueColumn
                 .frame(width: colWidthIssue)
 
-            PanelResizeHandle(width: $colWidthIssue, minWidth: 220, maxWidth: 500, growsRight: true, drawsLine: false)
+            PanelResizeHandle(width: $colWidthIssue, minWidth: 320, maxWidth: 500, growsRight: true, drawsLine: false)
                 .frame(width: 1)
 
             // Col 3 — Detail
@@ -165,6 +165,10 @@ struct LinearView: View {
                 .frame(maxWidth: .infinity)
         }
         .background(theme.windowBg)
+        .onAppear {
+            // Clamp saved column width in case it was stored before minWidth was raised
+            if colWidthIssue < 320 { colWidthIssue = 320 }
+        }
         .task {
             await setupAndLoad()
         }
