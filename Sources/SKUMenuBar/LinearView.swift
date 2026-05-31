@@ -136,6 +136,7 @@ struct LinearView: View {
     @State private var deleteError: String? = nil
     @State private var showDeleteError = false
     @State private var lastLinearRefresh: Date = .distantPast
+    @State private var hideSubIssues = false
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -594,6 +595,39 @@ struct LinearView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+
+                // Sub-Issues toggle chip
+                Button {
+                    hideSubIssues.toggle()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.turn.right.up")
+                            .font(.system(size: 9))
+                            .foregroundStyle(hideSubIssues ? linearPurple : theme.tertiaryText)
+                        Text("Sub-Issues")
+                            .font(.system(size: 10, weight: hideSubIssues ? .semibold : .medium))
+                            .foregroundStyle(hideSubIssues ? theme.primaryText : theme.tertiaryText)
+                        if hideSubIssues {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundStyle(linearPurple)
+                        }
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(hideSubIssues ? linearPurple.opacity(0.08) : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(
+                                        hideSubIssues ? linearPurple.opacity(0.35) : theme.cardBorder.opacity(0.6),
+                                        lineWidth: 0.5
+                                    )
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
 
                 Spacer()
             }
@@ -1445,12 +1479,13 @@ struct LinearView: View {
     private var filteredIssues: [LinearIssue] {
         let all = selectedProject.flatMap { service.issues[$0.id] } ?? []
         return all.filter { issue in
-            let matchesPriority = filterPriority == nil || issue.priority == filterPriority
-            let matchesStatus   = filterStatus == nil || issue.state?.id == filterStatus
-            let matchesSearch   = searchText.isEmpty
+            let matchesPriority  = filterPriority == nil || issue.priority == filterPriority
+            let matchesStatus    = filterStatus == nil || issue.state?.id == filterStatus
+            let matchesSearch    = searchText.isEmpty
                 || issue.title.localizedCaseInsensitiveContains(searchText)
                 || issue.identifier.localizedCaseInsensitiveContains(searchText)
-            return matchesPriority && matchesStatus && matchesSearch
+            let matchesSubFilter = !hideSubIssues || issue.parentId == nil
+            return matchesPriority && matchesStatus && matchesSearch && matchesSubFilter
         }
     }
 
