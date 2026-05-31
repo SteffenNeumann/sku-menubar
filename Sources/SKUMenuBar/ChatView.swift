@@ -2940,10 +2940,22 @@ struct SingleChatSessionView: View {
 
         streamingTask = Task { @MainActor in
             // LLM-basierte Agent-Auswahl: Haiku bestimmt WELCHE Agents relevant sind
-            let selectedAgents = await selectRelevantAgents(text, agents: workAgents)
+            let haikuAgents = await selectRelevantAgents(text, agents: workAgents)
             guard !Task.isCancelled else {
                 if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
                 isStreaming = false; return
+            }
+
+            // Trigger-Keywords als zweites Signal: Trigger-gematchte Agents immer einschließen.
+            // Warum: isComplexTask() feuert VOR der Trigger-Prüfung → Trigger-Badge zeigt aber
+            // Agent wird ignoriert. Durch Merge wird der Trigger-Agent garantiert berücksichtigt.
+            let triggerAgents = workAgents.filter { agent in
+                !agent.effectiveTriggers.isEmpty &&
+                agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
+            }
+            var selectedAgents = haikuAgents
+            for ta in triggerAgents where !selectedAgents.contains(where: { $0.id == ta.id }) {
+                selectedAgents.insert(ta, at: 0)  // Trigger-Agent vorne → höhere Priorität
             }
 
             if selectedAgents.count >= 2 {
