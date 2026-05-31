@@ -630,10 +630,9 @@ struct LinearView: View {
         let isSubtask = issue.parentId != nil
 
         return Button {
-            let target = issue
             showStatusPopover = false
             showPriorityPopover = false
-            DispatchQueue.main.async { selectedIssue = target }
+            selectedIssue = issue   // synchronous — same render pass as popover close
         } label: {
             HStack(alignment: .center, spacing: 0) {
                 // Subtask indent + vertical bar
@@ -736,6 +735,7 @@ struct LinearView: View {
         Group {
             if let issue = selectedIssue {
                 issueDetail(issue)
+                    .id(issue.id)   // force full recreation on issue switch — prevents stale content
             } else {
                 VStack(spacing: 12) {
                     LinearLogoShape()
@@ -829,10 +829,9 @@ struct LinearView: View {
                         if let parentId = issue.parentId,
                            let projId = selectedProject?.id,
                            let parent = service.issues[projId]?.first(where: { $0.id == parentId }) {
-                            let target = parent
                             showStatusPopover = false
                             showPriorityPopover = false
-                            DispatchQueue.main.async { selectedIssue = target }
+                            selectedIssue = parent  // synchronous
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -916,10 +915,9 @@ struct LinearView: View {
 
                         ForEach(subs) { sub in
                             Button {
-                                let target = sub
                                 showStatusPopover = false
                                 showPriorityPopover = false
-                                DispatchQueue.main.async { selectedIssue = target }
+                                selectedIssue = sub  // synchronous
                             } label: {
                                 HStack(spacing: 8) {
                                     RoundedRectangle(cornerRadius: 1)
@@ -1403,7 +1401,7 @@ struct LinearView: View {
             }
             service.issues = snapshot
             if selectedIssue?.id == issue.id {
-                DispatchQueue.main.async { self.selectedIssue = nil }
+                selectedIssue = nil
             }
         } catch {
             deleteError = error.localizedDescription
