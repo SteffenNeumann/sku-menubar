@@ -3000,11 +3000,11 @@ struct SingleChatSessionView: View {
                 let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
                 let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
 
-                // C1-Fix: attachedFiles temporär wiederherstellen damit buildMessageWithAttachments
-                // die Datei-Inhalte inline einbetten kann (attachedFiles wurde oben geleert)
-                attachedFiles = sentFiles
-                let fullMessage = buildMessageWithAttachments(text: text, forGitHub: false)
-                attachedFiles = []
+                // MarkItDown: binary files konvertieren, dann Message aufbauen
+                let markdownCache = await buildMarkItDownCache(from: sentFiles)
+                let fullMessage = buildMessageWithAttachments(text: text, files: sentFiles,
+                                                              forGitHub: false,
+                                                              markdownCache: markdownCache)
 
                 // Agent-Modell nutzen wenn gesetzt (sonst Default/Fallback)
                 let baseModel = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
@@ -3640,16 +3640,60 @@ struct SingleChatSessionView: View {
     }
 
     /// Builds the text message for the AI. Images are handled separately via buildImageAttachments().
-    private func buildMessageWithAttachments(text: String, forGitHub: Bool = false) -> String {
-        guard !attachedFiles.isEmpty else { return text }
+    // MARK: - MarkItDown helpers
+
+    /// Runs /opt/homebrew/bin/markitdown on a file in a background thread and returns Markdown.
+    private func markItDownConvert(url: URL) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/markitdown")
+                process.arguments = [url.path]
+                let outPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError = Pipe()
+                do {
+                    try process.launch()
+                    process.waitUntilExit()
+                    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let text = String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(returning: text.flatMap { $0.isEmpty ? nil : $0 })
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Pre-converts all MarkItDown-target files in parallel and returns a [URL: Markdown] cache.
+    private func buildMarkItDownCache(from files: [AttachedFile]) async -> [URL: String] {
+        var cache: [URL: String] = [:]
+        await withTaskGroup(of: (URL, String?).self) { group in
+            for file in files where file.isMarkItDownTarget {
+                group.addTask { (file.url, await self.markItDownConvert(url: file.url)) }
+            }
+            for await (url, markdown) in group {
+                if let md = markdown { cache[url] = md }
+            }
+        }
+        return cache
+    }
+
+    private func buildMessageWithAttachments(text: String, files: [AttachedFile],
+                                             forGitHub: Bool = false,
+                                             markdownCache: [URL: String] = [:]) -> String {
+        guard !files.isEmpty else { return text }
 
         var parts: [String] = []
 
-        // Threshold: files larger than 10 KB are passed by path reference instead of inline
+        // Threshold: text files larger than 10 KB are passed by path reference instead of inline
         // to avoid stdin overflow in long sessions with --resume.
         let inlineLimit = 10_240
+        // MarkItDown output is text — allow up to 50 KB inline before truncating
+        let markdownLimit = 50_000
 
-        for file in attachedFiles {
+        for file in files {
             if file.isText, let content = try? String(contentsOf: file.url, encoding: .utf8) {
                 if content.utf8.count <= inlineLimit {
                     let ext = file.url.pathExtension.lowercased()
@@ -3677,11 +3721,17 @@ struct SingleChatSessionView: View {
                 }
             } else if file.isImage {
                 if forGitHub {
-                    // GitHub Models: image data sent separately as base64 — just mention name in text
                     parts.append("[Bild: \(file.name)]")
                 } else {
-                    // Claude CLI: ask Claude to read the image file via its tools
                     parts.append("[Bild angehängt: \(file.name), Pfad: \(file.url.path)\nBitte analysiere dieses Bild.]")
+                }
+            } else if let markdown = markdownCache[file.url] {
+                // MarkItDown-konvertierter Inhalt (DOCX, PPTX, XLSX, EPUB, …)
+                if markdown.utf8.count <= markdownLimit {
+                    parts.append("**\(file.name)** (via MarkItDown):\n\n\(markdown)")
+                } else {
+                    let truncated = String(markdown.prefix(markdownLimit))
+                    parts.append("**\(file.name)** (via MarkItDown, gekürzt auf \(markdownLimit/1000) KB):\n\n\(truncated)\n\n[… weiterer Inhalt unter: `\(file.url.path)`]")
                 }
             } else {
                 parts.append("**\(file.name)** (Pfad: `\(file.url.path)`)")
@@ -4026,11 +4076,6 @@ struct SingleChatSessionView: View {
         let isGitHub = (state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
             ? state.settings.copilotFallbackModel
             : selectedModel).hasPrefix("github/")
-        let fullMessage = buildMessageWithAttachments(text: text, forGitHub: isGitHub)
-        guard !fullMessage.isEmpty else {
-            errorMessage = "Nachricht ist leer — bitte Text eingeben oder Datei anhängen."
-            return
-        }
         inputText = ""
         let sentFiles = attachedFiles
         attachedFiles = []
@@ -4076,6 +4121,11 @@ struct SingleChatSessionView: View {
         }
 
         streamingTask = Task { @MainActor in
+            // MarkItDown: binary files (DOCX, XLSX, PPTX, EPUB, …) vor dem Send konvertieren
+            let markdownCache = await buildMarkItDownCache(from: sentFiles)
+            let fullMessage = buildMessageWithAttachments(text: text, files: sentFiles,
+                                                          forGitHub: isGitHub,
+                                                          markdownCache: markdownCache)
             // Collect dirs from all attached files (images + large text/PDF files passed by path)
             let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
             let imageAttachments = buildImageAttachments(from: sentFiles)
