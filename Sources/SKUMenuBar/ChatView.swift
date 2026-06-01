@@ -324,7 +324,9 @@ struct SingleChatSessionView: View {
 
     /// Returns the first agent whose effectiveTriggers match `text`.
     private func autoTriggerAgent(for text: String) -> AgentDefinition? {
-        guard selectedAgent.isEmpty, !text.isEmpty else { return nil }
+        // Im laufenden Orchestrator-Kontext niemals feuern — ein Follow-Up-Keyword
+        // (z.B. "Status") würde sonst zufällig einen falschen Agent einspringen lassen.
+        guard selectedAgent.isEmpty, !text.isEmpty, orchestratorHistory.isEmpty else { return nil }
         return state.agentService.agents.first { agent in
             agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
         }
@@ -3090,8 +3092,9 @@ struct SingleChatSessionView: View {
                 effectiveAddDirs.insert(wd, at: 0)
             }
             // Orchestrator-Agents brauchen genug Turns für MCP-Tool-Aufrufe (Make/Linear).
-            // settings.maxTurns gilt für normale Einzel-Chats; hier mindestens 15 Turns garantieren.
-            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 15) : nil
+            // settings.maxTurns gilt für normale Einzel-Chats; hier mindestens 30 Turns garantieren
+            // damit Agents mit vielen Tool-Calls (z.B. Linear-Analyse) nicht vorzeitig abbrechen.
+            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 30) : nil
 
             // ── Kontext aufbauen (Fix B: Chat-History erhalten) ──────────
             let priorContext: String
@@ -3325,6 +3328,8 @@ struct SingleChatSessionView: View {
                 setTodoStatus(for: agent.name, to: .active)
                 let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
+                // Agent-Name im Bubble-Header anzeigen (statt nur "⚙️ Agents")
+                messages[progressIdx].agentName = agent.name
 
                 var contextParts: [String] = []
 
@@ -3490,6 +3495,8 @@ struct SingleChatSessionView: View {
             } else {
                 if let first = agentOutputs.first {
                     var singleMsg = ChatMessage(role: .assistant, content: first.output)
+                    // agentName setzen damit der Agent-Badge (farbig, person.fill) erscheint — nicht nur model-Label
+                    singleMsg.agentName = first.name
                     singleMsg.model = first.name
                     messages.append(singleMsg)
                     orchestratorHistory.append((role: first.name, content: first.output.prefix(1000).description))
@@ -4067,7 +4074,14 @@ struct SingleChatSessionView: View {
             let intent = classifyFollowUp(routingText)
             switch intent {
             case .chat:
-                break  // Fall-through zum Einzelagent-Pfad (einfache Antwort/Danke)
+                // Im manuellen Orchestrator-Modus niemals auf den modellosen Single-Agent-Pfad fallen —
+                // dort würde kein Agent gesetzt und die Antwort erscheint als "Claude sonnet-4-x".
+                // Schnell-Orchestrierung (skipAnalysis) liefert Kontext-bewusstes Ergebnis mit Agent-Badge.
+                if orchestratorMode {
+                    sendOrchestrator(skipAnalysis: true)
+                    return
+                }
+                break  // Fall-through zum Einzelagent-Pfad (einfache Antwort/Danke ohne Orchestrator)
             case .fast:
                 sendOrchestrator(skipAnalysis: true); return
             case .full:
@@ -4267,12 +4281,24 @@ struct SingleChatSessionView: View {
             }
             // Inject compacted summary as system prompt if no agent prompt is set
             let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
+            // zugang.md für Agent-Runs: Credentials/Zugangsdaten in die Nachricht prependen.
+            // Funktioniert bei fresh UND resumed Sessions (message-Ebene, nicht nur system-prompt).
+            var finalMessage = message
+            if effectiveAgent != nil {
+                let zugangContext: String? = workingDirectory.flatMap { wd in
+                    let path = (wd as NSString).appendingPathComponent("zugang.md")
+                    return try? String(contentsOfFile: path, encoding: .utf8)
+                }.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                if let zk = zugangContext {
+                    finalMessage = "━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + message
+                }
+            }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 20 wenn ein Agent aktiv ist.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
             let effectiveMaxTurns: Int? = (effectiveAgent != nil) ? rawMaxTurns.map { max($0, 20) } : rawMaxTurns
             let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
             stream = state.cliService.send(
-                message: message,
+                message: finalMessage,
                 sessionId: currentSessionId,
                 systemPrompt: effectiveSystemPrompt,
                 model: model,
