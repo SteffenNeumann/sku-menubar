@@ -298,12 +298,25 @@ final class AppState: ObservableObject {
     private func load() {
         guard
             let d = ud.data(forKey: key),
-            let s = try? JSONDecoder().decode(GitHubSettings.self, from: d)
-        else { return }
+            var s = try? JSONDecoder().decode(GitHubSettings.self, from: d)
+        else {
+            // Still restore token even if JSON load fails
+            let kc = KeychainHelper.load(key: "tmetricApiToken")
+            if !kc.isEmpty { settings.tmetricApiToken = kc }
+            return
+        }
+        // Keychain wins; migrate from JSON if Keychain empty
+        let keychainToken = KeychainHelper.load(key: "tmetricApiToken")
+        if !keychainToken.isEmpty {
+            s.tmetricApiToken = keychainToken
+        } else if !s.tmetricApiToken.isEmpty {
+            KeychainHelper.save(s.tmetricApiToken, key: "tmetricApiToken")
+        }
         settings = s
     }
 
     private func persist() {
+        KeychainHelper.save(settings.tmetricApiToken, key: "tmetricApiToken")
         if let d = try? JSONEncoder().encode(settings) {
             ud.set(d, forKey: key)
         }
