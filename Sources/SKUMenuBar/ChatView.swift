@@ -3069,8 +3069,22 @@ struct SingleChatSessionView: View {
 
         streamingTask = Task { @MainActor in
 
-            // ── Gemeinsame Infrastruktur: MCP + addDirs (Fix A) ──────────
+            // ── Gemeinsame Infrastruktur: MCP + addDirs ──────────────────
+            // requiredMCPs aller beteiligten Agents temporär in activeMCPIds mergen,
+            // damit z.B. project-manager sein Linear-MCP bekommt auch wenn es im Tab
+            // nicht manuell aktiviert wurde.
+            let requiredMCPNames = Set(agents.flatMap { $0.requiredMCPs })
+            let savedMCPIds = activeMCPIds
+            if !requiredMCPNames.isEmpty {
+                let requiredIds = Set(availableMCPs.filter { requiredMCPNames.contains($0.name) }.map(\.id))
+                if activeMCPIds == Set(["__none__"]) {
+                    activeMCPIds = requiredIds          // War "alle aus" → nur Required
+                } else {
+                    activeMCPIds.formUnion(requiredIds) // Zu bestehender Auswahl addieren
+                }
+            }
             let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
+            activeMCPIds = savedMCPIds                 // UI-Zustand wiederherstellen
             var effectiveAddDirs = fileDirs
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
                 effectiveAddDirs.insert(wd, at: 0)
@@ -3284,6 +3298,13 @@ struct SingleChatSessionView: View {
             lastAgentTasks = agentTasks
 
             // ── Phase 2: Execution mit Master-Plan-Kontext-Anker ──────────
+            // zugang.md aus Arbeitsverzeichnis vorab einlesen — Credentials & Zugangsdaten
+            // werden in jeden Agent-Kontext injiziert, damit Agents nicht selbst suchen müssen.
+            let zugangContext: String? = workingDirectory.flatMap { wd in
+                let path = (wd as NSString).appendingPathComponent("zugang.md")
+                return try? String(contentsOfFile: path, encoding: .utf8)
+            }.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+
             var agentOutputs: [(name: String, output: String)] = []
             var progressMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
             progressMsg.model = "⚙️ Agents"
@@ -3306,6 +3327,11 @@ struct SingleChatSessionView: View {
                 messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
 
                 var contextParts: [String] = []
+
+                // Zugangsdaten voranstellen (höchste Priorität — muss Agent sofort sehen)
+                if let zk = zugangContext {
+                    contextParts.append("━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
 
                 let planAnchor = formatMasterPlanText()
                 contextParts.append("══════ MASTER PLAN — Kontext-Anker ══════\n\(planAnchor)\n══════════════════════════════════════")
