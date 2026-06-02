@@ -262,6 +262,11 @@ struct SingleChatSessionView: View {
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
+    // Solo-Orchestrator-Agent Session — für nahtlose Follow-Up-Continuity
+    // Wenn ein Einzel-Agent im Orchestrator läuft und nachfragt, soll die Antwort
+    // in DERSELBEN CLI-Session landen (nicht als fresh-session starten).
+    @State private var lastOrchestratorSoloAgentId: String? = nil
+    @State private var lastOrchestratorSoloSessionId: String? = nil
     // Agent-Bestätigungs-Banner (Auto-Orchestrierung pausiert bis Nutzer bestätigt/ändert)
     @State private var pendingAutoAgents: [AgentDefinition] = []
     @State private var pendingAutoConfirmText: String = ""
@@ -3463,6 +3468,11 @@ struct SingleChatSessionView: View {
             }.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
 
             var agentOutputs: [(name: String, output: String)] = []
+            // Bei mehreren Agents: alten Solo-Kontext löschen (kein weiteres Follow-Up in alter Session)
+            if agents.count > 1 {
+                lastOrchestratorSoloAgentId   = nil
+                lastOrchestratorSoloSessionId = nil
+            }
             var progressMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
             progressMsg.model = "⚙️ Agents"
             messages.append(progressMsg)
@@ -3524,6 +3534,7 @@ struct SingleChatSessionView: View {
 
                 let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent)
                 var agentOutput = ""
+                var capturedAgentSessionId: String? = nil   // Session-ID für Follow-Up-Continuity
 
                 let stream = state.cliService.send(
                     message: agentMessage,
@@ -3540,6 +3551,10 @@ struct SingleChatSessionView: View {
                 do {
                     for try await event in stream {
                         guard !Task.isCancelled else { break }
+                        // Session-ID beim ersten Event erfassen (für Kontext-Continuity bei Nachfragen)
+                        if let sid = event.sessionId, capturedAgentSessionId == nil {
+                            capturedAgentSessionId = sid
+                        }
                         switch event.type {
                         case "assistant":
                             guard let content = event.message?.content else { break }
@@ -3553,6 +3568,11 @@ struct SingleChatSessionView: View {
                     agentOutput += "\n⚠️ \(error.localizedDescription)"
                 }
                 agentOutputs.append((name: agent.name, output: agentOutput))
+                // Für Solo-Agent: Session-ID merken für Kontext-Continuity bei Follow-Ups
+                if agents.count == 1 {
+                    lastOrchestratorSoloAgentId  = agent.id
+                    lastOrchestratorSoloSessionId = capturedAgentSessionId
+                }
 
                 setTodoStatus(for: agent.name, to: .done)
 
@@ -4235,7 +4255,13 @@ struct SingleChatSessionView: View {
                     sendOrchestrator(skipAnalysis: true)
                     return
                 }
-                break  // Fall-through zum Einzelagent-Pfad (einfache Antwort/Danke ohne Orchestrator)
+                // Solo-Orchestrator-Agent hat nachgefragt → Antwort in DERSELBEN CLI-Session fortsetzen.
+                // Ohne diese Wiederherstellung: autoTriggerAgent() liefert nil (orchestratorHistory-Guard),
+                // kein Agent wird gesetzt, die Session-ID fehlt → Agent antwortet ohne Kontext.
+                if let soloSessionId = lastOrchestratorSoloSessionId {
+                    currentSessionId = soloSessionId   // CLI-Session wiederverwenden
+                }
+                break  // Fall-through zum Einzelagent-Pfad (performSend mit soloAgent)
             case .fast:
                 sendOrchestrator(skipAnalysis: true); return
             case .full:
@@ -4302,10 +4328,11 @@ struct SingleChatSessionView: View {
         isStreaming = true; streamingStartTime = Date()
 
         // Bei einfacher Anfrage mit Orchestrator-Auswahl → besten gewählten Agent nehmen
-        // Sonst: Trigger-Keywords prüfen
+        // Sonst: Trigger-Keywords prüfen; Fallback auf letzten Solo-Orchestrator-Agent
+        // (autoTriggerAgent() ist im Orchestrator-Kontext gesperrt → Solo-Agent explizit übergeben)
         let triggerAgent: String? = orchestratorMode
             ? selectedOrchestrators.first
-            : autoTriggerAgent(for: text)?.id
+            : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId)
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
