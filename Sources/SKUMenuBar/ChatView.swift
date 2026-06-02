@@ -262,6 +262,11 @@ struct SingleChatSessionView: View {
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
+    // Agent-Bestätigungs-Banner (Auto-Orchestrierung pausiert bis Nutzer bestätigt/ändert)
+    @State private var pendingAutoAgents: [AgentDefinition] = []
+    @State private var pendingAutoConfirmText: String = ""
+    @State private var pendingAutoSentFiles: [AttachedFile] = []
+    @State private var pendingAutoRoutingIdx: Int? = nil
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -447,20 +452,26 @@ struct SingleChatSessionView: View {
         let agentList = workers.enumerated().map { "\($0.offset + 1). \($0.element.name): \($0.element.description.prefix(100))" }.joined(separator: "\n")
         let agentNames = workers.map { $0.name }
         let prompt = """
-        Which of these specialists are RELEVANT for this task? List ONLY the names of specialists who can meaningfully contribute — not all of them.
+        Which specialists are DIRECTLY needed for this task? Be very selective — prefer 1–2 focused experts over broad coverage.
+
+        STRICT RULES:
+        - Maximum 3 specialists (hard limit)
+        - Only include a specialist if they have a CLEAR, SPECIFIC role in this task
+        - If 1 specialist suffices, return only 1
+        - Do NOT include specialists just because the task vaguely touches their domain
 
         Available specialists:
         \(agentList)
 
         User request: \(text)
 
-        Reply with ONLY the relevant specialist names, one per line. If only one specialist is needed, reply with just that one name.
+        Reply with ONLY the specialist names, one per line. Fewer is better.
         """
 
         var result = ""
         let stream = state.cliService.send(
             message: prompt,
-            systemPrompt: "List relevant specialist names, one per line. Nothing else.",
+            systemPrompt: "List specialist names, one per line. Maximum 3. Nothing else.",
             model: "claude-haiku-4-5-20251001",
             workingDirectory: workingDirectory
         )
@@ -484,11 +495,14 @@ struct SingleChatSessionView: View {
             }
         }
 
-        print("🔍 Auto-Orch: Haiku wählte \(matched.map { $0.name }) aus \(agentNames)")
+        // Hard-Cap: maximal 4 Agents auch wenn Haiku mehr zurückgibt
+        let capped = Array(matched.prefix(4))
+
+        print("🔍 Auto-Orch: Haiku wählte \(capped.map { $0.name }) aus \(agentNames)")
 
         // Gibt die Treffer zurück (0, 1 oder mehr). Caller entscheidet:
         //   ≥2 → Orchestrierung; ==1 → Einzelagent mit diesem Spezialisten; ==0 → generischer Einzelagent
-        return matched
+        return capped
     }
 
     private func closeAllPickers() {
@@ -1759,12 +1773,106 @@ struct SingleChatSessionView: View {
             // ─── Word count / routing feedback badge ───
             orchestratorRoutingBadge
 
+            // ─── Agent-Bestätigungs-Banner (Auto-Orchestrierung) ───
+            if !pendingAutoAgents.isEmpty {
+                agentConfirmationBanner
+            }
+
             // ─── Subtle control strip ───
             controlStrip
         }
         .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
+    }
+
+    // MARK: - Agent-Bestätigungs-Banner
+
+    @ViewBuilder
+    private var agentConfirmationBanner: some View {
+        VStack(spacing: 0) {
+            // Trennlinie oben
+            Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+            VStack(alignment: .leading, spacing: 7) {
+                // Chips-Zeile
+                HStack(spacing: 6) {
+                    Text("Agents:")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            ForEach(pendingAutoAgents) { agent in
+                                HStack(spacing: 3) {
+                                    Text(agent.name)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(accentColor)
+                                    Button {
+                                        pendingAutoAgents.removeAll { $0.id == agent.id }
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(theme.secondaryText)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(accentColor.opacity(0.1), in: Capsule())
+                                .overlay(Capsule().strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                            }
+
+                            if pendingAutoAgents.isEmpty {
+                                Text("Keine Agents ausgewählt")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                            }
+                        }
+                    }
+                }
+
+                // Aktions-Zeile
+                HStack {
+                    Button("✕ Abbrechen") {
+                        cancelPendingOrchestration()
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText)
+                    .buttonStyle(.plain)
+                    .help("Orchestrierung verwerfen")
+
+                    Spacer()
+
+                    Text(pendingAutoAgents.isEmpty
+                         ? "Keinen Agent gewählt — bitte mindestens einen lassen"
+                         : "\(pendingAutoAgents.count) Agent\(pendingAutoAgents.count == 1 ? "" : "s")")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+
+                    Button {
+                        startConfirmedOrchestration()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Starten")
+                                .font(.system(size: 11, weight: .semibold))
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(pendingAutoAgents.isEmpty
+                                    ? Color.gray.opacity(0.4)
+                                    : accentColor,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(pendingAutoAgents.isEmpty)
+                    .help("Orchestrierung mit diesen Agents starten")
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(accentColor.opacity(0.05))
+        }
     }
 
     // MARK: - Active picker panel (rendered at inputBar level, not inside ScrollView)
@@ -2961,21 +3069,20 @@ struct SingleChatSessionView: View {
             }
 
             if selectedAgents.count >= 2 {
-                // ── ≥2 relevante Agents → Orchestrierung ──────────────────────
+                // ── ≥2 relevante Agents → Bestätigungs-Banner zeigen ─────────
+                // Nutzer kann Agents anpassen bevor Phase 0/1/2 startet
                 let agentNames = selectedAgents.map { $0.name }.joined(separator: ", ")
                 if messages.indices.contains(routingIdx) {
-                    messages[routingIdx].content = "🤖 **Auto-Orchestrierung** — \(agentNames)"
+                    messages[routingIdx].content = "🤖 **Vorgeschlagene Agents** — \(agentNames)"
                     messages[routingIdx].isStreaming = false
                     messages[routingIdx].finishedCleanly = true
                 }
-                // User-Msg entfernen (sendOrchestrator fügt sie selbst hinzu)
-                if let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) {
-                    messages.remove(at: lastUserIdx)
-                }
-                inputText = text
-                attachedFiles = sentFiles
+                // Bestätigungs-Zustand speichern; Banner erscheint in der InputBar
+                pendingAutoAgents = selectedAgents
+                pendingAutoConfirmText = text
+                pendingAutoSentFiles = sentFiles
+                pendingAutoRoutingIdx = routingIdx
                 isStreaming = false
-                sendOrchestrator(autoAgentList: selectedAgents)
             } else {
                 // ── 0–1 relevante Agents → Einzelagent ────────────────────────
                 // Bei genau 1 Treffer DEN Spezialisten verwenden (sein System-Prompt + MCP),
@@ -3023,6 +3130,53 @@ struct SingleChatSessionView: View {
                     cliImagePaths: imgPaths
                 )
             }
+        }
+    }
+
+    // MARK: - Agent-Bestätigung (Auto-Orchestrierung Confirmation Banner)
+
+    /// Startet die Orchestrierung mit den bestätigten (ggf. angepassten) Agents.
+    private func startConfirmedOrchestration() {
+        let agents = pendingAutoAgents
+        let text   = pendingAutoConfirmText
+        let files  = pendingAutoSentFiles
+        let ridx   = pendingAutoRoutingIdx
+
+        // Zustand zurücksetzen bevor sendOrchestrator startet
+        pendingAutoAgents       = []
+        pendingAutoConfirmText  = ""
+        pendingAutoSentFiles    = []
+        pendingAutoRoutingIdx   = nil
+
+        // Routing-Bubble entfernen (sendOrchestrator baut seinen eigenen Header)
+        if let ridx, messages.indices.contains(ridx) {
+            messages.remove(at: ridx)
+        }
+        // User-Message entfernen (sendOrchestrator fügt sie selbst hinzu)
+        if let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) {
+            messages.remove(at: lastUserIdx)
+        }
+
+        inputText    = text
+        attachedFiles = files
+        sendOrchestrator(autoAgentList: agents)
+    }
+
+    /// Verwirft die ausstehende Auto-Orchestrierung und räumt Bubbles auf.
+    private func cancelPendingOrchestration() {
+        let ridx = pendingAutoRoutingIdx
+        pendingAutoAgents       = []
+        pendingAutoConfirmText  = ""
+        pendingAutoSentFiles    = []
+        pendingAutoRoutingIdx   = nil
+
+        // Routing-Bubble entfernen
+        if let ridx, messages.indices.contains(ridx) {
+            messages.remove(at: ridx)
+        }
+        // User-Message entfernen
+        if let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) {
+            messages.remove(at: lastUserIdx)
         }
     }
 
