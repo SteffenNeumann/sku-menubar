@@ -201,14 +201,14 @@ extension AppTheme {
 
     // ── Grey Shades ──────────────────────────────────────────────────────────
 
-    // IC Orange PPL — dunkles Orange-Schwarz (R>>B, gleiche Helligkeit wie Basalt)
+    // IC Orange PPL — #2E2C29 Sidebar / #262626 Content / #F1C17D Gold-Akzent
     static let eclipse = AppTheme(
         id: "eclipse", name: "IC Orange PPL",
-        bgTopR: 38,  bgTopG: 28,  bgTopB: 18,  bgTopA: 1.0,
-        bgBotR: 26,  bgBotG: 18,  bgBotB: 10,  bgBotA: 1.0,
+        bgTopR: 46,  bgTopG: 44,  bgTopB: 41,  bgTopA: 1.0,
+        bgBotR: 38,  bgBotG: 38,  bgBotB: 38,  bgBotA: 1.0,
         glowEnabled: false,
-        acR: 249, acG: 115, acB: 22,
-        acTextR: 251, acTextG: 146, acTextB: 60,
+        acR: 241, acG: 193, acB: 125,
+        acTextR: 235, acTextG: 170, acTextB: 90,
         isLight: false
     )
     // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
