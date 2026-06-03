@@ -201,14 +201,14 @@ extension AppTheme {
 
     // ── Grey Shades ──────────────────────────────────────────────────────────
 
-    // Eclipse — ultra-tief, kühl, blau-grau (Linear/Vercel-Stil)
+    // IC Orange PPL — tiefes Charcoal-Schwarz, knalliges Orange
     static let eclipse = AppTheme(
-        id: "eclipse", name: "Eclipse",
-        bgTopR: 17,  bgTopG: 17,  bgTopB: 19,  bgTopA: 1.0,
-        bgBotR: 8,   bgBotG: 8,   bgBotB: 11,  bgBotA: 1.0,
+        id: "eclipse", name: "IC Orange PPL",
+        bgTopR: 22,  bgTopG: 18,  bgTopB: 14,  bgTopA: 1.0,
+        bgBotR: 12,  bgBotG: 9,   bgBotB: 6,   bgBotA: 1.0,
         glowEnabled: false,
-        acR: 124, acG: 124, acB: 138,
-        acTextR: 145, acTextG: 145, acTextB: 160,
+        acR: 249, acG: 115, acB: 22,
+        acTextR: 251, acTextG: 146, acTextB: 60,
         isLight: false
     )
     // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
