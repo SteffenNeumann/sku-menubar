@@ -5329,8 +5329,8 @@ extension SingleChatSessionView {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 2) {
                     if hasTodos {
-                        ForEach(masterTodos) { item in
-                            masterTodoRow(item)
+                        ForEach(Array(masterTodos.enumerated()), id: \.element.id) { index, item in
+                            masterTodoRow(item, isLastInGroup: isLastChild(at: index))
                         }
                     } else if hasContent {
                         // Phase 1: Plan streamt gerade
@@ -5361,66 +5361,115 @@ extension SingleChatSessionView {
 
     // MARK: - Master Todo Row
 
+    // Hilfsfunktion: ist item[index] das letzte Kind vor dem nächsten Level-0 (oder Ende)?
+    private func isLastChild(at index: Int) -> Bool {
+        guard index < masterTodos.count, masterTodos[index].level == 1 else { return false }
+        if index + 1 >= masterTodos.count { return true }
+        return masterTodos[index + 1].level == 0
+    }
+
+    // Dot-Farbe nach Status
+    private func todoDotColor(for item: MasterTodoItem) -> Color {
+        switch item.status {
+        case .done:    return .green
+        case .active:  return accentColor
+        case .blocked: return .red
+        default:       return Color(white: theme.isLight ? 0.5 : 0.55)
+        }
+    }
+
     @ViewBuilder
-    private func masterTodoRow(_ item: MasterTodoItem) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            if item.level > 0 {
-                Spacer().frame(width: 14)
-            }
+    private func masterTodoRow(_ item: MasterTodoItem, isLastInGroup: Bool = false) -> some View {
+        if item.level == 0 {
+            // ── Kategorie-Header ─────────────────────────────────────
+            HStack(alignment: .center, spacing: 9) {
+                // Gefüllter Kreis als Knoten-Indikator
+                Circle()
+                    .fill(todoDotColor(for: item))
+                    .frame(width: 8, height: 8)
 
-            // Status-Icon
-            Group {
-                switch item.status {
-                case .pending:
-                    Image(systemName: item.level == 0 ? "folder" : "square")
-                        .foregroundStyle(item.level == 0
-                            ? Color.orange.opacity(0.55) : theme.tertiaryText)
-                case .active:
-                    ProgressView().scaleEffect(0.48)
-                case .done:
-                    Image(systemName: "checkmark.square.fill")
-                        .foregroundStyle(.green)
-                case .skipped:
-                    Image(systemName: "minus.square")
-                        .foregroundStyle(theme.tertiaryText)
-                case .blocked:
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                Text(item.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(item.status == .done ? theme.tertiaryText : theme.primaryText)
+                    .strikethrough(item.status == .done, color: theme.tertiaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 12).padding(.trailing, 10)
+            .padding(.top, 7).padding(.bottom, 3)
+            .animation(.easeInOut(duration: 0.2), value: item.status)
+
+        } else {
+            // ── Unteraufgabe (Level 1) — mit Baum-Linie ──────────────
+            HStack(alignment: .top, spacing: 0) {
+
+                // ── Baum-Connector: vertikale Linie + horizontaler Ast ──
+                ZStack(alignment: .topLeading) {
+                    // Vertikale Linie (geht durch, solange Geschwister folgen)
+                    if !isLastInGroup {
+                        Rectangle()
+                            .fill(Color(white: theme.isLight ? 0.78 : 0.32))
+                            .frame(width: 1)
+                            .frame(maxHeight: .infinity)
+                            .offset(x: 15)
+                    }
+                    // Horizontaler Ast vom Knoten zum Kreis
+                    HStack(spacing: 0) {
+                        Spacer().frame(width: 16)
+                        Rectangle()
+                            .fill(Color(white: theme.isLight ? 0.78 : 0.32))
+                            .frame(width: 10, height: 1)
+                            .padding(.top, 7)
+                    }
                 }
-            }
-            .font(.system(size: 12))
-            .frame(width: 14, height: 14)
-            .padding(.top, 1)
+                .frame(width: 30)
+                .padding(.leading, 4)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(item.number)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(theme.tertiaryText)
+                // ── Status-Kreis ─────────────────────────────────────
+                Group {
+                    switch item.status {
+                    case .pending:
+                        Circle()
+                            .strokeBorder(Color(white: theme.isLight ? 0.55 : 0.5), lineWidth: 1.2)
+                    case .active:
+                        ProgressView().scaleEffect(0.42)
+                    case .done:
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                    case .skipped:
+                        Circle()
+                            .strokeBorder(Color(white: theme.isLight ? 0.75 : 0.4), lineWidth: 1)
+                    case .blocked:
+                        Circle().fill(.red)
+                    }
+                }
+                .frame(width: 9, height: 9)
+                .padding(.top, 3)
+
+                // ── Text ─────────────────────────────────────────────
+                VStack(alignment: .leading, spacing: 1) {
                     Text(item.title)
-                        .font(item.level == 0
-                              ? .system(size: 12, weight: .semibold)
-                              : .system(size: 12))
-                        .foregroundStyle(item.status == .done
-                            ? theme.tertiaryText : theme.primaryText)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(item.status == .done ? theme.tertiaryText : theme.primaryText)
                         .strikethrough(item.status == .done, color: theme.tertiaryText)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let agent = item.assignedAgent {
+                        Text("→ \(agent)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(accentColor.opacity(0.7))
+                    }
                 }
-                if let agent = item.assignedAgent, item.level > 0 {
-                    Text("→ \(agent)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(accentColor.opacity(0.7))
-                }
+                .padding(.leading, 6)
+                .padding(.vertical, 3)
+
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(.trailing, 10)
+            .background(item.status == .active ? accentColor.opacity(0.06) : Color.clear)
+            .animation(.easeInOut(duration: 0.2), value: item.status)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, item.level == 0 ? 5 : 3)
-        .background(
-            item.status == .active ? accentColor.opacity(0.06) :
-            (item.level == 0 ? theme.cardBorder.opacity(0.25) : Color.clear)
-        )
-        .animation(.easeInOut(duration: 0.2), value: item.status)
     }
 
     // MARK: - Legacy Plan Parser (Fallback für AGENT:/AUFGABE: Format)
