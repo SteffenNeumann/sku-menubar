@@ -201,11 +201,11 @@ extension AppTheme {
 
     // ── Grey Shades ──────────────────────────────────────────────────────────
 
-    // IC Orange PPL — tiefes Charcoal-Schwarz, knalliges Orange
+    // IC Orange PPL — warmes Walnuss-Braun, knalliges Orange
     static let eclipse = AppTheme(
         id: "eclipse", name: "IC Orange PPL",
-        bgTopR: 22,  bgTopG: 18,  bgTopB: 14,  bgTopA: 1.0,
-        bgBotR: 12,  bgBotG: 9,   bgBotB: 6,   bgBotA: 1.0,
+        bgTopR: 78,  bgTopG: 60,  bgTopB: 40,  bgTopA: 1.0,
+        bgBotR: 52,  bgBotG: 36,  bgBotB: 22,  bgBotA: 1.0,
         glowEnabled: false,
         acR: 249, acG: 115, acB: 22,
         acTextR: 251, acTextG: 146, acTextB: 60,
