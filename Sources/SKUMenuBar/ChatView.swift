@@ -3271,6 +3271,83 @@ struct SingleChatSessionView: View {
         }
     }
 
+    // MARK: - Orchestrator Direkt-Antwort (Status-Fragen ohne Agent-Execution)
+
+    /// Beantwortet kurze Fragen/Status-Anfragen im Orchestrator-Kontext direkt —
+    /// ohne neues Planning oder Agent-Execution. Nutzt den gespeicherten
+    /// orchestratorHistory als Kontext-Block für die Antwort.
+    private func sendOrchestratorDirectAnswer() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        inputText = ""
+        errorMessage = nil
+        isAuthError = false
+
+        messages.append(ChatMessage(role: .user, content: text))
+        orchestratorHistory.append((role: "user", content: text))
+
+        // Orchestrator-Kontext als kompakter Block (ohne die letzte user-Zeile)
+        let historyLines = orchestratorHistory.dropLast()
+            .map { turn -> String in
+                let label = turn.role == "user" ? "Benutzer"
+                           : turn.role == "orchestrator" ? "Synthese"
+                           : "Agent [\(turn.role)]"
+                return "\(label): \(turn.content.prefix(500))"
+            }
+            .joined(separator: "\n\n")
+
+        let contextMsg = historyLines.isEmpty
+            ? text
+            : "Bisheriger Orchestrator-Verlauf:\n\(historyLines)\n\n---\n\nBenutzer-Frage: \(text)"
+
+        isStreaming = true
+        streamingStartTime = Date()
+
+        streamingTask = Task { @MainActor in
+            let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
+
+            var placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+            placeholder.model = selectedModel
+            messages.append(placeholder)
+            let rIdx = messages.count - 1
+
+            let stream = state.cliService.send(
+                message: contextMsg,
+                systemPrompt: "Beantworte Fragen zum Orchestrierungs-Ergebnis prägnant und konkret auf Deutsch.",
+                model: selectedModel,
+                workingDirectory: workingDirectory,
+                skipPermissions: autoApprove,
+                mcpConfigJSON: mcpJson,
+                mcpStrictMode: mcpStrict
+            )
+
+            var response = ""
+            do {
+                for try await event in stream {
+                    guard !Task.isCancelled else { break }
+                    if let sid = event.sessionId, currentSessionId == nil {
+                        currentSessionId = sid
+                    }
+                    if case "assistant" = event.type, let content = event.message?.content {
+                        for block in content where block.type == "text" {
+                            if let t = block.text, !t.isEmpty {
+                                response += t
+                                messages[rIdx].content += t
+                            }
+                        }
+                    }
+                }
+            } catch {
+                messages[rIdx].content += "\n⚠️ Fehler: \(error.localizedDescription)"
+            }
+
+            messages[rIdx].isStreaming = false
+            messages[rIdx].finishedCleanly = true
+            orchestratorHistory.append((role: "claude", content: response.prefix(800).description))
+            isStreaming = false
+        }
+    }
+
     // MARK: - Plan-Freigabe (manueller Orchestrator-Modus)
 
     /// Startet Phase 2+3 nach expliziter Nutzer-Freigabe des Haiku-Plans.
@@ -4387,10 +4464,16 @@ struct SingleChatSessionView: View {
             let intent = classifyFollowUp(routingText)
             switch intent {
             case .chat:
-                // Im manuellen Orchestrator-Modus niemals auf den modellosen Single-Agent-Pfad fallen —
-                // dort würde kein Agent gesetzt und die Antwort erscheint als "Claude sonnet-4-x".
-                // Schnell-Orchestrierung (skipAnalysis) liefert Kontext-bewusstes Ergebnis mit Agent-Badge.
                 if orchestratorMode {
+                    // Kurze Status-Fragen (≤ 5 Wörter oder Fragezeichen) direkt beantworten —
+                    // kein neues Planning/Agent-Execution. Orchestrator-History wird als Kontext injiziert.
+                    // Längere .chat Follow-ups → Schnell-Orchestrierung (skipAnalysis: true).
+                    let isSimpleQuery = routingText.split(separator: " ").count <= 5
+                                     || routingText.hasSuffix("?")
+                    if isSimpleQuery {
+                        sendOrchestratorDirectAnswer()
+                        return
+                    }
                     sendOrchestrator(skipAnalysis: true)
                     return
                 }
