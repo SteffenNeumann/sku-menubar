@@ -223,6 +223,19 @@ struct SingleChatSessionView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
 
+    // Kontext für Phase 2+3 nach dem Plan-Freigabe-Pause (manueller Orchestrator-Modus)
+    private struct PendingPhase2Context {
+        var agents: [AgentDefinition]
+        var text: String
+        var imgPaths: [String]
+        var effectiveAddDirs: [String]
+        var mcpJson: String?
+        var mcpStrict: Bool
+        var effectiveMaxTurns: Int?
+        var agentTasks: [String: String]
+        var zugangContext: String?
+    }
+
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var currentSessionId: String?
@@ -272,6 +285,8 @@ struct SingleChatSessionView: View {
     @State private var pendingAutoConfirmText: String = ""
     @State private var pendingAutoSentFiles: [AttachedFile] = []
     @State private var pendingAutoRoutingIdx: Int? = nil
+    // Plan-Freigabe (manueller Orchestrator: Haiku erstellt Plan → pausiert → wartet auf Go)
+    @State private var pendingPhase2: PendingPhase2Context? = nil
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -1783,6 +1798,9 @@ struct SingleChatSessionView: View {
                 agentConfirmationBanner
             }
 
+            // ─── Plan-Freigabe-Banner (manueller Orchestrator, nach Haiku-Plan) ───
+            planApprovalBanner
+
             // ─── Subtle control strip ───
             controlStrip
         }
@@ -1877,6 +1895,74 @@ struct SingleChatSessionView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(accentColor.opacity(0.05))
+        }
+    }
+
+    // MARK: - Plan-Freigabe-Banner (manueller Orchestrator: nach Haiku-Plan, vor Phase 2)
+
+    @ViewBuilder
+    private var planApprovalBanner: some View {
+        if let ctx = pendingPhase2 {
+            VStack(spacing: 0) {
+                Rectangle().fill(theme.cardBorder).frame(height: 0.5)
+
+                VStack(alignment: .leading, spacing: 7) {
+                    // Agent-Chips (nur lesend — nicht entfernbar)
+                    HStack(spacing: 6) {
+                        Text("📋 Plan bereit:")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 5) {
+                                ForEach(ctx.agents) { agent in
+                                    Text(agent.name)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(accentColor)
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(accentColor.opacity(0.1), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(accentColor.opacity(0.25), lineWidth: 0.5))
+                                }
+                            }
+                        }
+                    }
+
+                    // Aktions-Zeile
+                    HStack {
+                        Button("✕ Abbrechen") {
+                            cancelPhase2()
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondaryText)
+                        .buttonStyle(.plain)
+                        .help("Plan verwerfen — Agents werden nicht ausgeführt")
+
+                        Spacer()
+
+                        Text("\(ctx.agents.count) Agent\(ctx.agents.count == 1 ? "" : "s") · Plan im rechten Panel")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+
+                        Button {
+                            resumePhase2()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Ausführen")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 9))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 4)
+                            .background(accentColor, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Plan ausführen — Agents starten jetzt")
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(Color.green.opacity(0.04))
+            }
         }
     }
 
@@ -3185,6 +3271,25 @@ struct SingleChatSessionView: View {
         }
     }
 
+    // MARK: - Plan-Freigabe (manueller Orchestrator-Modus)
+
+    /// Startet Phase 2+3 nach expliziter Nutzer-Freigabe des Haiku-Plans.
+    private func resumePhase2() {
+        guard let ctx = pendingPhase2 else { return }
+        pendingPhase2 = nil
+        isStreaming = true
+        streamingStartTime = Date()
+        streamingTask = Task { @MainActor in
+            await executePhase2and3(ctx: ctx)
+        }
+    }
+
+    /// Verwirft den ausstehenden Plan — Plan-Bubble bleibt sichtbar, Execution startet nicht.
+    private func cancelPhase2() {
+        pendingPhase2 = nil
+        isStreaming = false
+    }
+
     // MARK: - Orchestrator: Analyse → Master Plan → Execute → Synthesize
 
     /// - autoAgentList: wenn gesetzt, werden diese Agents verwendet (Auto-Orchestrierung).
@@ -3459,15 +3564,50 @@ struct SingleChatSessionView: View {
             // Plan für Follow-Up-Reuse speichern (Fix C)
             lastAgentTasks = agentTasks
 
-            // ── Phase 2: Execution mit Master-Plan-Kontext-Anker ──────────
-            // zugang.md aus Arbeitsverzeichnis vorab einlesen — Credentials & Zugangsdaten
-            // werden in jeden Agent-Kontext injiziert, damit Agents nicht selbst suchen müssen.
-            let zugangContext: String? = workingDirectory.flatMap { wd in
+            // ── Phase-2-Kontext aufbauen ──────────────────────────────────
+            let zugangCtx: String? = workingDirectory.flatMap { wd in
                 let path = (wd as NSString).appendingPathComponent("zugang.md")
                 return try? String(contentsOfFile: path, encoding: .utf8)
             }.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
 
-            var agentOutputs: [(name: String, output: String)] = []
+            let phase2Ctx = PendingPhase2Context(
+                agents: agents, text: text, imgPaths: imgPaths,
+                effectiveAddDirs: effectiveAddDirs, mcpJson: mcpJson,
+                mcpStrict: mcpStrict, effectiveMaxTurns: effectiveMaxTurns,
+                agentTasks: agentTasks, zugangContext: zugangCtx
+            )
+
+            // ── Manueller Modus: Nach Haiku-Plan pausieren — warte auf Nutzer-Go ──
+            if !isAutoOrchestrated && !skipAnalysis {
+                pendingPhase2 = phase2Ctx
+                isStreaming = false
+                return
+            }
+
+            // ── Phase 2+3 direkt starten (Auto-Orchestrierung oder Follow-Up) ──
+            await executePhase2and3(ctx: phase2Ctx)
+        }
+    }
+
+    // MARK: - Phase 2+3 Execution (shared: direkt + nach Plan-Freigabe)
+
+    /// Führt Phase 2 (Agent-Execution) + Phase 3 (Synthese) aus.
+    /// Wird sowohl von sendOrchestrator (Auto-Modus / Follow-Up) als auch von
+    /// resumePhase2() (nach manueller Plan-Freigabe) aufgerufen.
+    @MainActor
+    private func executePhase2and3(ctx: PendingPhase2Context) async {
+        let agents          = ctx.agents
+        let text            = ctx.text
+        let imgPaths        = ctx.imgPaths
+        let effectiveAddDirs = ctx.effectiveAddDirs
+        let mcpJson         = ctx.mcpJson
+        let mcpStrict       = ctx.mcpStrict
+        let effectiveMaxTurns = ctx.effectiveMaxTurns
+        let agentTasks      = ctx.agentTasks
+        let zugangContext   = ctx.zugangContext
+        let planText        = activePlan ?? ""
+
+        var agentOutputs: [(name: String, output: String)] = []
             // Bei mehreren Agents: alten Solo-Kontext löschen (kein weiteres Follow-Up in alter Session)
             if agents.count > 1 {
                 lastOrchestratorSoloAgentId   = nil
@@ -3677,8 +3817,7 @@ struct SingleChatSessionView: View {
                 }
             }
 
-            isStreaming = false
-        }
+        isStreaming = false
     }
 
     /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan (Legacy-Format).
