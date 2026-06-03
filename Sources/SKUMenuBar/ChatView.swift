@@ -5118,7 +5118,7 @@ struct SingleChatSessionView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(white: theme.isLight ? 0.96 : 0.06))
+        .background(theme.windowBg)
     }
 
     private func diffSideFileSection(_ file: DiffFile) -> some View {
@@ -5271,7 +5271,7 @@ extension SingleChatSessionView {
             HStack(spacing: 8) {
                 Image(systemName: "checklist")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(accentColor)
                 Text("Master Plan")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
@@ -5311,7 +5311,7 @@ extension SingleChatSessionView {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("ZIEL")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.orange.opacity(0.65))
+                            .foregroundStyle(accentColor.opacity(0.75))
                         Text(masterGoal)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(theme.primaryText)
@@ -5320,7 +5320,7 @@ extension SingleChatSessionView {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Color.orange.opacity(0.07))
+                .background(accentColor.opacity(0.07))
 
                 Rectangle().fill(theme.cardBorder).frame(height: 0.5)
             }
@@ -5356,7 +5356,7 @@ extension SingleChatSessionView {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(white: theme.isLight ? 0.96 : 0.06))
+        .background(theme.windowBg)
     }
 
     // MARK: - Master Todo Row
@@ -5404,23 +5404,30 @@ extension SingleChatSessionView {
             // ── Unteraufgabe (Level 1) — mit Baum-Linie ──────────────
             HStack(alignment: .top, spacing: 0) {
 
-                // ── Baum-Connector: vertikale Linie + horizontaler Ast ──
-                ZStack(alignment: .topLeading) {
-                    // Vertikale Linie (geht durch, solange Geschwister folgen)
+                // ── Baum-Connector: gerundetes L (Canvas) ───────────────
+                Canvas { ctx, size in
+                    let lineColor = Color(white: theme.isLight ? 0.65 : 0.35)
+                    let vx: CGFloat = 15
+                    let branchY: CGFloat = 9
+                    let r: CGFloat = 5
+                    // L-Bogen: oben → rundes Eck → horizontal rechts
+                    var lp = Path()
+                    lp.move(to: CGPoint(x: vx, y: 0))
+                    lp.addLine(to: CGPoint(x: vx, y: branchY - r))
+                    lp.addQuadCurve(
+                        to: CGPoint(x: vx + r, y: branchY),
+                        control: CGPoint(x: vx, y: branchY)
+                    )
+                    lp.addLine(to: CGPoint(x: size.width, y: branchY))
+                    ctx.stroke(lp, with: .color(lineColor),
+                               style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+                    // Vertikale Verlängerung nach unten (wenn weitere Geschwister folgen)
                     if !isLastInGroup {
-                        Rectangle()
-                            .fill(Color(white: theme.isLight ? 0.78 : 0.32))
-                            .frame(width: 1)
-                            .frame(maxHeight: .infinity)
-                            .offset(x: 15)
-                    }
-                    // Horizontaler Ast vom Knoten zum Kreis
-                    HStack(spacing: 0) {
-                        Spacer().frame(width: 16)
-                        Rectangle()
-                            .fill(Color(white: theme.isLight ? 0.78 : 0.32))
-                            .frame(width: 10, height: 1)
-                            .padding(.top, 7)
+                        var vp = Path()
+                        vp.move(to: CGPoint(x: vx, y: branchY))
+                        vp.addLine(to: CGPoint(x: vx, y: size.height))
+                        ctx.stroke(vp, with: .color(lineColor),
+                                   style: StrokeStyle(lineWidth: 1, lineCap: .round))
                     }
                 }
                 .frame(width: 30)
@@ -7057,7 +7064,7 @@ private struct LivePlanView: View {
     var isStreaming: Bool = false
     @Environment(\.appTheme) var theme
 
-    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+    private var accentColor: Color { Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255) }
     private var completedCount: Int { toolCalls.filter { $0.result != nil }.count }
     private var progress: Double {
         toolCalls.isEmpty ? 0 : Double(completedCount) / Double(toolCalls.count)
@@ -7166,7 +7173,7 @@ private struct TodoPanel: View {
     @State private var expanded: Bool = false
     @Environment(\.appTheme) var theme
 
-    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+    private var accentColor: Color { Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255) }
     private var completedCount: Int { todos.filter(\.isCompleted).count }
     private var allDone: Bool { completedCount == todos.count && !todos.isEmpty }
 
@@ -7289,7 +7296,7 @@ private struct AgentRunningBanner: View {
     let startTime: Date
     let theme: AppTheme
 
-    private var accentColor: Color { Color(red: 0.72, green: 0.35, blue: 0.0) }
+    private var accentColor: Color { Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255) }
 
     // Letztes noch laufendes Tool (kein Result)
     private var activeTool: ToolCall? {
