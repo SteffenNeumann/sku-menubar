@@ -16,7 +16,7 @@ struct SidebarView: View {
 
     var body: some View {
         ZStack {
-            theme.windowBg.ignoresSafeArea()
+            theme.sidebarBg.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // Traffic-light spacer + current date & time
@@ -109,7 +109,7 @@ struct SidebarView: View {
                             .frame(width: 26, height: 26)
                         Image(systemName: "folder")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(theme.secondaryText)
+                            .foregroundStyle(accentColor)
                     }
                     Text(project.displayName)
                         .font(.system(size: 14))

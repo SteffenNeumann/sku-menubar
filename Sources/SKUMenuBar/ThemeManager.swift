@@ -66,7 +66,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
         } else if glowEnabled {
             return Color(r: 2, g: 6, b: 23, a: 0.75)
         } else {
-            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 0.90)
+            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1.0)
         }
     }
 
@@ -91,14 +91,14 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var statusOrange: Color { (isLight || isMedium) ? Color(r: 128, g: 42,  b: 0,   a: 1) : .orange }
     var statusRed:    Color { (isLight || isMedium) ? Color(r: 140, g: 10,  b: 5,   a: 1) : .red }
 
-    // Base window background — glow themes use deep-space blue, others use their own bgTop
+    // Base window background — glow themes use deep-space blue, others use bgBot (darker base)
     var windowBg: Color {
         if isLight {
             return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1)
         } else if glowEnabled {
             return Color(r: 2, g: 6, b: 23, a: 1)
         } else {
-            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1)
+            return Color(r: bgBotR, g: bgBotG, b: bgBotB, a: 1)
         }
     }
 }
