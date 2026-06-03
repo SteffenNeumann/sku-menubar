@@ -142,7 +142,7 @@ struct LinearView: View {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
     }
 
-    private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
+    private var linearPurple: Color { Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1613,7 +1613,7 @@ struct NewIssueSheet: View {
     @State private var isCreating = false
     @State private var error: String?
 
-    private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
+    private var linearPurple: Color { Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255) }
     private var selectedTeam: LinearTeam? { teams.first { $0.id == selectedTeamId } }
     private var availableProjects: [LinearProject] {
         guard !selectedTeamId.isEmpty else { return service.projects }
@@ -1904,7 +1904,7 @@ struct NewProjectSheet: View {
     @State private var isCreating = false
     @State private var error: String?
 
-    private let linearPurple = Color(red: 0.37, green: 0.42, blue: 0.82)
+    private var linearPurple: Color { Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255) }
     private var selectedTeam: LinearTeam? { service.teams.first { $0.id == selectedTeamId } }
 
     var body: some View {
