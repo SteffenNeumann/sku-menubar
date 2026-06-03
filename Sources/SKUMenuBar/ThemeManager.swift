@@ -22,6 +22,9 @@ struct AppTheme: Identifiable, Equatable, Codable {
     // Medium-tone themes (mid-grey range) — need dark text like light themes
     var isMedium: Bool { ["slate", "pewter"].contains(id) }
 
+    // Themes where ALL text uses the accent color instead of white/gray
+    var useAccentAsText: Bool { id == "eclipse" }
+
     // Computed accent colors using Mirror's opacity scale
     var accentSoft:         Color { Color(r: acR, g: acG, b: acB, a: 0.10) }
     var accent:             Color { Color(r: acR, g: acG, b: acB, a: 0.15) }
@@ -70,14 +73,19 @@ struct AppTheme: Identifiable, Equatable, Codable {
         }
     }
 
-    // Primary text — medium themes get dark text like light themes for sufficient contrast
-    var primaryText:   Color { (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95) }
+    // Primary text — accent-as-text themes use accentFull; medium get dark; others near-white
+    var primaryText: Color {
+        if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 1.00) }
+        return (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95)
+    }
     var secondaryText: Color {
+        if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 0.68) }
         if isLight || isMedium { return Color(white: 0.25) }
         if (bgTopR + bgTopG + bgTopB) / 3.0 > 55 { return Color(white: 0.78) }
         return Color(white: 0.60)
     }
-    var tertiaryText:  Color {
+    var tertiaryText: Color {
+        if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 0.42) }
         if isLight { return Color(white: 0.42) }
         if isMedium { return Color(white: 0.35) }
         if (bgTopR + bgTopG + bgTopB) / 3.0 > 55 { return Color(white: 0.66) }
@@ -201,14 +209,14 @@ extension AppTheme {
 
     // ── Grey Shades ──────────────────────────────────────────────────────────
 
-    // IC Orange PPL — #2E2C29 Sidebar / #262626 Content / #F1C17D Gold-Akzent
+    // IC Orange PPL — #2E2C29 Sidebar / #262626 Content / #BE925B Bronze (Text = Akzent)
     static let eclipse = AppTheme(
         id: "eclipse", name: "IC Orange PPL",
         bgTopR: 46,  bgTopG: 44,  bgTopB: 41,  bgTopA: 1.0,
         bgBotR: 38,  bgBotG: 38,  bgBotB: 38,  bgBotA: 1.0,
         glowEnabled: false,
-        acR: 241, acG: 193, acB: 125,
-        acTextR: 235, acTextG: 170, acTextB: 90,
+        acR: 190, acG: 146, acB: 91,
+        acTextR: 190, acTextG: 146, acTextB: 91,
         isLight: false
     )
     // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
