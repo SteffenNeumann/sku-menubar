@@ -6107,7 +6107,7 @@ struct FilePreviewPanel: View {
             HStack(spacing: 6) {
                 Image(systemName: node.icon)
                     .font(.system(size: 12))
-                    .foregroundStyle(node.iconColor(theme: theme))
+                    .foregroundStyle(node.isDirectory ? accentColor : node.iconColor(theme: theme))
                 Text(node.name)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
@@ -6202,7 +6202,7 @@ struct FilePreviewPanel: View {
                 VStack(spacing: 8) {
                     Image(systemName: node.icon)
                         .font(.system(size: 32))
-                        .foregroundStyle(node.iconColor(theme: theme).opacity(0.4))
+                        .foregroundStyle((node.isDirectory ? accentColor : node.iconColor(theme: theme)).opacity(0.4))
                     Text("Keine Vorschau verfügbar")
                         .font(.system(size: 14))
                         .foregroundStyle(theme.tertiaryText)
@@ -6434,7 +6434,7 @@ struct ChatFilePanelRow: View {
                     .frame(width: 26, height: 26)
                 Image(systemName: node.icon)
                     .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? accentColor : node.iconColor(theme: theme))
+                    .foregroundStyle(isSelected ? accentColor : (node.isDirectory ? accentColor : node.iconColor(theme: theme)))
                 // Badge: green "+" for new file, orange dot for modified
                 if isNew {
                     ZStack {
