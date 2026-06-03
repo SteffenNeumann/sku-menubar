@@ -490,9 +490,16 @@ struct FileExplorerView: View {
     private var rightHeader: some View {
         HStack(spacing: 8) {
             if let node = selectedNode {
-                Image(nsImage: node.workspaceIcon)
-                    .resizable()
-                    .frame(width: 18, height: 18)
+                if node.isDirectory {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 18, height: 18)
+                } else {
+                    Image(nsImage: node.workspaceIcon)
+                        .resizable()
+                        .frame(width: 18, height: 18)
+                }
                 Text(node.name)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
@@ -971,10 +978,17 @@ struct FileExplorerView: View {
                         }
                     } else {
                         VStack(spacing: 8) {
-                            Image(nsImage: node.workspaceIcon)
-                                .resizable()
-                                .frame(width: 48, height: 48)
-                                .opacity(0.5)
+                            if node.isDirectory {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(accentColor.opacity(0.5))
+                                    .frame(width: 48, height: 48)
+                            } else {
+                                Image(nsImage: node.workspaceIcon)
+                                    .resizable()
+                                    .frame(width: 48, height: 48)
+                                    .opacity(0.5)
+                            }
                             Text("Keine Vorschau verfügbar")
                                 .font(.system(size: 12))
                                 .foregroundStyle(theme.tertiaryText)
@@ -1024,10 +1038,17 @@ struct FileExplorerView: View {
                                 selectNode(child)
                             } label: {
                                 HStack(spacing: 8) {
-                                    Image(nsImage: child.workspaceIcon)
-                                        .resizable()
-                                        .frame(width: 16, height: 16)
-                                        .frame(width: 20)
+                                    if child.isDirectory {
+                                        Image(systemName: "folder.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(accentColor)
+                                            .frame(width: 20)
+                                    } else {
+                                        Image(nsImage: child.workspaceIcon)
+                                            .resizable()
+                                            .frame(width: 16, height: 16)
+                                            .frame(width: 20)
+                                    }
                                     Text(child.name)
                                         .font(.system(size: 12))
                                         .foregroundStyle(theme.primaryText)
@@ -1646,9 +1667,16 @@ struct ExplorerTreeRow: View {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(isSelected ? accentColor.opacity(0.15) : Color.clear)
                     .frame(width: 22, height: 22)
-                Image(nsImage: node.workspaceIcon)
-                    .resizable()
-                    .frame(width: 16, height: 16)
+                if node.isDirectory {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(nsImage: node.workspaceIcon)
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                }
             }
 
             // Name / rename field
