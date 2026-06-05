@@ -1328,11 +1328,35 @@ struct SingleChatSessionView: View {
 
     // MARK: - Messages area
 
+    /// Virtuelle Nachrichten-Liste: bei langen Sessions (>150 Nachrichten) nur die
+    /// letzten 150 rendern. Verhindert teuren Layout-Tree der alle Nachrichten misst.
+    /// FIX 10: Layout-Kaskade durch zu viele MessageBubbleViews in aktivem FrozenSectionLayout.
+    private static let maxVisibleMessages = 150
+    private var visibleMessages: [ChatMessage] {
+        guard messages.count > Self.maxVisibleMessages else { return messages }
+        return Array(messages.suffix(Self.maxVisibleMessages))
+    }
+    private var hiddenMessageCount: Int {
+        max(0, messages.count - Self.maxVisibleMessages)
+    }
+
     private var messagesArea: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
-                    ForEach(messages) { msg in
+                    // Hinweis wenn frühere Nachrichten ausgeblendet sind (Layout-Optimierung)
+                    if hiddenMessageCount > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.circle")
+                                .font(.system(size: 11))
+                            Text("\(hiddenMessageCount) frühere Nachrichten ausgeblendet · History-Tab für Verlauf")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundStyle(.secondary.opacity(0.6))
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                    }
+                    ForEach(visibleMessages) { msg in
                         MessageBubbleView(message: msg, onDiffTap: { diff in
                             activeDiff = diff
                         }, onAskForResult: msg.role == .assistant && !msg.toolCalls.isEmpty && !msg.isStreaming ? {
@@ -1359,9 +1383,11 @@ struct SingleChatSessionView: View {
             .onChange(of: messages.last?.content) {
                 scrollToBottom(proxy, animated: false)
             }
-            // Streaming ended — jetzt einmal schön animiert ans Ende scrollen
+            // Streaming ended — scroll to bottom (kein animated: bei langen Chats Layout-Spike)
+            // KRITISCH: withAnimation(.easeOut) auf scrollTo ist layout-affecting → 60fps-Passes
+            // bei vielen Nachrichten → Hang. Immer animated: false.
             .onChange(of: isStreaming) {
-                if !isStreaming { scrollToBottom(proxy, animated: true) }
+                if !isStreaming { scrollToBottom(proxy, animated: false) }
             }
         }
     }
