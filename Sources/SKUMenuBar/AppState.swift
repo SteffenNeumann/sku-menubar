@@ -112,6 +112,10 @@ final class AppState: ObservableObject {
     @Published var pendingFilesPath: String? = nil        // path → open in Files explorer
     @Published var hideSidebar: Bool = false               // hide the main navigation sidebar
 
+    // MARK: - Active-Tab Badge State (synced from SingleChatSessionView → FileExplorerView)
+    @Published var activeChangedFilePaths: Set<String> = []
+    @Published var activeNewFilePaths:     Set<String> = []
+
     // MARK: - Settings
     @Published var settings = GitHubSettings() {
         didSet {

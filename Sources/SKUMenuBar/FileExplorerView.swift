@@ -848,6 +848,8 @@ struct FileExplorerView: View {
                             renameText: $renameText,
                             showHidden: showHidden,
                             depth: 0,
+                            changedPaths: state.activeChangedFilePaths,
+                            newPaths: state.activeNewFilePaths,
                             onSelect: selectNode,
                             onNewItem: { parent, isDir in
                                 newItemParent = parent
@@ -1600,6 +1602,8 @@ struct ExplorerTreeRow: View {
     @Binding var renameText: String
     var showHidden: Bool
     var depth: Int
+    var changedPaths: Set<String> = []
+    var newPaths: Set<String> = []
     var onSelect: (ExplorerNode) -> Void
     var onNewItem: (ExplorerNode, Bool) -> Void
     var onDelete: (ExplorerNode) -> Void
@@ -1622,6 +1626,8 @@ struct ExplorerTreeRow: View {
 
     private var isSelected: Bool { selectedNode?.id == node.id }
     private var isRenaming: Bool { renamingNode?.id == node.id }
+    private var isChanged: Bool { !node.isDirectory && changedPaths.contains(node.url.path) }
+    private var isNew:     Bool { !node.isDirectory && newPaths.contains(node.url.path) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1636,6 +1642,8 @@ struct ExplorerTreeRow: View {
                         renameText: $renameText,
                         showHidden: showHidden,
                         depth: depth + 1,
+                        changedPaths: changedPaths,
+                        newPaths: newPaths,
                         onSelect: onSelect,
                         onNewItem: onNewItem,
                         onDelete: onDelete,
@@ -1662,20 +1670,39 @@ struct ExplorerTreeRow: View {
                 Color.clear.frame(width: 12)
             }
 
-            // Icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(isSelected ? accentColor.opacity(0.15) : Color.clear)
-                    .frame(width: 22, height: 22)
-                if node.isDirectory {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(accentColor)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(nsImage: node.workspaceIcon)
-                        .resizable()
-                        .frame(width: 16, height: 16)
+            // Icon + Badge
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(isSelected ? accentColor.opacity(0.15) : Color.clear)
+                        .frame(width: 22, height: 22)
+                    if node.isDirectory {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(accentColor)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Image(nsImage: node.workspaceIcon)
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                    }
+                }
+                // Badge: green "+" for new file, orange ● for modified
+                if isNew {
+                    ZStack {
+                        Circle()
+                            .fill(Color(red: 0.18, green: 0.72, blue: 0.42))
+                            .frame(width: 11, height: 11)
+                        Text("+")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .offset(x: 5, y: -5)
+                } else if isChanged {
+                    Circle()
+                        .fill(theme.statusOrange)
+                        .frame(width: 7, height: 7)
+                        .offset(x: 3, y: -3)
                 }
             }
 
@@ -1690,7 +1717,8 @@ struct ExplorerTreeRow: View {
             } else {
                 Text(node.name)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? theme.primaryText : theme.secondaryText)
+                    .foregroundStyle(isNew ? Color(red: 0.18, green: 0.72, blue: 0.42) : (isChanged ? theme.statusOrange.opacity(0.9) : (isSelected ? theme.primaryText : theme.secondaryText)))
+                    .fontWeight(isNew || isChanged ? .semibold : .medium)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
