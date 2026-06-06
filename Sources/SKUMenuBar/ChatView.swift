@@ -670,7 +670,7 @@ struct SingleChatSessionView: View {
                     .frame(width: filePreviewPanelWidth)
                     .transition(.move(edge: .leading).combined(with: .opacity))
 
-                    PanelResizeHandle(width: $filePreviewPanelWidth, minWidth: 240, maxWidth: 800, growsRight: true)
+                    PanelResizeHandle(width: $filePreviewPanelWidth, minWidth: 240, maxWidth: 4000, growsRight: true)
                         .frame(width: 10)
                 }
 
