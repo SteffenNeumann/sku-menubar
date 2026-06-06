@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 import PDFKit
 import AppKit
 import QuickLookUI
+import WebKit
 
 // MARK: - Picker anchor preference key
 
@@ -6271,7 +6272,7 @@ struct FilePreviewPanel: View {
     @State private var reloadTrigger: Int = 0
     @State private var watcherNeedsRestart: Bool = false
     @State private var qlPreviewURL: URL? = nil
-    @State private var htmlContent: String? = nil
+    @State private var showHTMLSource: Bool = false
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -6295,7 +6296,40 @@ struct FilePreviewPanel: View {
                     .truncationMode(.middle)
                     .layoutPriority(-1)
                 Spacer(minLength: 4)
-                if node.isTextFile {
+                if node.isWebPreviewable {
+                    Button {
+                        showHTMLSource.toggle()
+                    } label: {
+                        Image(systemName: showHTMLSource ? "eye.fill" : "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(showHTMLSource ? theme.tertiaryText : accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showHTMLSource ? "Gerenderte Vorschau" : "Quellcode anzeigen")
+                    .fixedSize()
+                    if showHTMLSource {
+                        Button {
+                            let content = fullText ?? previewText ?? ""
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(content, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Datei-Inhalt kopieren")
+                        .fixedSize()
+                        InlineSearchBar(
+                            query: $searchText,
+                            currentMatch: $currentMatchIndex,
+                            matchCount: searchMatchCount,
+                            width: 110,
+                            placeholder: "Suchen"
+                        )
+                        .fixedSize()
+                    }
+                } else if node.isTextFile {
                     Button {
                         let content = fullText ?? previewText ?? ""
                         NSPasteboard.general.clearContents()
@@ -6365,13 +6399,24 @@ struct FilePreviewPanel: View {
                         .padding(16)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if node.isWebPreviewable, let html = htmlContent {
-                WebPreviewView(
-                    htmlContent: html,
-                    sourceURL: node.url,
-                    accessRoot: node.url.deletingLastPathComponent()
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if node.isWebPreviewable {
+                if showHTMLSource, let text = previewText {
+                    HighlightedCodeView(
+                        code: text,
+                        fileURL: node.url,
+                        isDark: !theme.isLight,
+                        searchText: searchText,
+                        currentMatchIndex: currentMatchIndex,
+                        onMatchCountChange: { count in
+                            if searchMatchCount != count { searchMatchCount = count }
+                            if count > 0, currentMatchIndex >= count { currentMatchIndex = 0 }
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ChatHTMLPreview(url: node.url)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else if let text = previewText {
                 HighlightedCodeView(
                     code: text,
@@ -6457,7 +6502,6 @@ struct FilePreviewPanel: View {
         pdfDocument = nil
         nsImage = nil
         qlPreviewURL = nil
-        htmlContent = nil
         isLoading = false
         searchText = ""
         searchMatchCount = 0
@@ -6476,17 +6520,21 @@ struct FilePreviewPanel: View {
         } else if node.isWebPreviewable {
             isLoading = true
             let url = node.url
-            let isSVG = node.fileExtension == "svg"
+            let ext = node.fileExtension
+            let isDark = !theme.isLight
             Task.detached(priority: .userInitiated) {
                 let text = (try? String(contentsOf: url, encoding: .utf8))
                     ?? (try? String(contentsOf: url, encoding: .isoLatin1))
-                let html = text.map { t -> String in
-                    if isSVG {
-                        return "<!DOCTYPE html><html><body style='margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;'>\(t)</body></html>"
-                    }
-                    return t
+                let preview = text.map { t in
+                    t.components(separatedBy: "\n").prefix(500).joined(separator: "\n")
                 }
-                await MainActor.run { htmlContent = html; isLoading = false }
+                let highlighted = preview.map { SyntaxHighlighter.highlight($0, fileExtension: ext, isDark: isDark) }
+                await MainActor.run {
+                    fullText = text
+                    previewText = preview
+                    highlightedText = highlighted
+                    isLoading = false
+                }
             }
         } else if node.isTextFile {
             isLoading = true
@@ -8181,5 +8229,25 @@ struct InlineSearchBar: View {
     private func advance(_ delta: Int) {
         guard matchCount > 0 else { return }
         currentMatch = ((currentMatch + delta) % matchCount + matchCount) % matchCount
+    }
+}
+
+// MARK: - Chat HTML Preview (direct file load, all assets resolve correctly)
+
+private struct ChatHTMLPreview: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        if #available(macOS 14.0, *) { webView.underPageBackgroundColor = .clear }
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        // Load directly from the original file so relative image/CSS/JS paths resolve correctly.
+        // Grant read access to the entire home directory so resources in sibling folders load too.
+        let accessRoot = URL(fileURLWithPath: NSHomeDirectory())
+        webView.loadFileURL(url, allowingReadAccessTo: accessRoot)
     }
 }
