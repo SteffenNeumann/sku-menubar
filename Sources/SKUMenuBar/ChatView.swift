@@ -615,6 +615,8 @@ struct SingleChatSessionView: View {
             .onChange(of: selectedModel) { tab.model = selectedModel }
             .onChange(of: selectedAgent) { tab.agentId = selectedAgent }
             .onChange(of: selectedPersonaId) { tab.personaId = selectedPersonaId }
+            .onChange(of: changedFilePaths) { if isActive { state.activeChangedFilePaths = changedFilePaths } }
+            .onChange(of: newFilePaths)     { if isActive { state.activeNewFilePaths     = newFilePaths } }
     }
 
     private var mainPanel: some View {
@@ -1010,9 +1012,15 @@ struct SingleChatSessionView: View {
                 if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
                 autoSelectMCPsForProject(dir)
             }
+            // Sync badge sets to AppState so FileExplorerView can display them
+            state.activeChangedFilePaths = changedFilePaths
+            state.activeNewFilePaths     = newFilePaths
         } else {
             tab.inputText = inputText
             if isStreaming { tab.messages = messages }
+            // Clear badge state when tab is deactivated (other tab may have different project)
+            state.activeChangedFilePaths = []
+            state.activeNewFilePaths     = []
         }
     }
 
@@ -1888,7 +1896,20 @@ struct SingleChatSessionView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(theme.secondaryText)
                     .buttonStyle(.plain)
-                    .help("Orchestrierung verwerfen")
+                    .help("Nachricht verwerfen und Orchestrierung abbrechen")
+
+                    Rectangle()
+                        .fill(theme.cardBorder)
+                        .frame(width: 0.5, height: 12)
+                        .padding(.horizontal, 4)
+
+                    Button("↩ Normal senden") {
+                        sendAutoAsNormalChat()
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .buttonStyle(.plain)
+                    .help("Nachricht ohne Orchestrierung als normalen Chat senden")
 
                     Spacer()
 
@@ -3294,6 +3315,48 @@ struct SingleChatSessionView: View {
         // User-Message entfernen
         if let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) {
             messages.remove(at: lastUserIdx)
+        }
+    }
+
+    /// Verwirft die Auto-Orchestrierung und schickt die Nachricht stattdessen als normalen Chat.
+    private func sendAutoAsNormalChat() {
+        let text  = pendingAutoConfirmText
+        let files = pendingAutoSentFiles
+        let ridx  = pendingAutoRoutingIdx
+
+        // Zustand zurücksetzen (kein Banner mehr)
+        pendingAutoAgents      = []
+        pendingAutoConfirmText = ""
+        pendingAutoSentFiles   = []
+        pendingAutoRoutingIdx  = nil
+
+        // Nur die Routing-Bubble entfernen — User-Message bleibt stehen
+        if let ridx, messages.indices.contains(ridx) {
+            messages.remove(at: ridx)
+        }
+
+        // Normalen Antwort-Platzhalter anhängen
+        var assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        assistantMsg.model = selectedModel
+        messages.append(assistantMsg)
+        let assistantIndex = messages.count - 1
+
+        let fileDirs = Array(Set(files.map { $0.url.deletingLastPathComponent().path }))
+        let imgPaths = files.filter { $0.isImage }.map { $0.url.path }
+
+        isStreaming = true
+        streamingStartTime = Date()
+        streamingTask = Task { @MainActor in
+            let markdownCache = await buildMarkItDownCache(from: files)
+            let fullMessage = buildMessageWithAttachments(
+                text: text, files: files, forGitHub: false, markdownCache: markdownCache)
+            await performSend(
+                message: fullMessage.isEmpty ? text : fullMessage,
+                assistantIndex: assistantIndex,
+                model: selectedModel,
+                addDirs: fileDirs,
+                cliImagePaths: imgPaths
+            )
         }
     }
 
