@@ -68,6 +68,8 @@ struct AppTheme: Identifiable, Equatable, Codable {
             return Color(r: 248, g: 241, b: 233, a: 0.82)
         } else if glowEnabled {
             return Color(r: 2, g: 6, b: 23, a: 0.75)
+        } else if id == "ash" {
+            return Color(r: bgBotR, g: bgBotG, b: bgBotB, a: 1.0) // gleich wie windowBg
         } else {
             return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1.0)
         }
@@ -76,7 +78,9 @@ struct AppTheme: Identifiable, Equatable, Codable {
     // Primary text — accent-as-text themes use accentFull; medium get dark; others near-white
     var primaryText: Color {
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 1.00) }
-        return (isLight || isMedium) ? Color(white: 0.05) : Color(white: 0.95)
+        if isLight || isMedium { return Color(white: 0.05) }
+        if id == "ash" { return Color(r: 208, g: 217, b: 224, a: 1) } // #D0D9E0 — 11.1:1, weicher Blaugrau-Ton
+        return Color(white: 0.95)
     }
     var secondaryText: Color {
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 0.68) }
@@ -311,8 +315,8 @@ extension AppTheme {
     // Accent: steel-blue #6C96B4 — ruhig, professionell auf dunklem Grund
     static let ash = AppTheme(
         id: "ash", name: "Ash",
-        bgTopR: 32,  bgTopG: 35,  bgTopB: 37,  bgTopA: 1.0,
-        bgBotR: 18,  bgBotG: 20,  bgBotB: 22,  bgBotA: 1.0,
+        bgTopR: 38,  bgTopG: 42,  bgTopB: 44,  bgTopA: 1.0,   // #262A2C
+        bgBotR: 38,  bgBotG: 42,  bgBotB: 44,  bgBotA: 1.0,  // #262A2C — windowBg + sidebarBg gleich
         glowEnabled: false,
         acR: 108, acG: 150, acB: 180,
         acTextR: 128, acTextG: 170, acTextB: 200,
