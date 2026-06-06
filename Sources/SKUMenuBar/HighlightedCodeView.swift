@@ -322,6 +322,15 @@ struct HighlightedCodeView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onTextChange: ((String) -> Void)?
         var onHoverLine: ((Int?) -> Void)?
+
+        /// Ausstehender Highlight-Auftrag — wird bei jedem updateNSView gecancelt und
+        /// neu geplant (0.1s Debounce). Verhindert den Streaming-Hang:
+        /// highlight() ruft JSCore auf (10–50ms). Bei 50 Tokens/s × 50ms = 2500ms/s
+        /// main-thread-Blocking → SwiftUI-Transaction-Queue akkumuliert hunderte Einträge
+        /// → nach Streaming-Ende verarbeitet flushTransactions() sie alle → 25s Hang.
+        /// Mit 0.1s Debounce: 0 Aufrufe während Streaming, 1 Aufruf danach. (Fix 11)
+        var pendingHighlightItem: DispatchWorkItem?
+
         init(onTextChange: ((String) -> Void)?, onHoverLine: ((Int?) -> Void)?) {
             self.onTextChange = onTextChange
             self.onHoverLine = onHoverLine
@@ -388,61 +397,95 @@ struct HighlightedCodeView: NSViewRepresentable {
             return
         }
 
-        let theme = isDark ? "atom-one-dark" : "xcode"
-        let highlightr = Self.highlightr
-        highlightr?.setTheme(to: theme)
-
-        let lang = language ?? fileURL.flatMap { detectLanguage(for: $0) }
-        let attributed: NSAttributedString?
-
-        if let lang, !lang.isEmpty {
-            attributed = highlightr?.highlight(code, as: lang, fastRender: true)
-        } else {
-            attributed = highlightr?.highlight(code, fastRender: true)
-        }
+        // FIX 11 — Debounce-Highlighting: verhindert den Streaming-Hang.
+        //
+        // PROBLEM: highlight() ruft JavaScript (JSCore) auf, was 10–50 ms dauert.
+        // Beim Streaming trifft ein Token alle ~20 ms ein → updateNSView 50×/s.
+        // 50 Aufrufe × 50 ms = 2500 ms Blocking pro Sekunde > 1000 ms verfügbar
+        // → SwiftUI-Transaction-Queue akkumuliert hunderte Einträge
+        // → nach Streaming-Ende verarbeitet flushTransactions() alle auf einmal
+        // → App hängt für 10–30 Sekunden.
+        //
+        // LÖSUNG: highlight() erst 0.1 s nach letzter Code-Änderung aufrufen.
+        // Während Streaming: 0 JS-Aufrufe (jedes Update cancelt den Timer).
+        // Nach Streaming: genau 1 JS-Aufruf, 100 ms nach letztem Token.
+        // Sofort: plain Text (Monospace, keine Farben) als visuelles Feedback.
 
         let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
-        if let attr = attributed {
-            let mutable = NSMutableAttributedString(attributedString: attr)
-            mutable.addAttribute(.font, value: codeFont,
-                                 range: NSRange(location: 0, length: mutable.length))
-            textView.textStorage?.setAttributedString(mutable)
-        } else {
-            let plain = NSAttributedString(
-                string: code,
-                attributes: [
-                    .font: codeFont,
-                    .foregroundColor: NSColor.labelColor
-                ]
-            )
-            textView.textStorage?.setAttributedString(plain)
-        }
+        // 1. Sofort plain text setzen (kein JS, < 1 ms)
+        let plain = NSAttributedString(
+            string: code,
+            attributes: [
+                .font: codeFont,
+                .foregroundColor: NSColor.labelColor
+            ]
+        )
+        textView.textStorage?.setAttributedString(plain)
         textView.undoManager?.removeAllActions()
 
-        // Slightly darker background for better contrast vs the tree panel.
+        // Background schon mal setzen (kein JS nötig)
         let bg: NSColor = isDark
             ? NSColor(red: 0.13, green: 0.14, blue: 0.17, alpha: 1)
             : NSColor(red: 0.97, green: 0.97, blue: 0.98, alpha: 1)
         textView.backgroundColor = bg
         scrollView.backgroundColor = bg
         scrollView.contentView.backgroundColor = bg
-
         textView.isEditable = isEditable
-
-        // Re-apply search highlights on top of the freshly highlighted text.
         applySearchHighlights(in: textView)
 
-        // Defer one run-loop turn so SwiftUI commits the final frame before we
-        // force a display. Without this the NSTextView draws into a zero-size
-        // rect during updateNSView and stays blank until the user clicks.
+        // 2. Vorherigen Highlight-Auftrag abbrechen und neuen einplanen (0.1 s Debounce)
+        context.coordinator.pendingHighlightItem?.cancel()
+
+        let capturedCode  = code
+        let capturedLang  = language ?? fileURL.flatMap { detectLanguage(for: $0) }
+        let capturedTheme = isDark ? "atom-one-dark" : "xcode"
+        let capturedDark  = isDark
         let tv = textView
         let sv = scrollView
-        DispatchQueue.main.async {
-            tv.layoutManager?.ensureLayout(for: tv.textContainer ?? NSTextContainer())
-            tv.needsDisplay = true
-            sv.needsDisplay = true
+
+        let item = DispatchWorkItem {
+            // highlight() läuft auf dem main thread (JSContext ist main-thread-bound),
+            // aber erst 0.1 s nach letzter Code-Änderung — kein Blocking mehr während Streaming.
+            let highlightr = HighlightedCodeView.highlightr
+            highlightr?.setTheme(to: capturedTheme)
+
+            let attributed: NSAttributedString?
+            if let lang = capturedLang, !lang.isEmpty {
+                attributed = highlightr?.highlight(capturedCode, as: lang, fastRender: true)
+            } else {
+                attributed = highlightr?.highlight(capturedCode, fastRender: true)
+            }
+
+            if let attr = attributed {
+                let mutable = NSMutableAttributedString(attributedString: attr)
+                mutable.addAttribute(.font, value: codeFont,
+                                     range: NSRange(location: 0, length: mutable.length))
+                tv.textStorage?.setAttributedString(mutable)
+            }
+            // (kein else nötig — plain text ist schon gesetzt)
+
+            // Nur Hintergrund nochmal setzen falls isDark geändert hat
+            let bgFresh: NSColor = capturedDark
+                ? NSColor(red: 0.13, green: 0.14, blue: 0.17, alpha: 1)
+                : NSColor(red: 0.97, green: 0.97, blue: 0.98, alpha: 1)
+            tv.backgroundColor = bgFresh
+            sv.backgroundColor = bgFresh
+            sv.contentView.backgroundColor = bgFresh
+
+            // Defer one run-loop turn so SwiftUI commits the final frame before
+            // we force a display.
+            DispatchQueue.main.async {
+                tv.layoutManager?.ensureLayout(for: tv.textContainer ?? NSTextContainer())
+                tv.needsDisplay = true
+                sv.needsDisplay = true
+            }
         }
+
+        context.coordinator.pendingHighlightItem = item
+        // 0.1 s Debounce: während Streaming (20 ms/Token) feuert dieser Timer nie.
+        // Nach dem letzten Token wartet er 100 ms und highlighted dann einmal.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
 
     /// Removes any prior search-highlight backgrounds and applies the current
@@ -460,8 +503,11 @@ struct HighlightedCodeView: NSViewRepresentable {
         textView.appliedSearchRanges = []
 
         guard !searchText.isEmpty, total > 0 else {
-            let cb = onMatchCountChange
-            DispatchQueue.main.async { cb?(0) }
+            // Nur dispachen wenn wirklich ein Callback registriert ist (spart GCD-Blöcke
+            // in den vielen Chat-Code-Blöcken ohne Suchfunktion).
+            if let cb = onMatchCountChange {
+                DispatchQueue.main.async { cb(0) }
+            }
             return
         }
 
