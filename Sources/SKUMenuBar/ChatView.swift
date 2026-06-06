@@ -6271,6 +6271,7 @@ struct FilePreviewPanel: View {
     @State private var reloadTrigger: Int = 0
     @State private var watcherNeedsRestart: Bool = false
     @State private var qlPreviewURL: URL? = nil
+    @State private var htmlContent: String? = nil
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -6364,6 +6365,13 @@ struct FilePreviewPanel: View {
                         .padding(16)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if node.isWebPreviewable, let html = htmlContent {
+                WebPreviewView(
+                    htmlContent: html,
+                    sourceURL: node.url,
+                    accessRoot: node.url.deletingLastPathComponent()
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let text = previewText {
                 HighlightedCodeView(
                     code: text,
@@ -6449,6 +6457,7 @@ struct FilePreviewPanel: View {
         pdfDocument = nil
         nsImage = nil
         qlPreviewURL = nil
+        htmlContent = nil
         isLoading = false
         searchText = ""
         searchMatchCount = 0
@@ -6463,6 +6472,21 @@ struct FilePreviewPanel: View {
             Task.detached(priority: .userInitiated) {
                 let img = NSImage(contentsOf: url)
                 await MainActor.run { nsImage = img; isLoading = false }
+            }
+        } else if node.isWebPreviewable {
+            isLoading = true
+            let url = node.url
+            let isSVG = node.fileExtension == "svg"
+            Task.detached(priority: .userInitiated) {
+                let text = (try? String(contentsOf: url, encoding: .utf8))
+                    ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+                let html = text.map { t -> String in
+                    if isSVG {
+                        return "<!DOCTYPE html><html><body style='margin:0;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;'>\(t)</body></html>"
+                    }
+                    return t
+                }
+                await MainActor.run { htmlContent = html; isLoading = false }
             }
         } else if node.isTextFile {
             isLoading = true
