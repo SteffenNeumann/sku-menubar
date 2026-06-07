@@ -103,7 +103,12 @@ struct ChatView: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // FIX 13a: idealHeight:0 → _FlexFrameLayout.sizeThatFits((W, nil)) liefert 0 sofort
+            // zurück, OHNE den ZStack (→ FrozenSectionLayout → SingleChatSessionView) zu messen.
+            // VStack.prioritize ruft .lengthThatFits mit nil-Height auf; idealHeight:0 = Sentinel
+            // "ich bin flexibel, gib mir allen Rest-Platz" — tatsächliche Platzierung bleibt
+            // korrekt weil maxHeight:.infinity den vollen Rest bekommt.
+            .frame(maxWidth: .infinity, idealHeight: 0, maxHeight: .infinity)
             .overlay(alignment: .top) {
                 // Separator here — sits below the accent underline, never covers it
                 theme.cardBorder.opacity(0.5).frame(height: 0.5)
@@ -1346,8 +1351,10 @@ struct SingleChatSessionView: View {
 
     /// Virtuelle Nachrichten-Liste: bei langen Sessions (>150 Nachrichten) nur die
     /// letzten 150 rendern. Verhindert teuren Layout-Tree der alle Nachrichten misst.
-    /// FIX 10: Layout-Kaskade durch zu viele MessageBubbleViews in aktivem FrozenSectionLayout.
-    private static let maxVisibleMessages = 150
+    /// FIX 10/13c: Layout-Kaskade durch zu viele MessageBubbleViews in aktivem FrozenSectionLayout.
+    /// 150 → 75: halbiert die Mess-Kosten pro Transaction (Orchestrator-Mode hat viele komplexe
+    /// Bubbles mit Tool-Calls; jede Messung kostet mehr als bei einfachem Text-Chat).
+    private static let maxVisibleMessages = 75
     private var visibleMessages: [ChatMessage] {
         guard messages.count > Self.maxVisibleMessages else { return messages }
         return Array(messages.suffix(Self.maxVisibleMessages))

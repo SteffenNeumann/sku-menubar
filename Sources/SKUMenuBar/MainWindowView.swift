@@ -13,18 +13,49 @@ import SwiftUI
 // die Subviews NICHT → kein AttributeGraph-Dependency auf das Kind → Layout-Kaskade entfällt.
 // Das Kind bleibt in der Hierarchie (gleiche Identität, @State bleibt erhalten).
 // Intern (nicht private) — wird auch von ChatView für Tab-Isolation verwendet.
+//
+// FIX 13b — Proposal-Cache:
+// VStack ruft sizeThatFits pro Layout-Pass bis zu 3× auf (prioritize, resize, placeChildren1).
+// Bei gleicher Proposal (z.B. resize == placeChildren1) liefert der Cache sofort zurück.
+// updateCache() setzt den Cache zurück wenn SwiftUI neue Subviews meldet (neue Nachrichten).
 struct FrozenSectionLayout: Layout {
     var isActive: Bool
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    struct SizeCache {
+        var isSet = false
+        var w: CGFloat? = nil
+        var h: CGFloat? = nil
+        var size: CGSize = .zero
+    }
+    typealias Cache = SizeCache
+
+    func makeCache(subviews: Subviews) -> SizeCache { SizeCache() }
+
+    func updateCache(_ cache: inout SizeCache, subviews: Subviews) {
+        // Zurücksetzen wenn sich Subviews ändern (neue Nachrichten → andere Größe möglich).
+        cache = SizeCache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout SizeCache) -> CGSize {
         // KRITISCH: bei isActive=false keine Kind-Messung → O(1) Layout-Cost statt O(N×Messages).
         // Das unterbricht die AttributeGraph-Abhängigkeit zwischen dem teuren Kind und dem
         // umgebenden ZStack, sodass 60fps-Animationen keinen Layout-Loop auslösen.
         guard isActive, let child = subviews.first else { return .zero }
-        return child.sizeThatFits(proposal)
+
+        // Cache-Hit: gleiche Proposal wie letzter Aufruf in diesem Layout-Pass → sofort zurück.
+        // Schützt vor dem 3× Messen durch VStack (prioritize + resize + placeChildren1).
+        if cache.isSet && proposal.width == cache.w && proposal.height == cache.h {
+            return cache.size
+        }
+        let size = child.sizeThatFits(proposal)
+        cache.isSet = true
+        cache.w = proposal.width
+        cache.h = proposal.height
+        cache.size = size
+        return size
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout SizeCache) {
         guard let child = subviews.first else { return }
         if isActive {
             child.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
