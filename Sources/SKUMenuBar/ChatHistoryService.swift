@@ -15,6 +15,19 @@ final class ChatHistoryService: ObservableObject {
     // Accessed only on DispatchQueue.main — nonisolated(unsafe) avoids actor-hop overhead.
     nonisolated(unsafe) private var debounceWork: DispatchWorkItem?
 
+    // FIX B (Chat-Hang, CRITICAL 2): Während ein Chat streamt, schreibt die Claude CLI
+    // permanent in ~/.claude/history.jsonl + die Session-.jsonl. Der Watcher würde sonst
+    // pro Write das teure loadProjects() (liest history.jsonl + enumeriert JEDES Projekt-
+    // verzeichnis + JEDE .jsonl) auf dem @MainActor anstoßen → konkurriert direkt mit den
+    // Streaming-Layout-Passes. Der Chat füttert buchstäblich seinen eigenen Watcher.
+    // AppState setzt dieses Flag, sobald irgendein Tab streamt. Beim Übergang
+    // streaming→idle wird einmal nachgeladen (während des Streamings verpasste Änderungen).
+    var isChatStreaming: Bool = false {
+        didSet {
+            if oldValue && !isChatStreaming { scheduleReload() }
+        }
+    }
+
     /// Start watching ~/.claude/ and ~/.claude/projects/ for changes.
     /// Watches parent directories instead of files directly, so atomic writes
     /// (Claude CLI uses temp→rename) are reliably detected.
@@ -58,11 +71,17 @@ final class ChatHistoryService: ObservableObject {
         let work = DispatchWorkItem {
             Task { @MainActor [weak self] in
                 guard let self, !self.isLoading else { return }
+                // FIX B: Während aktivem Streaming NICHT laden — die CLI-Writes feuern den
+                // Watcher permanent. Beim Streaming-Ende stößt isChatStreaming.didSet einen
+                // Reload an, der die verpassten Änderungen einsammelt.
+                if self.isChatStreaming { return }
                 await self.loadProjects()
             }
         }
         debounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        // FIX B: Debounce 0.5s → 2.0s. Reduziert Reload-Frequenz bei Datei-Bursts deutlich
+        // (z.B. Agent schreibt viele Dateien); die History muss nicht sekündlich aktuell sein.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     var projectsDir: URL {

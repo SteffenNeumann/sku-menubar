@@ -1,6 +1,81 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Throttled wrapper for streaming markdown
+//
+// FIX A (Chat-Hang, CRITICAL 1): MarkdownTextView.body parst den GANZEN Text bei JEDER
+// body-Auswertung komplett neu (parseSegments + parseMarkdownBlocks + AttributedString pro
+// Block — kein Cache). MessageBubbleView.== gibt für streamende Nachrichten absichtlich
+// `false` zurück, damit die Bubble live mitläuft → sie re-evaluiert pro Token-Batch → der
+// wachsende Text wird O(n²)-oft komplett neu geparst. Bei langen Antworten mit Tabellen/Listen
+// ist das die dominante Main-Thread-Last → Hang.
+//
+// LÖSUNG (gleiches Muster wie Fix 11 / Highlightr-Debounce): Während des Streamings die an
+// MarkdownTextView durchgereichte Text-Version throtteln — max. ~1×/150 ms statt ~50×/s.
+// Bei Stream-Ende sofort die finale, vollständige Version setzen (volle Fidelity).
+// Der erste Token erscheint sofort (leading edge); ein trailing-Apply stellt sicher, dass
+// der letzte Wert nie verloren geht.
+struct StreamingMarkdownText: View {
+    let text: String
+    let isStreaming: Bool
+
+    @State private var displayed: String
+    @State private var lastApply: Date = .distantPast
+    @State private var pending: DispatchWorkItem?
+
+    // ~7 sichtbare Updates/s — flüssig, aber weit unter der Token-Rate.
+    private static let throttleInterval: TimeInterval = 0.15
+
+    init(text: String, isStreaming: Bool) {
+        self.text = text
+        self.isStreaming = isStreaming
+        // initialValue greift nur bei der ersten Erzeugung — kein leerer Frame beim Mount.
+        _displayed = State(initialValue: text)
+    }
+
+    var body: some View {
+        MarkdownTextView(text: displayed)
+            .equatable()
+            .onChange(of: text) { _, newValue in apply(newValue) }
+            .onChange(of: isStreaming) { _, streaming in
+                if !streaming {
+                    // Stream beendet → finalen Text sofort & vollständig anzeigen.
+                    pending?.cancel(); pending = nil
+                    if displayed != text { displayed = text }
+                }
+            }
+            .onDisappear { pending?.cancel(); pending = nil }
+    }
+
+    private func apply(_ newValue: String) {
+        // Nicht-Streaming (nachträgliche Änderung): sofort durchreichen.
+        guard isStreaming else {
+            pending?.cancel(); pending = nil
+            if displayed != newValue { displayed = newValue }
+            return
+        }
+        let elapsed = Date().timeIntervalSince(lastApply)
+        if elapsed >= Self.throttleInterval {
+            // Genug Zeit seit dem letzten Apply → sofort (leading edge).
+            pending?.cancel(); pending = nil
+            displayed = newValue
+            lastApply = Date()
+        } else {
+            // Zu früh → trailing-Apply für den jüngsten Wert planen.
+            pending?.cancel()
+            let captured = newValue
+            let work = DispatchWorkItem {
+                displayed = captured
+                lastApply = Date()
+                pending = nil
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + (Self.throttleInterval - elapsed), execute: work)
+        }
+    }
+}
+
 // MARK: - Markdown renderer with syntax-highlighted code blocks
 
 struct MarkdownTextView: View, Equatable {

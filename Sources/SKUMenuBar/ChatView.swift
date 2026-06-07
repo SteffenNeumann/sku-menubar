@@ -903,7 +903,13 @@ struct SingleChatSessionView: View {
 
     private func syncMessagesOnChange() {
         if !isStreaming { tab.messages = messages }
-        if let cwd = workingDirectory {
+        // FIX C (HIGH 3): Diese Badge/Diff-Schleife iteriert JEDE Nachricht × JEDEN toolCall
+        // (Pfad-Resolve, Set-Inserts, gitDiff-Scan). Während des Streamings feuert
+        // onChange(of: messages) pro 50-Token-Batch → der ganze Verlauf wird redundant
+        // re-gescannt, obwohl die Live-Badges bereits inline in performSend gesetzt werden.
+        // Daher bei isStreaming überspringen; der volle Scan läuft beim Stream-Ende
+        // (onChange feuert dann erneut mit isStreaming==false).
+        if !isStreaming, let cwd = workingDirectory {
             // ── Pfad-Hilfsfunktion ───────────────────────────────────────
             func resolve(_ raw: String) -> String {
                 raw.hasPrefix("/") ? raw : cwd + (cwd.hasSuffix("/") ? "" : "/") + raw
@@ -6950,8 +6956,10 @@ struct MessageBubbleView: View, Equatable {
                 && message.toolCalls.allSatisfy { $0.result != nil }
             let isResearching = message.isStreaming && !message.toolCalls.isEmpty && !allToolsDone
             if !message.content.isEmpty && !isResearching {
-                MarkdownTextView(text: message.content)
-                    .equatable()
+                // FIX A: StreamingMarkdownText throttelt den Markdown-Parse während des
+                // Streamings (~7×/s statt pro Token) → behebt O(n²)-Re-Parse der wachsenden
+                // Nachricht. Bei Stream-Ende volle Fidelity. (.equatable() steckt im Wrapper.)
+                StreamingMarkdownText(text: message.content, isStreaming: message.isStreaming)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(allToolsDone && message.isStreaming ? 0.65 : 1.0)
             }

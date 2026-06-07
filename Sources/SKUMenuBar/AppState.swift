@@ -98,7 +98,19 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Chat Tab State (persisted here so it survives window close/reopen)
-    @Published var chatTabs: [ChatTab] = [ChatTab(title: "Chat 1")]
+    // FIX B: Sobald sich der Streaming-Zustand irgendeines Tabs ändert, spiegeln wir das
+    // ins historyService — damit dessen Watcher während aktivem Streaming nicht das teure
+    // loadProjects() anstößt (die CLI füttert sonst ihren eigenen Watcher → Hang).
+    // didSet feuert nicht für den Default-Wert; ab der ersten Mutation (post-init) ist
+    // historyService bereits initialisiert.
+    @Published var chatTabs: [ChatTab] = [ChatTab(title: "Chat 1")] {
+        didSet {
+            let streaming = chatTabs.contains { $0.isStreaming }
+            if historyService.isChatStreaming != streaming {
+                historyService.isChatStreaming = streaming
+            }
+        }
+    }
     @Published var selectedChatTabIndex: Int = 0
 
     // Set this to open a specific session in Chat tab
