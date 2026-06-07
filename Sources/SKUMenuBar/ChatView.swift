@@ -80,20 +80,27 @@ struct ChatView: View {
         VStack(spacing: 0) {
             tabBar
 
-            // Render ALL tabs in a ZStack; show/hide via opacity to preserve @State on tab switch
+            // Render ALL tabs in a ZStack; show/hide via opacity to preserve @State on tab switch.
+            // FIX 12: FrozenSectionLayout für jeden Tab — inaktive Tabs geben .zero zurück
+            // (kein sizeThatFits des Kindes) statt alle 150 Messages zu messen.
+            // Ohne FrozenSectionLayout: _ZStackLayout.sizeThatFits → Sequence.reduce misst
+            // ALLE Tabs. Bei N Tabs × 150 Messages × komplexen MessageBubbleViews =
+            // exponentieller Layout-Cost → 5s+ Hang nach mehreren Stunden Nutzung.
             ZStack {
                 ForEach(Array(state.chatTabs.enumerated()), id: \.element.id) { index, _ in
-                    SingleChatSessionView(
-                        tab: Binding(
-                            get: { state.chatTabs.indices.contains(index) ? state.chatTabs[index] : ChatTab() },
-                            set: { if state.chatTabs.indices.contains(index) { state.chatTabs[index] = $0 } }
-                        ),
-                        isActive: state.selectedChatTabIndex == index
-                    )
-                    .opacity(state.selectedChatTabIndex == index ? 1 : 0)
-                    .allowsHitTesting(state.selectedChatTabIndex == index)
-                    .zIndex(state.selectedChatTabIndex == index ? 1 : 0)
-                    .environmentObject(state)
+                    FrozenSectionLayout(isActive: state.selectedChatTabIndex == index) {
+                        SingleChatSessionView(
+                            tab: Binding(
+                                get: { state.chatTabs.indices.contains(index) ? state.chatTabs[index] : ChatTab() },
+                                set: { if state.chatTabs.indices.contains(index) { state.chatTabs[index] = $0 } }
+                            ),
+                            isActive: state.selectedChatTabIndex == index
+                        )
+                        .opacity(state.selectedChatTabIndex == index ? 1 : 0)
+                        .allowsHitTesting(state.selectedChatTabIndex == index)
+                        .accessibilityHidden(state.selectedChatTabIndex != index)
+                        .environmentObject(state)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -5160,8 +5167,24 @@ struct SingleChatSessionView: View {
     private func fetchGitDiff(in directory: String) async -> String? {
         // DispatchQueue.global statt Task.detached — waitUntilExit() darf keinen
         // Swift-Concurrency-Thread blockieren (erschöpft den Cooperative Thread Pool).
+        // FIX 12b: 8s Timeout per Process — verhindert Thread-Pool-Erschöpfung bei
+        // langsamen Repos (sample-Profil zeigte 5s+ blockierten Utility-Thread).
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
+                // ── Hilfsfunktion: Process mit Timeout starten ─────────────────
+                func runWithTimeout(_ process: Process, _ pipe: Pipe, timeout: TimeInterval) -> String {
+                    do { try process.run() } catch { return "" }
+                    let deadline = DispatchTime.now() + timeout
+                    let result = DispatchSemaphore(value: 0)
+                    process.terminationHandler = { _ in result.signal() }
+                    if result.wait(timeout: deadline) == .timedOut {
+                        process.terminate()
+                        _ = result.wait(timeout: .now() + 1) // kurz auf terminate() warten
+                    }
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    return String(data: data, encoding: .utf8) ?? ""
+                }
+
                 // ── 1. git diff HEAD — modified tracked files ──────────────────
                 let diffProcess = Process()
                 diffProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -5170,13 +5193,7 @@ struct SingleChatSessionView: View {
                 let diffPipe = Pipe()
                 diffProcess.standardOutput = diffPipe
                 diffProcess.standardError  = Pipe()
-                var combined = ""
-                do {
-                    try diffProcess.run()
-                    diffProcess.waitUntilExit()
-                    let data = diffPipe.fileHandleForReading.readDataToEndOfFile()
-                    combined = String(data: data, encoding: .utf8) ?? ""
-                } catch {}
+                var combined = runWithTimeout(diffProcess, diffPipe, timeout: 8)
 
                 // ── 2. git ls-files --others — new (untracked) files ───────────
                 let lsProcess = Process()
@@ -5186,23 +5203,18 @@ struct SingleChatSessionView: View {
                 let lsPipe = Pipe()
                 lsProcess.standardOutput = lsPipe
                 lsProcess.standardError  = Pipe()
-                do {
-                    try lsProcess.run()
-                    lsProcess.waitUntilExit()
-                    let data = lsPipe.fileHandleForReading.readDataToEndOfFile()
-                    let newFiles = (String(data: data, encoding: .utf8) ?? "")
-                        .components(separatedBy: "\n").filter { !$0.isEmpty }
-                    let cutoff = Date().addingTimeInterval(-600)
-                    let fm = FileManager.default
-                    for file in newFiles {
-                        let fullPath = (directory as NSString).appendingPathComponent(file)
-                        if let attrs = try? fm.attributesOfItem(atPath: fullPath),
-                           let modified = attrs[.modificationDate] as? Date,
-                           modified > cutoff {
-                            combined += "\ndiff --git a/\(file) b/\(file)\nnew file mode 100644\n"
-                        }
+                let lsOutput = runWithTimeout(lsProcess, lsPipe, timeout: 8)
+                let newFiles = lsOutput.components(separatedBy: "\n").filter { !$0.isEmpty }
+                let cutoff = Date().addingTimeInterval(-600)
+                let fm = FileManager.default
+                for file in newFiles {
+                    let fullPath = (directory as NSString).appendingPathComponent(file)
+                    if let attrs = try? fm.attributesOfItem(atPath: fullPath),
+                       let modified = attrs[.modificationDate] as? Date,
+                       modified > cutoff {
+                        combined += "\ndiff --git a/\(file) b/\(file)\nnew file mode 100644\n"
                     }
-                } catch {}
+                }
 
                 continuation.resume(returning: combined.isEmpty ? nil : combined)
             }

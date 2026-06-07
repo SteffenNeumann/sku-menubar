@@ -12,7 +12,8 @@ import SwiftUI
 // LÖSUNG: Swift Layout-Protokoll. FrozenSectionLayout.sizeThatFits() liest bei isActive=false
 // die Subviews NICHT → kein AttributeGraph-Dependency auf das Kind → Layout-Kaskade entfällt.
 // Das Kind bleibt in der Hierarchie (gleiche Identität, @State bleibt erhalten).
-private struct FrozenSectionLayout: Layout {
+// Intern (nicht private) — wird auch von ChatView für Tab-Isolation verwendet.
+struct FrozenSectionLayout: Layout {
     var isActive: Bool
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
