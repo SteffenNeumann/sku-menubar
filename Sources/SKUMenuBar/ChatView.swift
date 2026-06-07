@@ -237,17 +237,26 @@ struct SingleChatSessionView: View {
     @Environment(\.appTheme) var theme
 
     // Kontext für Phase 2+3 nach dem Plan-Freigabe-Pause (manueller Orchestrator-Modus)
+    /// MCP-Konfiguration für genau einen Agent (Per-Agent-Scoping spart Tool-Schemas pro Call).
+    private struct PerAgentMCP {
+        var json: String?
+        var strict: Bool
+    }
+
     private struct PendingPhase2Context {
         var agents: [AgentDefinition]
         var text: String
         var imgPaths: [String]
         var effectiveAddDirs: [String]
-        var mcpJson: String?
-        var mcpStrict: Bool
+        /// agentId → MCP-Config nur dieses Agents (User-Auswahl + eigene requiredMCPs).
+        var perAgentMCP: [String: PerAgentMCP]
         var effectiveMaxTurns: Int?
         var agentTasks: [String: String]
         var zugangContext: String?
     }
+
+    /// Leere MCP-Config für reine Reasoning-Phasen (Analyse / Plan / Synthese) — keine Tool-Schemas.
+    private static let noMCPJson = "{\"mcpServers\":{}}"
 
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
@@ -3523,20 +3532,25 @@ struct SingleChatSessionView: View {
         streamingTask = Task { @MainActor in
 
             // ── Gemeinsame Infrastruktur: MCP + addDirs ──────────────────
-            // requiredMCPs aller beteiligten Agents temporär in activeMCPIds mergen,
-            // damit z.B. project-manager sein Linear-MCP bekommt auch wenn es im Tab
-            // nicht manuell aktiviert wurde.
-            let requiredMCPNames = Set(agents.flatMap { $0.requiredMCPs })
+            // Per-Agent-MCP-Scoping: Jeder Agent bekommt nur (User-Auswahl + SEINE eigenen
+            // requiredMCPs) statt der Union aller Agents. Spart MCP-Tool-Schemas pro Call —
+            // z.B. data-analyst lädt nicht mehr Linear+Make+Brevo, sondern nur was er deklariert.
             let savedMCPIds = activeMCPIds
-            if !requiredMCPNames.isEmpty {
-                let requiredIds = Set(availableMCPs.filter { requiredMCPNames.contains($0.name) }.map(\.id))
-                if activeMCPIds == Set(["__none__"]) {
-                    activeMCPIds = requiredIds          // War "alle aus" → nur Required
-                } else {
-                    activeMCPIds.formUnion(requiredIds) // Zu bestehender Auswahl addieren
+            var perAgentMCP: [String: PerAgentMCP] = [:]
+            for agent in agents where perAgentMCP[agent.id] == nil {
+                var ids = savedMCPIds
+                if !agent.requiredMCPs.isEmpty {
+                    let reqIds = Set(availableMCPs.filter { agent.requiredMCPs.contains($0.name) }.map(\.id))
+                    if ids == Set(["__none__"]) {
+                        ids = reqIds                    // War "alle aus" → nur Required dieses Agents
+                    } else {
+                        ids.formUnion(reqIds)           // Zu User-Auswahl addieren
+                    }
                 }
+                activeMCPIds = ids
+                let (json, strict) = await buildMCPConfigJSON()
+                perAgentMCP[agent.id] = PerAgentMCP(json: json, strict: strict)
             }
-            let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
             activeMCPIds = savedMCPIds                 // UI-Zustand wiederherstellen
             var effectiveAddDirs = fileDirs
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
@@ -3588,54 +3602,52 @@ struct SingleChatSessionView: View {
             var agentAnalyses: [(name: String, analysis: String)] = []
 
             if !skipAnalysis {
-                messages[planIdx].content = headerLine + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
+                messages[planIdx].content = headerLine
+                    + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n⏳ Analysiere \(agents.count) Spezialisten…\n"
 
-                for agent in agents {
-                    guard !Task.isCancelled else { break }
+                // P3: EIN Haiku-Call für ALLE Agents statt N Einzel-Calls.
+                // P1/P2: keine MCP-Tools, keine Bilder — reines Reasoning. P5: maxTurns 1.
+                let profileList = agents.map { a -> String in
+                    let profile = a.description.isEmpty ? String(a.promptBody.prefix(150)) : a.description
+                    return "- \(a.name): \(profile)"
+                }.joined(separator: "\n")
 
-                    let doneLines   = agentAnalyses.map { "✓ \($0.name)\n" }.joined()
-                    let remaining   = agents.dropFirst(agentAnalyses.count + 1).map { "⬜ \($0.name)\n" }.joined()
-                    messages[planIdx].content = headerLine
-                        + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
-                        + doneLines + "⏳ \(agent.name)…\n" + remaining
+                let bulkPrompt = """
+                Aufgabe: \(text)
 
-                    let profile = agent.description.isEmpty
-                        ? String(agent.promptBody.prefix(150))
-                        : agent.description
+                Verfügbare Spezialisten:
+                \(profileList)
 
-                    let analysisPrompt = """
-                    Agent-Profil: \(agent.name) — \(profile)
+                Beschreibe für JEDEN Spezialisten in max. 2 Sätzen, was er konkret zu dieser Aufgabe beitragen kann und welche Abhängigkeiten bestehen.
+                Antworte AUSSCHLIESSLICH in diesem Format — exakt eine Zeile pro Spezialist, kein anderer Text:
+                <AgentName>: <Beitrag>
+                """
 
-                    Aufgabe: \(text)
-
-                    Beschreibe in max. 3 Sätzen: Was kannst du konkret beitragen? Welche Teilschritte und Abhängigkeiten siehst du?
-                    """
-
-                    var analysis = ""
-                    let aStream = state.cliService.send(
-                        message: analysisPrompt,
-                        systemPrompt: "Antworte knapp und konkret auf Deutsch.",
-                        model: "claude-haiku-4-5-20251001",
-                        workingDirectory: workingDirectory,
-                        addDirs: effectiveAddDirs,
-                        skipPermissions: autoApprove,
-                        mcpConfigJSON: mcpJson,
-                        mcpStrictMode: mcpStrict,
-                        imagePaths: imgPaths
-                    )
-                    do {
-                        for try await event in aStream {
-                            guard !Task.isCancelled else { break }
-                            if case "assistant" = event.type, let content = event.message?.content {
-                                for block in content where block.type == "text" {
-                                    if let t = block.text, !t.isEmpty { analysis += t }
-                                }
+                var bulkOutput = ""
+                let aStream = state.cliService.send(
+                    message: bulkPrompt,
+                    systemPrompt: "Antworte knapp und konkret auf Deutsch. Halte das Format exakt ein.",
+                    model: "claude-haiku-4-5-20251001",
+                    workingDirectory: workingDirectory,
+                    addDirs: effectiveAddDirs,
+                    skipPermissions: autoApprove,
+                    maxTurns: 1,
+                    mcpConfigJSON: Self.noMCPJson,
+                    mcpStrictMode: true,
+                    imagePaths: []
+                )
+                do {
+                    for try await event in aStream {
+                        guard !Task.isCancelled else { break }
+                        if case "assistant" = event.type, let content = event.message?.content {
+                            for block in content where block.type == "text" {
+                                if let t = block.text, !t.isEmpty { bulkOutput += t }
                             }
                         }
-                    } catch { analysis = "(Analyse nicht verfügbar)" }
+                    }
+                } catch { bulkOutput = "" }
 
-                    agentAnalyses.append((name: agent.name, analysis: analysis))
-                }
+                agentAnalyses = parseBulkAnalysis(bulkOutput, agents: agents)
 
                 messages[planIdx].content = headerLine
                     + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
@@ -3698,9 +3710,10 @@ struct SingleChatSessionView: View {
                 workingDirectory: workingDirectory,
                 addDirs: effectiveAddDirs,
                 skipPermissions: autoApprove,
-                mcpConfigJSON: mcpJson,
-                mcpStrictMode: mcpStrict,
-                imagePaths: imgPaths
+                maxTurns: 1,                          // P5: Plan ist einturnig
+                mcpConfigJSON: Self.noMCPJson,        // P1: keine Tools nötig
+                mcpStrictMode: true,
+                imagePaths: []                        // P2: kein Bild für Plan-Reasoning
             )
             do {
                 for try await event in planStream {
@@ -3759,8 +3772,8 @@ struct SingleChatSessionView: View {
 
             let phase2Ctx = PendingPhase2Context(
                 agents: agents, text: text, imgPaths: imgPaths,
-                effectiveAddDirs: effectiveAddDirs, mcpJson: mcpJson,
-                mcpStrict: mcpStrict, effectiveMaxTurns: effectiveMaxTurns,
+                effectiveAddDirs: effectiveAddDirs, perAgentMCP: perAgentMCP,
+                effectiveMaxTurns: effectiveMaxTurns,
                 agentTasks: agentTasks, zugangContext: zugangCtx
             )
 
@@ -3787,8 +3800,7 @@ struct SingleChatSessionView: View {
         let text            = ctx.text
         let imgPaths        = ctx.imgPaths
         let effectiveAddDirs = ctx.effectiveAddDirs
-        let mcpJson         = ctx.mcpJson
-        let mcpStrict       = ctx.mcpStrict
+        let perAgentMCP     = ctx.perAgentMCP
         let effectiveMaxTurns = ctx.effectiveMaxTurns
         let agentTasks      = ctx.agentTasks
         let zugangContext   = ctx.zugangContext
@@ -3839,8 +3851,15 @@ struct SingleChatSessionView: View {
                     contextParts.append("Bisheriger Konversationsverlauf:\n\(history)")
                 }
                 if !agentOutputs.isEmpty {
+                    // P4: Fremd-Outputs auf 1500 Zeichen kappen — verhindert O(N²)-Aufblähung des
+                    // Phase-2-Kontexts. Die Synthese (Phase 3) sieht weiterhin die VOLLEN Outputs.
                     let prior = agentOutputs
-                        .map { "**\($0.name):**\n\($0.output)" }
+                        .map { o -> String in
+                            let body = o.output.count > 1500
+                                ? String(o.output.prefix(1500)) + "\n…[gekürzt]"
+                                : o.output
+                            return "**\(o.name):**\n\(body)"
+                        }
                         .joined(separator: "\n\n")
                     contextParts.append("Ergebnisse der anderen Agents in dieser Runde:\n\(prior)")
                 }
@@ -3863,6 +3882,8 @@ struct SingleChatSessionView: View {
                 var agentOutput = ""
                 var capturedAgentSessionId: String? = nil   // Session-ID für Follow-Up-Continuity
 
+                // P1: Per-Agent-MCP — nur die Tools, die DIESER Agent deklariert hat.
+                let agentMCP = perAgentMCP[agent.id]
                 let stream = state.cliService.send(
                     message: agentMessage,
                     systemPrompt: agentSystemPrompt,
@@ -3871,8 +3892,8 @@ struct SingleChatSessionView: View {
                     addDirs: effectiveAddDirs,
                     skipPermissions: autoApprove,
                     maxTurns: effectiveMaxTurns,
-                    mcpConfigJSON: mcpJson,
-                    mcpStrictMode: mcpStrict,
+                    mcpConfigJSON: agentMCP?.json,
+                    mcpStrictMode: agentMCP?.strict ?? true,
                     imagePaths: imgPaths
                 )
                 do {
@@ -3966,9 +3987,10 @@ struct SingleChatSessionView: View {
                     workingDirectory: workingDirectory,
                     addDirs: effectiveAddDirs,
                     skipPermissions: autoApprove,
-                    mcpConfigJSON: mcpJson,
-                    mcpStrictMode: mcpStrict,
-                    imagePaths: imgPaths
+                    maxTurns: 1,                          // P5: Synthese ist einturnig
+                    mcpConfigJSON: Self.noMCPJson,        // P1: keine Tools für Synthese
+                    mcpStrictMode: true,
+                    imagePaths: []                        // P2: kein Bild für Synthese
                 )
                 do {
                     for try await event in synthStream {
@@ -4005,6 +4027,25 @@ struct SingleChatSessionView: View {
             }
 
         isStreaming = false
+    }
+
+    /// Ordnet die gebündelte Domain-Analyse (ein Haiku-Call für alle Agents, P3) je Agent zu.
+    /// Erwartet pro Zeile "<AgentName>: <Beitrag>". Fehlt eine Zeile, bleibt die Analyse leer.
+    private func parseBulkAnalysis(_ text: String, agents: [AgentDefinition]) -> [(name: String, analysis: String)] {
+        let lines = text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "**", with: "") }
+            .filter { !$0.isEmpty }
+        return agents.map { agent in
+            let name = agent.name.lowercased()
+            var analysis = ""
+            if let line = lines.first(where: {
+                let l = $0.lowercased()
+                return l.hasPrefix(name + ":") || l.hasPrefix("- " + name + ":")
+            }), let colon = line.range(of: ":") {
+                analysis = String(line[colon.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+            return (name: agent.name, analysis: analysis)
+        }
     }
 
     /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan (Legacy-Format).
