@@ -426,6 +426,24 @@ struct SingleChatSessionView: View {
         case full       // Komplett neues Thema → volle 4-Phasen-Pipeline
     }
 
+    /// Erkennt Erklär-/Verständnis-/Status-Fragen zum bestehenden Orchestrierungs-Ergebnis.
+    /// Solche Nachfragen sollen aus dem vorhandenen Kontext (Plan + Synthese) beantwortet
+    /// werden — nicht eine neue Agent-Orchestrierung auslösen.
+    private func isExplanationOrQuestion(_ text: String) -> Bool {
+        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if lower.hasSuffix("?") { return true }
+        // Verben/Phrasen, die eine Erklärung des Bestehenden anfordern (Prefix-Match am Satzanfang)
+        let explainPrefixes = ["erläuter", "erklär", "erklar", "beschreib", "schilder",
+                               "fasse", "fass ", "zeig mir", "zeig mal", "nenn mir", "nenne mir",
+                               "was ist", "was sind", "was bedeutet", "was genau", "was macht",
+                               "wie funktioniert", "wie läuft", "wie wird", "wie sieht",
+                               "wieso", "weshalb", "verstehe nicht", "ich verstehe",
+                               "kannst du erklär", "kannst du erläuter", "kannst du beschreib",
+                               "explain", "describe", "what is", "what are", "what does",
+                               "how does", "how do", "tell me"]
+        return explainPrefixes.contains { lower.hasPrefix($0) }
+    }
+
     private func classifyFollowUp(_ text: String) -> FollowUpIntent {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let words = lower.split(separator: " ")
@@ -456,6 +474,10 @@ struct SingleChatSessionView: View {
                               "wer ", "kannst ", "what ", "how ", "why ", "when ",
                               "where ", "which ", "who ", "can ", "could "]
         if questionStarts.contains(where: { lower.hasPrefix($0) }) { return .chat }
+
+        // 3b) Erklär-/Verständnis-Anfragen zum bestehenden Ergebnis → Chat (direkt beantworten,
+        //     nicht neu orchestrieren — auch wenn sie länger sind, z.B. "Erläutere mir noch wie …")
+        if isExplanationOrQuestion(text) { return .chat }
 
         // 4) Reine Ausführungs-Befehle (NUR wenn die Nachricht primär ein Befehl ist)
         //    "go" / "weiter" / "mach das" → fast
@@ -4649,9 +4671,12 @@ struct SingleChatSessionView: View {
                     // Kurze Status-Fragen (≤ 5 Wörter oder Fragezeichen) direkt beantworten —
                     // kein neues Planning/Agent-Execution. Orchestrator-History wird als Kontext injiziert.
                     // Längere .chat Follow-ups → Schnell-Orchestrierung (skipAnalysis: true).
-                    let isSimpleQuery = routingText.split(separator: " ").count <= 5
-                                     || routingText.hasSuffix("?")
-                    if isSimpleQuery {
+                    // Direkt aus dem Kontext (Plan + Synthese) beantworten, wenn es eine
+                    // Frage/Erklär-Anfrage zum bestehenden Ergebnis ist — unabhängig von der Länge.
+                    // Nur echte neue Aufgaben gehen in die Schnell-Orchestrierung.
+                    let shouldAnswerDirectly = routingText.split(separator: " ").count <= 5
+                                     || isExplanationOrQuestion(routingText)
+                    if shouldAnswerDirectly {
                         sendOrchestratorDirectAnswer()
                         return
                     }
