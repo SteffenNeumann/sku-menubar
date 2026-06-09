@@ -3392,6 +3392,28 @@ struct SingleChatSessionView: View {
 
     // MARK: - Orchestrator Direkt-Antwort (Status-Fragen ohne Agent-Execution)
 
+    /// Baut einen kompakten Kontext-Block aus der letzten Orchestrierung (Ziel + voller
+    /// Master-Plan + letzte Synthese), damit Folge-Nachfragen den Bezug zum Plan behalten.
+    /// Gibt nil zurück, wenn keine Orchestrierung gelaufen ist.
+    /// - includeResults: false = nur Ziel + Plan (z.B. wenn die Synthese schon separat im Verlauf steht).
+    private func buildOrchestratorContextBlock(includeResults: Bool = true) -> String? {
+        guard !orchestratorHistory.isEmpty else { return nil }
+        var parts: [String] = []
+        let goal = masterGoal.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !goal.isEmpty { parts.append("Ziel: \(goal)") }
+        if let plan = activePlan?.trimmingCharacters(in: .whitespacesAndNewlines), !plan.isEmpty {
+            parts.append("Master-Plan:\n\(plan)")
+        }
+        if includeResults,
+           let synthesis = orchestratorHistory.last(where: { $0.role == "orchestrator" })?.content {
+            parts.append("Ergebnis der Orchestrierung:\n\(synthesis)")
+        }
+        guard !parts.isEmpty else { return nil }
+        return "━━ Kontext aus vorheriger Orchestrierung ━━\n"
+            + parts.joined(separator: "\n\n")
+            + "\n━━━━━━━━━━━━━━━━━━━━━━━━"
+    }
+
     /// Beantwortet kurze Fragen/Status-Anfragen im Orchestrator-Kontext direkt —
     /// ohne neues Planning oder Agent-Execution. Nutzt den gespeicherten
     /// orchestratorHistory als Kontext-Block für die Antwort.
@@ -3415,9 +3437,17 @@ struct SingleChatSessionView: View {
             }
             .joined(separator: "\n\n")
 
-        let contextMsg = historyLines.isEmpty
+        // Voller Master-Plan + Ziel als Kontext (Synthese steht bereits im Verlauf → includeResults:false)
+        var contextSections: [String] = []
+        if let orchCtx = buildOrchestratorContextBlock(includeResults: false) {
+            contextSections.append(orchCtx)
+        }
+        if !historyLines.isEmpty {
+            contextSections.append("Bisheriger Orchestrator-Verlauf:\n\(historyLines)")
+        }
+        let contextMsg = contextSections.isEmpty
             ? text
-            : "Bisheriger Orchestrator-Verlauf:\n\(historyLines)\n\n---\n\nBenutzer-Frage: \(text)"
+            : contextSections.joined(separator: "\n\n") + "\n\n---\n\nBenutzer-Frage: \(text)"
 
         isStreaming = true
         streamingStartTime = Date()
@@ -4846,6 +4876,13 @@ struct SingleChatSessionView: View {
                 if let zk = zugangContext {
                     finalMessage = "━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + message
                 }
+            }
+            // Folge-Nachfrage nach einer Orchestrierung: Ziel + voller Master-Plan + Synthese
+            // voranstellen, damit der Agent in seiner frischen Session den Bezug zum Plan behält.
+            // Nur auf der ersten Nachricht der Session (currentSessionId == nil) — danach trägt
+            // die fortgesetzte CLI-Session den Kontext bereits.
+            if currentSessionId == nil, let orchCtx = buildOrchestratorContextBlock() {
+                finalMessage = orchCtx + "\n\n" + finalMessage
             }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 20 wenn ein Agent aktiv ist.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
