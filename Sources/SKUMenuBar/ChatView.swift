@@ -3686,7 +3686,8 @@ struct SingleChatSessionView: View {
                     maxTurns: 1,
                     mcpConfigJSON: Self.noMCPJson,
                     mcpStrictMode: true,
-                    imagePaths: []
+                    imagePaths: [],
+                    disableTools: true                // Reasoning-only → kein Tool-Call bei maxTurns:1
                 )
                 do {
                     for try await event in aStream {
@@ -3763,9 +3764,10 @@ struct SingleChatSessionView: View {
                 addDirs: effectiveAddDirs,
                 skipPermissions: autoApprove,
                 maxTurns: 1,                          // P5: Plan ist einturnig
-                mcpConfigJSON: Self.noMCPJson,        // P1: keine Tools nötig
+                mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools nötig
                 mcpStrictMode: true,
-                imagePaths: []                        // P2: kein Bild für Plan-Reasoning
+                imagePaths: [],                       // P2: kein Bild für Plan-Reasoning
+                disableTools: true                    // keine Built-in-Tools → maxTurns:1 valide (kein Read-Versuch)
             )
             do {
                 for try await event in planStream {
@@ -4040,9 +4042,10 @@ struct SingleChatSessionView: View {
                     addDirs: effectiveAddDirs,
                     skipPermissions: autoApprove,
                     maxTurns: 1,                          // P5: Synthese ist einturnig
-                    mcpConfigJSON: Self.noMCPJson,        // P1: keine Tools für Synthese
+                    mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools für Synthese
                     mcpStrictMode: true,
-                    imagePaths: []                        // P2: kein Bild für Synthese
+                    imagePaths: [],                       // P2: kein Bild für Synthese
+                    disableTools: true                    // Reasoning-only → kein Tool-Call bei maxTurns:1
                 )
                 do {
                     for try await event in synthStream {

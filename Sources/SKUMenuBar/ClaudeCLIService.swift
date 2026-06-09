@@ -26,7 +26,8 @@ final class ClaudeCLIService: ObservableObject {
         maxTurns: Int? = nil,
         mcpConfigJSON: String? = nil,   // wenn gesetzt: --mcp-config <json>
         mcpStrictMode: Bool = true,     // wenn true zusätzlich --strict-mcp-config (disabled für OAuth-MCPs)
-        imagePaths: [String] = []       // optional image files to attach (for persona reviews)
+        imagePaths: [String] = [],      // optional image files to attach (for persona reviews)
+        disableTools: Bool = false      // wenn true: --tools "" (keine Built-in-Tools) — für reine Reasoning-Phasen
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -38,6 +39,12 @@ final class ClaudeCLIService: ObservableObject {
                 if let mcpJson = mcpConfigJSON, !mcpJson.isEmpty {
                     if mcpStrictMode { args.append("--strict-mcp-config") }
                     args += ["--mcp-config", mcpJson]
+                }
+                // Reasoning-Phasen (Domain-Analyse / Plan / Synthese): alle Built-in-Tools
+                // deaktivieren, damit das Modell mit --max-turns 1 keinen Tool-Call versucht
+                // (Read/Bash würde sonst error_max_turns → exit 1 auslösen).
+                if disableTools {
+                    args += ["--tools", ""]
                 }
 
                 if let sid = sessionId, !sid.isEmpty {
