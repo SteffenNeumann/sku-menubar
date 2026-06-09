@@ -3664,8 +3664,18 @@ struct SingleChatSessionView: View {
                     return "- \(a.name): \(profile)"
                 }.joined(separator: "\n")
 
+                // Dateipfade aus dem Aufgabentext entfernen — Phase 0 läuft ohne addDirs/Tools
+                let textForBulk = text.components(separatedBy: .newlines)
+                    .filter { line in
+                        let t = line.trimmingCharacters(in: .whitespaces)
+                        return !t.hasPrefix("/") && !t.hasPrefix("~/")
+                    }
+                    .joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let bulkTask = textForBulk.isEmpty ? text : textForBulk
+
                 let bulkPrompt = """
-                Aufgabe: \(text)
+                Aufgabe: \(bulkTask)
 
                 Verfügbare Spezialisten:
                 \(profileList)
@@ -3678,10 +3688,10 @@ struct SingleChatSessionView: View {
                 var bulkOutput = ""
                 let aStream = state.cliService.send(
                     message: bulkPrompt,
-                    systemPrompt: "Antworte knapp und konkret auf Deutsch. Halte das Format exakt ein.",
+                    systemPrompt: "Antworte knapp und konkret auf Deutsch. Halte das Format exakt ein. Lies KEINE Dateien.",
                     model: "claude-haiku-4-5-20251001",
                     workingDirectory: workingDirectory,
-                    addDirs: effectiveAddDirs,
+                    addDirs: [],                      // Kein Dateizugriff für Domain-Analyse
                     skipPermissions: autoApprove,
                     maxTurns: 1,
                     mcpConfigJSON: Self.noMCPJson,
@@ -3724,13 +3734,25 @@ struct SingleChatSessionView: View {
                 : agentAnalyses.map { "**\($0.name):** \($0.analysis)" }.joined(separator: "\n")
             let agentNamesList = agents.map { $0.name }.joined(separator: ", ")
 
+            // Dateipfade aus dem Auftrag entfernen — der Plan-Prompt wird ohne Tools und ohne
+            // addDirs ausgeführt; steckt ein Pfad im Text, versucht Haiku ihn zu lesen → exit 1.
+            // Die Pfade wurden in Phase 0 bereits verarbeitet; der Plan braucht nur die Aufgabe.
+            let textForPlan = text.components(separatedBy: .newlines)
+                .filter { line in
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    return !trimmed.hasPrefix("/") && !trimmed.hasPrefix("~/")
+                }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let planTask = textForPlan.isEmpty ? text : textForPlan
+
             let masterPlanPrompt = """
             Erstelle einen detaillierten, hierarchischen Master-Plan als strukturierte Todo-Liste.
             \(priorContext)
             Agent-Analysen:
             \(analysisBlock)
 
-            Benutzer-Auftrag: \(text)
+            Benutzer-Auftrag: \(planTask)
 
             Verfügbare Agents: \(agentNamesList)
 
@@ -3758,10 +3780,10 @@ struct SingleChatSessionView: View {
             var planText = ""
             let planStream = state.cliService.send(
                 message: masterPlanPrompt,
-                systemPrompt: "Erstelle strukturierte Pläne. Halte das Format exakt ein.",
+                systemPrompt: "Erstelle strukturierte Pläne. Halte das Format exakt ein. Lies KEINE Dateien. Nutze AUSSCHLIESSLICH den gegebenen Text.",
                 model: "claude-haiku-4-5-20251001",
                 workingDirectory: workingDirectory,
-                addDirs: effectiveAddDirs,
+                addDirs: [],                          // Kein Dateizugriff für Plan-Reasoning (kein Read-Versuch)
                 skipPermissions: autoApprove,
                 maxTurns: 1,                          // P5: Plan ist einturnig
                 mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools nötig
@@ -4036,10 +4058,10 @@ struct SingleChatSessionView: View {
                 var synthOutput = ""
                 let synthStream = state.cliService.send(
                     message: synthPrompt,
-                    systemPrompt: "Du fasst Ergebnisse zusammen. Sei prägnant und strukturiert.",
+                    systemPrompt: "Du fasst Ergebnisse zusammen. Sei prägnant und strukturiert. Lies KEINE Dateien.",
                     model: selectedModel,
                     workingDirectory: workingDirectory,
-                    addDirs: effectiveAddDirs,
+                    addDirs: [],                          // Kein Dateizugriff für Synthese
                     skipPermissions: autoApprove,
                     maxTurns: 1,                          // P5: Synthese ist einturnig
                     mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools für Synthese
