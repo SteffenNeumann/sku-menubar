@@ -79,8 +79,9 @@ struct AppTheme: Identifiable, Equatable, Codable {
     var primaryText: Color {
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 1.00) }
         if isLight || isMedium { return Color(white: 0.05) }
-        if id == "ash"       { return Color(r: 208, g: 217, b: 224, a: 1) } // #D0D9E0 — 11.1:1
+        if id == "ash"        { return Color(r: 208, g: 217, b: 224, a: 1) } // #D0D9E0 — 11.1:1
         if id == "coffeeDark" { return Color(r: 215, g: 205, b: 195, a: 1) } // #D7CDC3 — warm cream, 11.9:1
+        if id == "emerald"    { return Color(r: 80,  g: 195, b: 110, a: 1) } // #50C36E — DOS-Grün, 9.8:1
         return Color(white: 0.95)
     }
     var secondaryText: Color {
