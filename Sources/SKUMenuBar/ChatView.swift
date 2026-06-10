@@ -302,6 +302,11 @@ struct SingleChatSessionView: View {
     // in DERSELBEN CLI-Session landen (nicht als fresh-session starten).
     @State private var lastOrchestratorSoloAgentId: String? = nil
     @State private var lastOrchestratorSoloSessionId: String? = nil
+    // Session-Agent-Continuity: Sobald ein Agent (auto-getriggert oder manuell) in dieser
+    // CLI-Session läuft, wird er hier gemerkt und auf Folge-Nachrichten weiterverwendet —
+    // sonst kippt effectiveAgent auf nil sobald die Rückfrage kein Trigger-Keyword enthält
+    // und der Agent verliert zugang.md + Min-Turns mitten im Chat.
+    @State private var lastSessionAgentId: String? = nil
     // Agent-Bestätigungs-Banner (Auto-Orchestrierung pausiert bis Nutzer bestätigt/ändert)
     @State private var pendingAutoAgents: [AgentDefinition] = []
     @State private var pendingAutoConfirmText: String = ""
@@ -2072,7 +2077,7 @@ struct SingleChatSessionView: View {
                     state.agentService.agents.first { $0.name == n }?.id
                 }
                 pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
-                    selectedAgent = ""; showAgentPicker = false
+                    selectedAgent = ""; lastSessionAgentId = nil; lastOrchestratorSoloAgentId = nil; showAgentPicker = false
                 }
                 ForEach(state.agentService.agents) { a in
                     pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
@@ -2710,6 +2715,8 @@ struct SingleChatSessionView: View {
                 ) {
                     pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
                         selectedAgent = ""
+                        lastSessionAgentId = nil
+                        lastOrchestratorSoloAgentId = nil
                         showAgentPicker = false
                     }
                     ForEach(state.agentService.agents) { a in
@@ -3069,6 +3076,7 @@ struct SingleChatSessionView: View {
             currentRunLog = nil
             lastOrchestratorSoloAgentId = nil
             lastOrchestratorSoloSessionId = nil
+            lastSessionAgentId = nil
         }
     }
 
@@ -4768,7 +4776,7 @@ struct SingleChatSessionView: View {
         // (autoTriggerAgent() ist im Orchestrator-Kontext gesperrt → Solo-Agent explizit übergeben)
         let triggerAgent: String? = orchestratorMode
             ? selectedOrchestrators.first
-            : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId)
+            : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId)
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
@@ -4828,6 +4836,9 @@ struct SingleChatSessionView: View {
             : nil
 
         let effectiveAgent = agentOverride ?? (selectedAgent.isEmpty ? nil : selectedAgent)
+        // Läuft ein Agent, als Session-Agent merken → Folge-Nachrichten ohne Trigger-Keyword
+        // erben ihn weiter (Continuity), statt auf nil zu kippen.
+        if let ea = effectiveAgent { lastSessionAgentId = ea }
 
         // Agent-Anzeigename für den Antwort-Header setzen (statt rohem Modell)
         if let agentId = effectiveAgent,
@@ -4901,13 +4912,22 @@ struct SingleChatSessionView: View {
             // zugang.md für Agent-Runs: Credentials/Zugangsdaten in die Nachricht prependen.
             // Funktioniert bei fresh UND resumed Sessions (message-Ebene, nicht nur system-prompt).
             var finalMessage = message
-            if effectiveAgent != nil {
-                let zugangContext: String? = workingDirectory.flatMap { wd in
-                    let path = (wd as NSString).appendingPathComponent("zugang.md")
-                    return try? String(contentsOfFile: path, encoding: .utf8)
-                }.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            // zugang.md: NICHT mehr an effectiveAgent gekoppelt — die Zugangs-Info gilt für jede
+            // Nachricht im Projekt, sonst fällt sie weg sobald ein Follow-up effectiveAgent auf nil
+            // kippt (kein Trigger-Keyword) und der Agent sucht Keys fälschlich in lokalen Configs.
+            // Erste Session-Nachricht: voller Inhalt. Danach: kurzer, persistenter Reminder
+            // (überlebt CLI-Compaction, spart Tokens, kontert die "kein Key gefunden"-Falschaussage).
+            if let wd = workingDirectory, !wd.isEmpty {
+                let zugangPath = (wd as NSString).appendingPathComponent("zugang.md")
+                let zugangContext = (try? String(contentsOfFile: zugangPath, encoding: .utf8))
+                    .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
                 if let zk = zugangContext {
-                    finalMessage = "━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + message
+                    if currentSessionId == nil {
+                        finalMessage = "━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + message
+                    } else {
+                        let reminder = "🔑 Zugangsdaten/API-Keys stehen in `zugang.md` im Projektverzeichnis (\(wd)). Die benötigten MCP-Server sind bereits konfiguriert und aktiv — suche NICHT in lokalen Config-Dateien nach Keys; lies bei Bedarf zugang.md (Read-Tool)."
+                        finalMessage = reminder + "\n\n" + message
+                    }
                 }
             }
             // Folge-Nachfrage nach einer Orchestrierung: Ziel + voller Master-Plan + Synthese
