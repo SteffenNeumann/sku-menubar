@@ -223,12 +223,12 @@ extension AppTheme {
         acTextR: 190, acTextG: 146, acTextB: 91,
         isLight: false
     )
-    // Iron — near-black mit subtilen Lila/Rose Glow-Blobs (Raycast/Fig-Stil)
+    // Iron — near-black mit subtilen Lila-Ton
     static let iron = AppTheme(
         id: "iron", name: "Iron",
-        bgTopR: 160, bgTopG: 32,  bgTopB: 240, bgTopA: 0.10,
-        bgBotR: 244, bgBotG: 63,  bgBotB: 94,  bgBotA: 0.07,
-        glowEnabled: true,
+        bgTopR: 18,  bgTopG: 10,  bgTopB: 28,  bgTopA: 1.0,
+        bgBotR: 14,  bgBotG: 8,   bgBotB: 20,  bgBotA: 1.0,
+        glowEnabled: false,
         acR: 224, acG: 64, acB: 251,
         acTextR: 224, acTextG: 64, acTextB: 251,
         isLight: false
