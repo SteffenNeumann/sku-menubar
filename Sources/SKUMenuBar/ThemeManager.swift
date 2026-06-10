@@ -65,7 +65,7 @@ struct AppTheme: Identifiable, Equatable, Codable {
     // Sidebar surface (Mirror: rgba(2,6,23,0.75) dark / rgba(248,241,233,0.95) light)
     var sidebarBg: Color {
         if isLight {
-            return Color(r: 248, g: 241, b: 233, a: 0.82)
+            return Color(r: bgTopR, g: bgTopG, b: bgTopB, a: 1.0)
         } else if glowEnabled {
             return Color(r: 2, g: 6, b: 23, a: 0.75)
         } else if id == "ash" {
@@ -131,27 +131,27 @@ extension AppTheme {
 
     static let cyan = AppTheme(
         id: "cyan", name: "Cyan",
-        bgTopR: 14,  bgTopG: 165, bgTopB: 233, bgTopA: 0.20,
-        bgBotR: 59,  bgBotG: 130, bgBotB: 246, bgBotA: 0.12,
-        glowEnabled: true,
+        bgTopR: 10,  bgTopG: 22,  bgTopB: 34,  bgTopA: 1.0,
+        bgBotR: 7,   bgBotG: 15,  bgBotB: 24,  bgBotA: 1.0,
+        glowEnabled: false,
         acR: 14, acG: 165, acB: 233,
         acTextR: 14, acTextG: 165, acTextB: 233,
         isLight: false
     )
     static let emerald = AppTheme(
         id: "emerald", name: "Emerald",
-        bgTopR: 34, bgTopG: 197, bgTopB: 94,  bgTopA: 0.18,
-        bgBotR: 21, bgBotG: 128, bgBotB: 61,  bgBotA: 0.10,
-        glowEnabled: true,
+        bgTopR: 10,  bgTopG: 22,  bgTopB: 14,  bgTopA: 1.0,
+        bgBotR: 7,   bgBotG: 15,  bgBotB: 10,  bgBotA: 1.0,
+        glowEnabled: false,
         acR: 34, acG: 197, acB: 94,
         acTextR: 34, acTextG: 197, acTextB: 94,
         isLight: false
     )
     static let violet = AppTheme(
         id: "violet", name: "Violet",
-        bgTopR: 124, bgTopG: 58, bgTopB: 237, bgTopA: 0.20,
-        bgBotR: 99,  bgBotG: 102,bgBotB: 241, bgBotA: 0.12,
-        glowEnabled: true,
+        bgTopR: 18,  bgTopG: 10,  bgTopB: 30,  bgTopA: 1.0,
+        bgBotR: 12,  bgBotG: 7,   bgBotB: 22,  bgBotA: 1.0,
+        glowEnabled: false,
         acR: 124, acG: 58, acB: 237,
         acTextR: 167, acTextG: 139, acTextB: 250, // #A78BFA — 7.8:1 on dark bg
         isLight: false
