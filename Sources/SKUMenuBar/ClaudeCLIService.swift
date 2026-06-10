@@ -138,6 +138,14 @@ final class ClaudeCLIService: ObservableObject {
                 }
 
                 process.terminationHandler = { proc in
+                    // Retain-Cycle auflösen: FileHandle hält readabilityHandler-Closures
+                    // mit captured continuation/lineBuffer/stderrBuffer am Leben, bis die
+                    // Pipe vom Kernel geschlossen wird. Durch explizites Nullen werden alle
+                    // Captures sofort freigegeben und ein potentieller Race zwischen dem
+                    // letzten readabilityHandler-Call und diesem terminationHandler entschärft.
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
                     // Process any remaining stdout buffer
                     if !lineBuffer.isEmpty,
                        let event = try? decoder.decode(StreamEvent.self, from: lineBuffer) {
@@ -299,11 +307,15 @@ final class ClaudeCLIService: ObservableObject {
                 process.standardError  = errPipe
 
                 process.terminationHandler = { proc in
+                    // Pipes immer lesen — sonst bleibt der FD offen (Bug: bei Exit 0 wurde
+                    // outPipe nie gelesen, FD-Leak bei wiederholten Login-Versuchen).
+                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                     if proc.terminationStatus == 0 {
                         continuation.resume()
                     } else {
-                        let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        let out = String(data: outData, encoding: .utf8) ?? ""
+                        let err = String(data: errData, encoding: .utf8) ?? ""
                         let msg = [out, err].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n")
                         continuation.resume(throwing: CLIError.processError(
                             exitCode: Int(proc.terminationStatus),

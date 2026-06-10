@@ -45,6 +45,22 @@ private func detectLanguage(for url: URL) -> String? {
 final class CodeTextView: NSTextView {
     var isDark: Bool = true
 
+    // Font-Fallback: NSFont.monospacedSystemFont ist ObjC-nillable (non-optional nur als
+    // Swift-Bridge), kann unter Font-System-/Speicherdruck nil zurückliefern. Nil-Wert
+    // in NSAttributedString-Dictionary → CoreText-Crash "insert nil object from objects[0]".
+    // `as AnyObject as? NSFont` fängt den nil-bridged Pointer sicher ab (kein unsafeBitCast).
+    static func safeMonospacedFont(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let candidate = (NSFont.monospacedSystemFont(ofSize: size, weight: weight) as AnyObject) as? NSFont
+        return candidate
+            ?? NSFont(name: "Menlo", size: size)
+            ?? NSFont(name: "Monaco", size: size)
+            ?? .systemFont(ofSize: size)
+    }
+
+    // Gecacht: Font ist eine Konstante des Views; nie pro Draw neu allozieren.
+    static let gutterFont: NSFont = safeMonospacedFont(ofSize: 10, weight: .light)
+    static let codeFont:   NSFont = safeMonospacedFont(ofSize: 13)
+
     /// Called when the mouse hovers a different line (nil = mouse left).
     var onHoverLine: ((Int?) -> Void)?
     /// Line number highlighted by the live preview (orange tint).
@@ -230,11 +246,10 @@ final class CodeTextView: NSTextView {
               let tc = textContainer,
               lm.numberOfGlyphs > 0 else { return }
 
-        let lineFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .light)
         let numColor: NSColor = isDark
             ? NSColor(white: 0.40, alpha: 1)
             : NSColor(white: 0.50, alpha: 1)
-        let attrs: [NSAttributedString.Key: Any] = [.font: lineFont, .foregroundColor: numColor]
+        let attrs: [NSAttributedString.Key: Any] = [.font: Self.gutterFont, .foregroundColor: numColor]
 
         let text  = string as NSString
         let inset = textContainerInset
@@ -411,13 +426,11 @@ struct HighlightedCodeView: NSViewRepresentable {
         // Nach Streaming: genau 1 JS-Aufruf, 100 ms nach letztem Token.
         // Sofort: plain Text (Monospace, keine Farben) als visuelles Feedback.
 
-        let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-
         // 1. Sofort plain text setzen (kein JS, < 1 ms)
         let plain = NSAttributedString(
             string: code,
             attributes: [
-                .font: codeFont,
+                .font: CodeTextView.codeFont,
                 .foregroundColor: NSColor.labelColor
             ]
         )
@@ -459,7 +472,7 @@ struct HighlightedCodeView: NSViewRepresentable {
 
             if let attr = attributed {
                 let mutable = NSMutableAttributedString(attributedString: attr)
-                mutable.addAttribute(.font, value: codeFont,
+                mutable.addAttribute(.font, value: CodeTextView.codeFont,
                                      range: NSRange(location: 0, length: mutable.length))
                 tv.textStorage?.setAttributedString(mutable)
             }
