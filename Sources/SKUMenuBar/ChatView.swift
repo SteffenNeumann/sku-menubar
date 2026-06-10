@@ -309,6 +309,8 @@ struct SingleChatSessionView: View {
     @State private var pendingAutoRoutingIdx: Int? = nil
     // Plan-Freigabe (manueller Orchestrator: Haiku erstellt Plan → pausiert → wartet auf Go)
     @State private var pendingPhase2: PendingPhase2Context? = nil
+    // V4: Run-Log des aktuellen Orchestrierungs-Laufs (JSONL-Protokoll bei Abschluss)
+    @State private var currentRunLog: OrchestratorRunLog? = nil
     @State private var showFilePanel: Bool = false
     @State private var filePanelWidth: CGFloat = 220
     @State private var diffPanelWidth: CGFloat = 500
@@ -349,24 +351,9 @@ struct SingleChatSessionView: View {
         showPersonaPicker
     }
 
-    /// Checks whether `input` matches a trigger phrase.
-    /// Three tiers:
-    ///  1. Full-phrase: "code review" matches trigger "code review"
-    ///  2. Word-level: "review" matches trigger "code review" (word in phrase)
-    ///  3. Prefix: "review" matches trigger "Reviewer" (input is prefix of trigger word, or vice versa)
+    // Logik ausgelagert nach OrchestratorLogic.swift (testbar) — hier nur dünne Delegation.
     private func inputMatchesTrigger(_ input: String, trigger: String) -> Bool {
-        let inputL   = input.lowercased()
-        let triggerL = trigger.lowercased()
-        // 1. Full phrase match
-        if inputL.contains(triggerL) { return true }
-        let inputWords   = inputL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        let triggerWords = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        // 2. Any trigger word as a substring of the input
-        if triggerWords.contains(where: { inputL.contains($0) }) { return true }
-        // 3. Bidirectional prefix: "review" matches "reviewer", "reviewing"
-        return inputWords.contains { iw in
-            triggerWords.contains { tw in tw.hasPrefix(iw) || iw.hasPrefix(tw) }
-        }
+        OrchestratorLogic.inputMatchesTrigger(input, trigger: trigger)
     }
 
     /// Returns the first agent whose effectiveTriggers match `text`.
@@ -379,160 +366,23 @@ struct SingleChatSessionView: View {
         }
     }
 
-    /// Heuristik: true = Aufgabe ist komplex genug für Orchestrierung.
-    /// Berücksichtigt Wortanzahl, mehrere Aufgaben-Verben und Mehrdomain-Konjunktionen.
-    /// Dient als schnelle Vorfilterung — bei Auto-Orchestrierung folgt ein LLM-Validation-Check.
+    /// Heuristik: true = Aufgabe ist komplex genug für Orchestrierung (→ OrchestratorLogic).
     private func isComplexTask(_ text: String) -> Bool {
-        let words = text.split(separator: " ")
-        guard words.count > 15 else { return false }   // Kurz → immer einfach
-        guard words.count <= 300 else { return true }  // Sehr lang → immer komplex
-        if words.count > 40 { return true }            // Mittellang & ausführlich → komplex
-
-        let lower = text.lowercased()
-        // Aufgaben-Verben — DE + EN (Word-Set-Matching statt substring um
-        // "explanation" → "plan", "findings" → "find" etc. zu vermeiden)
-        let taskVerbs: Set<String> = ["erstelle", "entwickle", "implementiere", "analysiere",
-                         "überprüfe", "prüfe", "untersuche", "schreibe", "entwerfe",
-                         "plane", "optimiere", "recherchiere", "vergleiche", "bewerte",
-                         "dokumentiere", "strukturiere", "baue", "konfiguriere",
-                         "konzipiere", "stelle", "finde", "erkläre", "beschreibe",
-                         "zeige", "führe", "gib", "erstell", "entwickl",
-                         "identifiziere", "schlage", "empfehle", "überleg",
-                         // English verbs
-                         "create", "build", "implement", "analyze", "review",
-                         "investigate", "write", "design", "plan", "optimize",
-                         "research", "compare", "evaluate", "document", "configure",
-                         "find", "explain", "describe", "identify", "recommend"]
-        let wordSet = Set(lower.split(separator: " ").map { String($0) })
-        let verbCount = taskVerbs.intersection(wordSet).count
-        if verbCount >= 2 { return true }
-        // Konjunktionen die einen neuen Themenbereich einleiten
-        let complexConjunctions = [" sowie ", " außerdem ", " zusätzlich ",
-                                   " darüber hinaus ", " einerseits ", " andererseits ",
-                                   " zum einen ", " zum anderen ", " gleichzeitig ",
-                                   " und auch ", " aber auch ", " und prüfe",
-                                   " und analysiere", " und stelle", " und finde",
-                                   " furthermore ", " additionally ", " and also "]
-        return complexConjunctions.contains { lower.contains($0) }
+        OrchestratorLogic.isComplexTask(text)
     }
 
-    // MARK: - Follow-Up Intent Classification
+    // MARK: - Follow-Up Intent Classification (→ OrchestratorLogic, testbar)
 
-    /// Klassifiziert Follow-Up-Nachrichten nach Intent wenn orchestratorHistory vorhanden ist.
-    /// Vermeidet redundantes Re-Planning bei "go" / "ok" / Bestätigungen.
-    private enum FollowUpIntent {
-        case chat       // Frage/Danke → normaler Einzelagent, kein Orchestrator-Overhead
-        case fast       // "go"/"weiter"/"mach das" → Phase 0 überspringen, schnelleres Re-Planning
-        case full       // Komplett neues Thema → volle 4-Phasen-Pipeline
-    }
-
-    /// Erkennt Erklär-/Verständnis-/Status-Fragen zum bestehenden Orchestrierungs-Ergebnis.
-    /// Solche Nachfragen sollen aus dem vorhandenen Kontext (Plan + Synthese) beantwortet
-    /// werden — nicht eine neue Agent-Orchestrierung auslösen.
     private func isExplanationOrQuestion(_ text: String) -> Bool {
-        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if lower.hasSuffix("?") { return true }
-        // Verben/Phrasen, die eine Erklärung des Bestehenden anfordern (Prefix-Match am Satzanfang)
-        let explainPrefixes = ["erläuter", "erklär", "erklar", "beschreib", "schilder",
-                               "fasse", "fass ", "zeig mir", "zeig mal", "nenn mir", "nenne mir",
-                               "was ist", "was sind", "was bedeutet", "was genau", "was macht",
-                               "wie funktioniert", "wie läuft", "wie wird", "wie sieht",
-                               "wieso", "weshalb", "verstehe nicht", "ich verstehe",
-                               "kannst du erklär", "kannst du erläuter", "kannst du beschreib",
-                               "explain", "describe", "what is", "what are", "what does",
-                               "how does", "how do", "tell me"]
-        return explainPrefixes.contains { lower.hasPrefix($0) }
+        OrchestratorLogic.isExplanationOrQuestion(text)
     }
 
-    /// M1: Erkennt, ob neben einer Erklärbitte noch eine ZWEITE, eigenständige Handlungsaufgabe
-    /// steht (z.B. „Fasse zusammen UND baue dann Tests"). Ein Verbindungswort leitet dabei ein
-    /// Handlungsverb ein. Solche Composite-Sätze sind keine reine Erklärfrage.
     private func containsAdditionalActionTask(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        // (a) Verbindung + Verb direkt verschmolzen → eindeutig eine zweite Aufgabe.
-        let verbContinuations = [
-            " und baue", " und erstelle", " und erstell", " und implementiere", " und schreibe",
-            " und entwickle", " und füge", " und ergänze", " und teste", " und deploy",
-            " und aktualisiere", " und ändere", " und optimiere", " und repariere", " und fixe",
-            " and build", " and create", " and add", " and implement", " and write",
-            " and test", " and update"]
-        if verbContinuations.contains(where: { lower.contains($0) }) { return true }
-        // (b) Reines Verbindungswort (dann/danach/then) NUR werten, wenn zusätzlich irgendwo ein
-        //     Handlungsverb als ganzes Wort steht — sonst ist "…, danach reden wir" ein
-        //     False-Positive (temporales Adverb ohne Folgeaufgabe).
-        let continuations = [" und dann ", " und danach ", " und anschließend ",
-                             " und zusätzlich ", " then ", " and then "]
-        guard continuations.contains(where: { lower.contains($0) }) else { return false }
-        let actionVerbs: Set<String> = ["baue", "erstelle", "erstell", "implementiere", "schreibe",
-            "entwickle", "füge", "ergänze", "teste", "deploy", "aktualisiere", "ändere",
-            "optimiere", "repariere", "fixe", "mach", "setze", "lege", "build", "create",
-            "add", "implement", "write", "test", "update", "make", "refactor"]
-        let wordSet = Set(lower.split(whereSeparator: { !$0.isLetter }).map(String.init))
-        return !actionVerbs.isDisjoint(with: wordSet)
+        OrchestratorLogic.containsAdditionalActionTask(text)
     }
 
     private func classifyFollowUp(_ text: String) -> FollowUpIntent {
-        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let words = lower.split(separator: " ")
-        let wordSet = Set(words.map { String($0) })
-
-        // 1) Triviale Bestätigungen/Danke → Chat
-        //    Exakt-Match ODER Nachricht beginnt mit Trivialem + enthält neue Aufgabe
-        let trivialWords: Set<String> = ["danke", "super", "perfekt", "gut", "cool",
-                                          "thanks", "great", "nice", "passt", "👍"]
-        let trivialPhrases = ["alles klar", "ok danke", "passt danke", "passt soweit",
-                              "sieht gut aus", "looks good"]
-        if trivials(lower, trivialPhrases) || (words.count == 1 && !trivialWords.isDisjoint(with: wordSet)) {
-            return .chat
-        }
-
-        // 2) Nachricht beginnt mit Trivialem/Danke + enthält NEUE Anweisung
-        //    → Chat (User hat Orchestrierung abgeschlossen, will was Einfaches)
-        //    z.B. "Passt danke - bitte aufräumen und commit"
-        let startsWithTrivial = trivialWords.contains(where: { lower.hasPrefix($0) })
-            || trivialPhrases.contains(where: { lower.hasPrefix($0) })
-        let hasNewTask: Set<String> = ["aufräumen", "cleanup", "commit", "push",
-                                        "speicher", "save", "memory", "schließ", "close"]
-        if startsWithTrivial && !wordSet.isDisjoint(with: hasNewTask) { return .chat }
-
-        // 3) Fragen → Chat (Einzelagent reicht)
-        if lower.hasSuffix("?") { return .chat }
-        let questionStarts = ["was ", "wie ", "warum ", "wann ", "wo ", "welche ",
-                              "wer ", "kannst ", "what ", "how ", "why ", "when ",
-                              "where ", "which ", "who ", "can ", "could "]
-        if questionStarts.contains(where: { lower.hasPrefix($0) }) { return .chat }
-
-        // 3b) Erklär-/Verständnis-Anfragen zum bestehenden Ergebnis → Chat (direkt beantworten,
-        //     nicht neu orchestrieren — auch wenn sie länger sind, z.B. "Erläutere mir noch wie …").
-        //     M1-Ausnahme: Steht zusätzlich eine zweite, eigenständige Handlungsaufgabe im Satz
-        //     ("Fasse zusammen UND baue dann Tests"), ist es keine reine Erklärfrage → ausführen.
-        if isExplanationOrQuestion(text) {
-            return containsAdditionalActionTask(text) ? .fast : .chat
-        }
-
-        // 4) Reine Ausführungs-Befehle (NUR wenn die Nachricht primär ein Befehl ist)
-        //    "go" / "weiter" / "mach das" → fast
-        //    Aber NICHT wenn daneben eine neue eigenständige Aufgabe steht
-        let pureExecuteWords: Set<String> = ["go", "ja", "weiter", "los",
-                               "proceed", "continue", "implementiere", "umsetzen",
-                               "loslegen", "ausführen", "run", "einverstanden", "agreed"]
-        let executePhrases = ["mach das", "bitte umsetzen", "fang an", "do it",
-                              "genau so", "let's go", "bitte machen"]
-        if words.count <= 6 {
-            if !wordSet.isDisjoint(with: pureExecuteWords) { return .fast }
-            if executePhrases.contains(where: { lower.contains($0) }) { return .fast }
-        }
-
-        // 5) Längere Nachricht → prüfe ob wirklich komplex
-        if isComplexTask(text) { return .full }
-
-        // 6) Default: Chat (sicherer als blind orchestrieren)
-        return .chat
-    }
-
-    /// Prüft ob der gesamte Text einem trivialen Ausdruck entspricht (exact oder prefix+kurz)
-    private func trivials(_ lower: String, _ phrases: [String]) -> Bool {
-        phrases.contains(where: { lower == $0 || (lower.hasPrefix($0) && lower.count <= $0.count + 3) })
+        OrchestratorLogic.classifyFollowUp(text)
     }
 
     /// LLM-basierte Routing-Validierung: Haiku prüft ob Auto-Orchestrierung wirklich nötig ist.
@@ -579,7 +429,11 @@ struct SingleChatSessionView: View {
                     }
                 }
             }
-        } catch { return workers } // Bei Fehler → alle Agents
+        } catch {
+            // V1: Auch im Fehlerpfad das Agent-Cap einhalten — vorher kamen bei einem
+            // Haiku-Stream-Fehler ALLE Worker (z.B. 14) ungecappt ins Bestätigungs-Banner.
+            return Array(workers.prefix(OrchestratorLimits.maxAgents))
+        }
 
         // Parse: Zeilen matchen gegen bekannte Agent-Namen (case-insensitive)
         let lines = result.lowercased().split(separator: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -591,7 +445,7 @@ struct SingleChatSessionView: View {
         }
 
         // Hard-Cap: maximal 4 Agents auch wenn Haiku mehr zurückgibt
-        let capped = Array(matched.prefix(4))
+        let capped = Array(matched.prefix(OrchestratorLimits.maxAgents))
 
         print("🔍 Auto-Orch: Haiku wählte \(capped.map { $0.name }) aus \(agentNames)")
 
@@ -3210,6 +3064,11 @@ struct SingleChatSessionView: View {
             pendingAutoConfirmText = ""
             pendingAutoSentFiles = []
             pendingAutoRoutingIdx = nil
+            // Offenes Run-Log verwerfen (struktureller Abbruch, kein Pipeline-Outcome) und
+            // Solo-Session-Continuity kappen — sonst erbt die frische Session den alten Agent.
+            currentRunLog = nil
+            lastOrchestratorSoloAgentId = nil
+            lastOrchestratorSoloSessionId = nil
         }
     }
 
@@ -3456,6 +3315,24 @@ struct SingleChatSessionView: View {
 
     // MARK: - Orchestrator Direkt-Antwort (Status-Fragen ohne Agent-Execution)
 
+    /// V4: Schließt das laufende Run-Log mit einem Outcome ab und persistiert es als JSONL.
+    private func finalizeRunLog(outcome: String) {
+        guard var log = currentRunLog else { return }
+        log.outcome = outcome
+        OrchestratorRunLogger.append(log)
+        currentRunLog = nil
+    }
+
+    /// V1: Hängt einen Eintrag an die Orchestrator-History an und trimmt das Array auf
+    /// OrchestratorLimits.historyMaxEntries. Der injizierte Kontext nutzt ohnehin nur
+    /// suffix(historyWindow) — das Array selbst soll aber auch nicht unbegrenzt wachsen.
+    private func appendOrchestratorHistory(role: String, content: String) {
+        orchestratorHistory.append((role: role, content: content))
+        if orchestratorHistory.count > OrchestratorLimits.historyMaxEntries {
+            orchestratorHistory.removeFirst(orchestratorHistory.count - OrchestratorLimits.historyMaxEntries)
+        }
+    }
+
     /// Baut einen kompakten Kontext-Block aus der letzten Orchestrierung (Ziel + voller
     /// Master-Plan + letzte Synthese), damit Folge-Nachfragen den Bezug zum Plan behalten.
     /// Gibt nil zurück, wenn keine Orchestrierung gelaufen ist.
@@ -3489,15 +3366,15 @@ struct SingleChatSessionView: View {
         isAuthError = false
 
         messages.append(ChatMessage(role: .user, content: text))
-        orchestratorHistory.append((role: "user", content: text))
+        appendOrchestratorHistory(role: "user", content: text)
 
-        // Orchestrator-Kontext als kompakter Block (ohne die letzte user-Zeile) — H4: letzte 6.
-        let historyLines = orchestratorHistory.dropLast().suffix(6)
+        // Orchestrator-Kontext als kompakter Block (ohne die letzte user-Zeile) — H4-Window.
+        let historyLines = orchestratorHistory.dropLast().suffix(OrchestratorLimits.historyWindow)
             .map { turn -> String in
                 let label = turn.role == "user" ? "Benutzer"
                            : turn.role == "orchestrator" ? "Synthese"
                            : "Agent [\(turn.role)]"
-                return "\(label): \(turn.content.prefix(500))"
+                return "\(label): \(turn.content.prefix(OrchestratorLimits.historyEntryCapPlan))"
             }
             .joined(separator: "\n\n")
 
@@ -3556,7 +3433,7 @@ struct SingleChatSessionView: View {
 
             messages[rIdx].isStreaming = false
             messages[rIdx].finishedCleanly = true
-            orchestratorHistory.append((role: "claude", content: response.prefix(800).description))
+            appendOrchestratorHistory(role: "claude", content: response.prefix(800).description)
             isStreaming = false
         }
     }
@@ -3578,6 +3455,7 @@ struct SingleChatSessionView: View {
     private func cancelPhase2() {
         pendingPhase2 = nil
         isStreaming = false
+        finalizeRunLog(outcome: "plan-cancelled")
     }
 
     // MARK: - Orchestrator: Analyse → Master Plan → Execute → Synthesize
@@ -3627,8 +3505,13 @@ struct SingleChatSessionView: View {
         messages.append(ChatMessage(role: .user, content: displayText))
 
         isStreaming = true; streamingStartTime = Date()
-        orchestratorHistory.append((role: "user", content: displayText))
+        appendOrchestratorHistory(role: "user", content: displayText)
         lastOrchestratorAgents = agents
+
+        // V4: Run-Log starten — wird an den Phasen-Grenzen befüllt und am Ende als JSONL persistiert
+        var newRunLog = OrchestratorRunLog(mode: isAutoOrchestrated ? "auto" : (skipAnalysis ? "fast" : "manual"))
+        newRunLog.agentNames = agents.map { $0.name }
+        currentRunLog = newRunLog
 
         streamingTask = Task { @MainActor in
 
@@ -3661,18 +3544,22 @@ struct SingleChatSessionView: View {
             // Orchestrator-Agents brauchen genug Turns für MCP-Tool-Aufrufe (Make/Linear).
             // settings.maxTurns gilt für normale Einzel-Chats; hier mindestens 30 Turns garantieren
             // damit Agents mit vielen Tool-Calls (z.B. Linear-Analyse) nicht vorzeitig abbrechen.
-            // H2: Niemals nil — maxTurns==0 ("unbegrenzt") würde einen Agent ohne Obergrenze
-            // laufen lassen. Hard-Default 60 begrenzt Runaway-Turn-Schleifen; der Wall-Clock-
-            // Watchdog in Phase 2 fängt zusätzlich hängende MCP-Calls ab.
-            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 30) : 60
+            // H2/V3: Niemals nil — maxTurns==0 ("unbegrenzt") würde einen Agent ohne Obergrenze
+            // laufen lassen. Eigene Orchestrator-Einstellung hat Vorrang vor dem Chat-maxTurns;
+            // der Idle-Watchdog in Phase 2 fängt zusätzlich hängende MCP-Calls ab.
+            let effectiveMaxTurns: Int? = state.settings.orchestratorMaxTurns > 0
+                ? state.settings.orchestratorMaxTurns
+                : (state.settings.maxTurns > 0
+                    ? max(state.settings.maxTurns, OrchestratorLimits.minAgentTurns)
+                    : OrchestratorLimits.defaultMaxTurns)
 
             // ── Kontext aufbauen (Fix B: Chat-History erhalten) ──────────
             let priorContext: String
             if orchestratorHistory.count > 1 {
-                // Bisherige Orchestrator-Runden — H4: nur die letzten 6 Einträge (≈3 Runden),
+                // Bisherige Orchestrator-Runden — H4: nur das Sliding-Window (≈3 Runden),
                 // sonst wächst der Kontext pro Folge-Runde unbegrenzt (O(N²)-Token-Aufblähung).
-                let history = orchestratorHistory.dropLast().suffix(6)
-                    .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(500))" }
+                let history = orchestratorHistory.dropLast().suffix(OrchestratorLimits.historyWindow)
+                    .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(OrchestratorLimits.historyEntryCapPlan))" }
                     .joined(separator: "\n\n")
                 priorContext = "\n\nBisheriger Konversationsverlauf:\n\(history)\n"
             } else if messages.count > 1 {
@@ -3706,6 +3593,7 @@ struct SingleChatSessionView: View {
             let planIdx = messages.count - 1
 
             var agentAnalyses: [(name: String, analysis: String)] = []
+            let phase0Start = Date()
 
             if !skipAnalysis {
                 messages[planIdx].content = headerLine
@@ -3765,6 +3653,7 @@ struct SingleChatSessionView: View {
                 } catch { bulkOutput = "" }
 
                 agentAnalyses = parseBulkAnalysis(bulkOutput, agents: agents)
+                currentRunLog?.phase0Sec = Date().timeIntervalSince(phase0Start)
 
                 messages[planIdx].content = headerLine
                     + "🔍 **Domain-Analyse** *(Haiku 4.5)*\n"
@@ -3779,6 +3668,7 @@ struct SingleChatSessionView: View {
                 messages.append(ChatMessage(role: .assistant,
                     content: "⏹ Orchestrierung abgebrochen."))
                 isStreaming = false
+                finalizeRunLog(outcome: "aborted")
                 return
             }
 
@@ -3800,8 +3690,10 @@ struct SingleChatSessionView: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let planTask = textForPlan.isEmpty ? text : textForPlan
 
+            // V6: Plan im JSON-Format anfordern — strukturiert parsebar statt Format-Konvention.
+            // Text-Format bleibt als Fallback vollständig erhalten (parseMasterPlan).
             let masterPlanPrompt = """
-            Erstelle einen detaillierten, hierarchischen Master-Plan als strukturierte Todo-Liste.
+            Erstelle einen Master-Plan als strukturierte Schritt-Liste.
             \(priorContext)
             Agent-Analysen:
             \(analysisBlock)
@@ -3810,31 +3702,24 @@ struct SingleChatSessionView: View {
 
             Verfügbare Agents: \(agentNamesList)
 
-            Antworte AUSSCHLIESSLICH in diesem Format — kein anderer Text:
-            ZIEL: [Hauptziel in einem Satz — was am Ende erreicht sein soll]
-
-            1. [Übergeordnete Phase oder Bereich — kein Agent zugewiesen]
-               1.1 [Konkrete Teilaufgabe, max. 1 Satz] → AgentName
-               1.2 [Andere Teilaufgabe, max. 1 Satz] → AgentName
-
-            2. [Übergeordnete Phase oder Bereich]
-               2.1 [Teilaufgabe] → AgentName
+            Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Markdown, keine Code-Fences, kein anderer Text:
+            {"ziel":"Hauptziel in einem Satz — was am Ende erreicht sein soll","schritte":[{"nr":"1.1","titel":"Konkrete Teilaufgabe, max. 1 Satz","agent":"AgentName"},{"nr":"1.2","titel":"Andere Teilaufgabe","agent":"AgentName"}]}
 
             Regeln:
-            - ZIEL: immer als erste Zeile
-            - X. = Top-Level Kategorie (kein Agent); X.Y = ausführbarer Schritt mit "→ AgentName"
-            - Nur Agents aus der Liste verwenden: \(agentNamesList)
+            - "agent" NUR aus dieser Liste: \(agentNamesList)
             - Lieber 2-3 fokussierte Schritte als viele oberflächliche
             - Jeder Agent erhält eine ANDERE Aufgabe — keine Wiederholungen
             - Beziehe bisherigen Kontext ein wenn vorhanden
             """
 
             messages[planIdx].content += "\n**🗂 Master Plan** *(Haiku 4.5)*\n"
+            let planHeader = messages[planIdx].content
+            let phase1Start = Date()
 
             var planText = ""
             let planStream = state.cliService.send(
                 message: masterPlanPrompt,
-                systemPrompt: "Erstelle strukturierte Pläne. Halte das Format exakt ein. Lies KEINE Dateien. Nutze AUSSCHLIESSLICH den gegebenen Text.",
+                systemPrompt: "Antworte ausschließlich mit gültigem JSON. Lies KEINE Dateien. Nutze AUSSCHLIESSLICH den gegebenen Text.",
                 model: "claude-haiku-4-5-20251001",
                 workingDirectory: workingDirectory,
                 addDirs: [],                          // Kein Dateizugriff für Plan-Reasoning (kein Read-Versuch)
@@ -3852,24 +3737,26 @@ struct SingleChatSessionView: View {
                         for block in content where block.type == "text" {
                             if let t = block.text, !t.isEmpty {
                                 planText += t
-                                messages[planIdx].content += t
-                                activePlan = planText
+                                // V6: Roh-JSON nicht in die Bubble streamen — nur Fortschritt zeigen;
+                                // der formatierte Plan wird nach dem Parsen gerendert.
+                                messages[planIdx].content = planHeader
+                                    + "⏳ Plan wird erstellt… (\(planText.count) Zeichen)"
                             }
                         }
                     }
                 }
             } catch {
-                messages[planIdx].content += "\n⚠️ Plan-Fehler: \(error.localizedDescription)"
+                messages[planIdx].content = planHeader + "⚠️ Plan-Fehler: \(error.localizedDescription)"
             }
-            messages[planIdx].isStreaming = false
-            messages[planIdx].finishedCleanly = true
-            activePlan = planText
+            currentRunLog?.phase1Sec = Date().timeIntervalSince(phase1Start)
 
             // Abbruch-Check nach Phase 1
             guard !Task.isCancelled else {
+                messages[planIdx].isStreaming = false
                 messages.append(ChatMessage(role: .assistant,
                     content: "⏹ Orchestrierung nach Plan-Phase abgebrochen."))
                 isStreaming = false
+                finalizeRunLog(outcome: "aborted")
                 return
             }
 
@@ -3878,15 +3765,30 @@ struct SingleChatSessionView: View {
             // werden". Den User-Turn aus der History zurücknehmen, damit Folge-Nachrichten nicht
             // dauerhaft als Orchestrator-Follow-up fehlgeroutet werden.
             if planText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messages[planIdx].isStreaming = false
+                messages[planIdx].finishedCleanly = true
                 messages.append(ChatMessage(role: .assistant,
                     content: "⚠️ Orchestrierung abgebrochen — es konnte kein Master-Plan erstellt werden (Plan-Phase lieferte kein Ergebnis). Bitte erneut versuchen."))
                 if orchestratorHistory.last?.role == "user" { orchestratorHistory.removeLast() }
+                // R3: Plan-Panel zurücksetzen — sonst bleibt ein leeres Panel offen
+                activePlan = nil
                 isStreaming = false
+                finalizeRunLog(outcome: "plan-empty")
                 return
             }
 
-            // Master Plan parsen → Todos + AgentTasks
-            let (parsedGoal, parsedTodos, parsedAgentTasks) = parseMasterPlan(planText, agents: agents)
+            // Master Plan parsen → Todos + AgentTasks.
+            // V6-Reihenfolge: JSON (primär) → Text-Format (parseMasterPlan) → Legacy (AGENT:/AUFGABE:)
+            let parsedGoal: String
+            let parsedTodos: [MasterTodoItem]
+            let parsedAgentTasks: [String: String]
+            if let jsonPlan = OrchestratorLogic.parsePlanJSON(planText, agents: agents) {
+                (parsedGoal, parsedTodos, parsedAgentTasks) = jsonPlan
+                currentRunLog?.planParsedVia = "json"
+            } else {
+                (parsedGoal, parsedTodos, parsedAgentTasks) = parseMasterPlan(planText, agents: agents)
+                currentRunLog?.planParsedVia = "text"
+            }
             masterGoal = parsedGoal
 
             var agentTasks: [String: String]
@@ -3901,11 +3803,13 @@ struct SingleChatSessionView: View {
                     return MasterTodoItem(id: agentId, number: "•", title: task,
                                          assignedAgent: agent.name, level: 1, status: .pending)
                 }
+                if !legacyTasks.isEmpty { currentRunLog?.planParsedVia = "legacy" }
             }
 
             // H1-Fallback: Konnte der Plan KEINEM Agent eine Aufgabe zuordnen (Format-Verstoß oder
             // falsch geschriebene Agent-Namen), trotzdem ausführen — jeder Agent bearbeitet den
             // Gesamtauftrag aus seiner Spezialisten-Sicht, statt dass die Runde komplett scheitert.
+            var planFallbackNote = ""
             if agentTasks.isEmpty {
                 let fallbackTask = masterGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? text : masterGoal
@@ -3916,8 +3820,17 @@ struct SingleChatSessionView: View {
                     MasterTodoItem(id: a.id, number: "•", title: "Gesamtauftrag (Fallback)",
                                    assignedAgent: a.name, level: 1, status: .pending)
                 }
-                messages[planIdx].content += "\n\n⚠️ Plan-Zuordnung unklar — Fallback: alle Agents bearbeiten den Gesamtauftrag."
+                planFallbackNote = "\n\n⚠️ Plan-Zuordnung unklar — Fallback: alle Agents bearbeiten den Gesamtauftrag."
+                currentRunLog?.planParsedVia = "fallback"
             }
+
+            // V6: Formatierten Plan rendern (Bubble + rechtes Panel) — nie Roh-JSON anzeigen
+            let formattedPlan = OrchestratorLogic.formatPlan(goal: masterGoal, todos: masterTodos)
+            let planDisplay = formattedPlan.isEmpty ? planText : formattedPlan
+            messages[planIdx].content = planHeader + planDisplay + planFallbackNote
+            messages[planIdx].isStreaming = false
+            messages[planIdx].finishedCleanly = true
+            activePlan = planDisplay
 
             // Plan für Follow-Up-Reuse speichern (Fix C)
             lastAgentTasks = agentTasks
@@ -3965,6 +3878,7 @@ struct SingleChatSessionView: View {
         let planText        = activePlan ?? ""
 
         var agentOutputs: [(name: String, output: String, failed: Bool)] = []
+        let phase2Start = Date()
         // Fortschritts-Zeilen rendern: ✓ bei Erfolg, ⚠️ bei Fehler/Abbruch (failed-Flag aus K1).
         func renderDoneLines() -> String {
             agentOutputs.map { o in
@@ -4009,22 +3923,23 @@ struct SingleChatSessionView: View {
                 contextParts.append("══════ MASTER PLAN — Kontext-Anker ══════\n\(planAnchor)\n══════════════════════════════════════")
 
                 if orchestratorHistory.count > 1 {
-                    // H4: Sliding-Window auf die letzten 6 Einträge (≈3 Runden) — verhindert,
-                    // dass jeder Agent-Call die komplette wachsende History trägt.
-                    let history = orchestratorHistory.dropLast().suffix(6)
-                        .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(800))" }
+                    // H4: Sliding-Window (≈3 Runden) — verhindert, dass jeder Agent-Call
+                    // die komplette wachsende History trägt.
+                    let history = orchestratorHistory.dropLast().suffix(OrchestratorLimits.historyWindow)
+                        .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(OrchestratorLimits.historyEntryCapPhase2))" }
                         .joined(separator: "\n\n")
                     contextParts.append("Bisheriger Konversationsverlauf:\n\(history)")
                 }
                 let priorSucceeded = agentOutputs.filter { !$0.failed }
                 if !priorSucceeded.isEmpty {
-                    // P4: Fremd-Outputs auf 1500 Zeichen kappen — verhindert O(N²)-Aufblähung des
-                    // Phase-2-Kontexts. Die Synthese (Phase 3) sieht weiterhin die VOLLEN Outputs.
+                    // P4: Fremd-Outputs kappen — verhindert O(N²)-Aufblähung des Phase-2-Kontexts.
+                    // Die Synthese (Phase 3) sieht weiterhin die VOLLEN Outputs.
                     // Fehlgeschlagene Agents (K1) werden NICHT als Kontext an Folge-Agents gegeben.
+                    let cap = OrchestratorLimits.foreignOutputCap
                     let prior = priorSucceeded
                         .map { o -> String in
-                            let body = o.output.count > 1500
-                                ? String(o.output.prefix(1500)) + "\n…[gekürzt]"
+                            let body = o.output.count > cap
+                                ? String(o.output.prefix(cap)) + "\n…[gekürzt]"
                                 : o.output
                             return "**\(o.name):**\n\(body)"
                         }
@@ -4065,61 +3980,89 @@ struct SingleChatSessionView: View {
                     imagePaths: imgPaths
                 )
 
-                // H2: Watchdog — bricht die Orchestrierung ab, wenn EIN Agent ungewöhnlich lange
-                // hängt (z.B. blockierender MCP-Tool-Call). Ohne dies blockiert die sequentielle
-                // Schleife unbegrenzt und der UI bleibt gesperrt. Nutzt den bewährten Stop-Pfad
-                // (streamingTask.cancel) statt eines eigenen Concurrency-Modells.
-                let perAgentTimeoutSec: UInt64 = 240
-                let watchdog = Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: perAgentTimeoutSec * 1_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    if messages.indices.contains(progressIdx) {
-                        messages[progressIdx].content = renderDoneLines()
-                            + "⏱ \(agent.name) — Zeitlimit (\(perAgentTimeoutSec)s) überschritten, Abbruch\n"
-                    }
-                    streamingTask?.cancel()
-                }
-
+                // V5: Idle-Watchdog — bricht NUR DIESEN Agent ab, wenn über das Idle-Limit hinaus
+                // KEIN Stream-Event mehr eintrifft (erkennt echte Hänger, z.B. blockierende
+                // MCP-Calls). Ein produktiv streamender Agent wird nie abgebrochen (jedes Event
+                // resettet die Uhr), und die übrigen Agents + Synthese laufen weiter.
+                let idleLimitSec = state.settings.orchestratorIdleTimeout > 0
+                    ? state.settings.orchestratorIdleTimeout
+                    : OrchestratorLimits.defaultIdleTimeoutSec
+                let agentStart = Date()
+                var lastEventAt = Date()
+                var idleTimedOut = false
                 var streamThrew = false
                 var resultIsError = false
                 var resultSubtype = ""
-                do {
-                    for try await event in stream {
-                        guard !Task.isCancelled else { break }
-                        // Session-ID beim ersten Event erfassen (für Kontext-Continuity bei Nachfragen)
-                        if let sid = event.sessionId, capturedAgentSessionId == nil {
-                            capturedAgentSessionId = sid
-                        }
-                        switch event.type {
-                        case "assistant":
-                            guard let content = event.message?.content else { break }
-                            for block in content where block.type == "text" {
-                                if let t = block.text, !t.isEmpty { agentOutput += t }
+
+                // Agent-Stream in eigenem (MainActor-)Task konsumieren, damit der Watchdog
+                // gezielt NUR diesen Task canceln kann — nicht die gesamte Orchestrierung.
+                let agentTask = Task { @MainActor in
+                    do {
+                        for try await event in stream {
+                            guard !Task.isCancelled else { break }
+                            lastEventAt = Date()
+                            // Session-ID beim ersten Event erfassen (für Kontext-Continuity bei Nachfragen)
+                            if let sid = event.sessionId, capturedAgentSessionId == nil {
+                                capturedAgentSessionId = sid
                             }
-                        case "result":
-                            if event.isError == true { resultIsError = true }
-                            if let st = event.subtype { resultSubtype = st }
-                        case "rate_limit_event":
-                            state.claudeRateLimitActive = true
-                        default: break
+                            switch event.type {
+                            case "assistant":
+                                guard let content = event.message?.content else { break }
+                                for block in content where block.type == "text" {
+                                    if let t = block.text, !t.isEmpty { agentOutput += t }
+                                }
+                            case "result":
+                                if event.isError == true { resultIsError = true }
+                                if let st = event.subtype { resultSubtype = st }
+                            case "rate_limit_event":
+                                state.claudeRateLimitActive = true
+                            default: break
+                            }
+                        }
+                    } catch {
+                        // CancellationError stammt vom Idle-Watchdog oder User-Stop — beides
+                        // wird separat behandelt (idleTimedOut / M3-Break); keine doppelte
+                        // Fehlerzeile in den Output schreiben.
+                        if !(error is CancellationError) {
+                            streamThrew = true
+                            agentOutput += "\n⚠️ \(error.localizedDescription)"
                         }
                     }
-                } catch {
-                    streamThrew = true
-                    agentOutput += "\n⚠️ \(error.localizedDescription)"
+                }
+                let watchdog = Task { @MainActor in
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        if Date().timeIntervalSince(lastEventAt) > TimeInterval(idleLimitSec) {
+                            idleTimedOut = true
+                            agentTask.cancel()   // nur DIESEN Agent abbrechen
+                            return
+                        }
+                    }
+                }
+                // Auf den Agent warten; User-Stop (Cancel des umgebenden streamingTask) muss
+                // den Agent-Task mitreißen — await task.value allein reagiert nicht auf Cancel.
+                await withTaskCancellationHandler {
+                    _ = await agentTask.value
+                } onCancel: {
+                    agentTask.cancel()
                 }
                 watchdog.cancel()
 
                 // K1: Erfolg vs. Fehlschlag bestimmen — ein Fehler darf NICHT als ✓ erfolgreich
                 // gezählt werden oder als Kontext/Synthese-Input durchrutschen.
-                // Fehlgeschlagen = Stream warf ODER result meldet echten Fehler (außer max_turns)
-                // ODER es kam gar kein verwertbarer Text. max_turns mit Teil-Output = kein harter
-                // Fehler, aber mit Hinweis markiert.
+                // Fehlgeschlagen = Stream warf ODER Idle-Timeout ODER result meldet echten Fehler
+                // (außer max_turns) ODER es kam gar kein verwertbarer Text. max_turns mit
+                // Teil-Output = kein harter Fehler, aber mit Hinweis markiert.
+                if idleTimedOut {
+                    agentOutput += "\n\n⚠️ [Idle-Timeout: \(idleLimitSec)s ohne Antwort-Ereignis — Agent abgebrochen]"
+                }
                 let trimmedOutput = agentOutput.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Beide CLI-Schreibweisen akzeptieren (roh "error_max_turns", gemappt "max_turns").
                 let hitMaxTurns = resultSubtype == "error_max_turns" || resultSubtype == "max_turns"
-                let agentFailed = streamThrew || (resultIsError && !hitMaxTurns) || trimmedOutput.isEmpty
-                if hitMaxTurns && !trimmedOutput.isEmpty {
+                let agentFailed = streamThrew || idleTimedOut
+                    || (resultIsError && !hitMaxTurns) || trimmedOutput.isEmpty
+                if hitMaxTurns && !trimmedOutput.isEmpty && !idleTimedOut {
                     agentOutput += "\n\n⚠️ [Hinweis: Turn-Limit erreicht — Ausgabe möglicherweise unvollständig]"
                 }
 
@@ -4128,10 +4071,29 @@ struct SingleChatSessionView: View {
                 if Task.isCancelled { break }
 
                 agentOutputs.append((name: agent.name, output: agentOutput, failed: agentFailed))
-                // Für Solo-Agent: Session-ID merken für Kontext-Continuity bei Follow-Ups
+                // V4: Agent-Eintrag ins Run-Log
+                currentRunLog?.agents.append(OrchestratorRunLog.AgentEntry(
+                    name: agent.name,
+                    model: agent.model.isEmpty ? selectedModel : agent.model,
+                    durationSec: Date().timeIntervalSince(agentStart),
+                    outputChars: agentOutput.count,
+                    failed: agentFailed,
+                    resultSubtype: resultSubtype,
+                    hitMaxTurns: hitMaxTurns,
+                    idleTimeout: idleTimedOut
+                ))
+                // R1: Session-Continuity NUR bei Erfolg — eine fehlgeschlagene CLI-Session
+                // (Auth-Fehler etc.) darf nicht als Follow-Up-Ziel gemerkt werden. Bei
+                // Fehlschlag auch ALTE Continuity kappen, sonst resümiert das Follow-up
+                // eine veraltete Session aus einem früheren erfolgreichen Lauf.
                 if agents.count == 1 {
-                    lastOrchestratorSoloAgentId  = agent.id
-                    lastOrchestratorSoloSessionId = capturedAgentSessionId
+                    if agentFailed {
+                        lastOrchestratorSoloAgentId   = nil
+                        lastOrchestratorSoloSessionId = nil
+                    } else {
+                        lastOrchestratorSoloAgentId  = agent.id
+                        lastOrchestratorSoloSessionId = capturedAgentSessionId
+                    }
                 }
 
                 setTodoStatus(for: agent.name, to: agentFailed ? .blocked : .done)
@@ -4140,6 +4102,7 @@ struct SingleChatSessionView: View {
             }
             messages[progressIdx].isStreaming = false
             messages[progressIdx].finishedCleanly = true
+            currentRunLog?.phase2Sec = Date().timeIntervalSince(phase2Start)
 
             // Abbruch-Check nach Phase 2
             if Task.isCancelled {
@@ -4147,6 +4110,7 @@ struct SingleChatSessionView: View {
                 messages.append(ChatMessage(role: .assistant,
                     content: "⏹ Orchestrierung abgebrochen nach Phase 2. Agents: \(partial.isEmpty ? "keine" : partial)"))
                 isStreaming = false
+                finalizeRunLog(outcome: "aborted")
                 return
             }
 
@@ -4155,17 +4119,25 @@ struct SingleChatSessionView: View {
             // leer) fließen weder in die Synthese noch in den Solo-Pfad.
             let succeeded = agentOutputs.filter { !$0.failed }
             guard !succeeded.isEmpty else {
-                let reason = agentOutputs.isEmpty
-                    ? "der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents/Plan prüfen."
-                    : "alle \(agentOutputs.count) Agents sind fehlgeschlagen (Fehler, Zeitlimit oder leere Ausgabe)."
+                // R2: Ursache benennen — bei genau einem Agent dessen Namen nennen statt "alle 1 Agents".
+                let reason: String
+                if agentOutputs.isEmpty {
+                    reason = "der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents/Plan prüfen."
+                } else if agentOutputs.count == 1 {
+                    reason = "**\(agentOutputs[0].name)** ist fehlgeschlagen (Fehler, Idle-Timeout oder leere Ausgabe)."
+                } else {
+                    reason = "alle \(agentOutputs.count) Agents sind fehlgeschlagen (Fehler, Idle-Timeout oder leere Ausgabe)."
+                }
                 messages.append(ChatMessage(role: .assistant,
                     content: "⚠️ Kein verwertbares Ergebnis — \(reason)"))
                 isStreaming = false
+                finalizeRunLog(outcome: agentOutputs.isEmpty ? "no-plan" : "all-failed")
                 return
             }
 
             // M2: Synthese nur bei ≥2 erfolgreichen Agents; bei genau 1 den Solo-Pfad nehmen —
             // sonst formuliert die Synthese „wie die Teile zusammenspielen" über ein einziges Ergebnis.
+            let phase3Start = Date()
             if succeeded.count > 1 {
                 var synthPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 synthPlaceholder.model = "📋 Synthese"
@@ -4233,8 +4205,10 @@ struct SingleChatSessionView: View {
                 let fullRoundSummary = succeeded
                     .map { "[\($0.name)] \($0.output.prefix(500))" }
                     .joined(separator: "\n\n")
-                orchestratorHistory.append((role: "orchestrator",
-                    content: "Plan:\n\(planText.prefix(300))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
+                appendOrchestratorHistory(role: "orchestrator",
+                    content: "Plan:\n\(planText.prefix(300))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))")
+                currentRunLog?.phase3Sec = Date().timeIntervalSince(phase3Start)
+                finalizeRunLog(outcome: "ok")
             } else {
                 if let first = succeeded.first {
                     var singleMsg = ChatMessage(role: .assistant, content: first.output)
@@ -4242,8 +4216,9 @@ struct SingleChatSessionView: View {
                     singleMsg.agentName = first.name
                     singleMsg.model = first.name
                     messages.append(singleMsg)
-                    orchestratorHistory.append((role: first.name, content: first.output.prefix(1000).description))
+                    appendOrchestratorHistory(role: first.name, content: first.output.prefix(1000).description)
                 }
+                finalizeRunLog(outcome: "solo")
             }
 
         isStreaming = false
@@ -4251,156 +4226,19 @@ struct SingleChatSessionView: View {
 
     /// Ordnet die gebündelte Domain-Analyse (ein Haiku-Call für alle Agents, P3) je Agent zu.
     /// Erwartet pro Zeile "<AgentName>: <Beitrag>". Fehlt eine Zeile, bleibt die Analyse leer.
+    // Parser ausgelagert nach OrchestratorLogic.swift (testbar) — hier nur dünne Delegation.
     private func parseBulkAnalysis(_ text: String, agents: [AgentDefinition]) -> [(name: String, analysis: String)] {
-        let lines = text.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "**", with: "") }
-            .filter { !$0.isEmpty }
-        return agents.map { agent in
-            let name = agent.name.lowercased()
-            var analysis = ""
-            if let line = lines.first(where: {
-                let l = $0.lowercased()
-                return l.hasPrefix(name + ":") || l.hasPrefix("- " + name + ":")
-            }), let colon = line.range(of: ":") {
-                analysis = String(line[colon.upperBound...]).trimmingCharacters(in: .whitespaces)
-            }
-            return (name: agent.name, analysis: analysis)
-        }
+        OrchestratorLogic.parseBulkAnalysis(text, agents: agents)
     }
 
-    /// Parses "AGENT: Name\nAUFGABE: ..." blocks from the orchestrator plan (Legacy-Format).
     private func parseOrchestratorPlan(_ plan: String, agents: [AgentDefinition]) -> [String: String] {
-        var result: [String: String] = [:]
-        let lines = plan.components(separatedBy: .newlines)
-        var currentAgentId: String?
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.uppercased().hasPrefix("AGENT:") {
-                let name = trimmed.dropFirst(6).trimmingCharacters(in: .whitespaces)
-                    .replacingOccurrences(of: "**", with: "")
-                currentAgentId = agents.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }?.id
-            } else if trimmed.uppercased().hasPrefix("AUFGABE:"), let agentId = currentAgentId {
-                result[agentId] = String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespaces)
-                currentAgentId = nil
-            }
-        }
-        return result
+        OrchestratorLogic.parseOrchestratorPlan(plan, agents: agents)
     }
 
-    /// Parst den hierarchischen Master-Plan (ZIEL: + 1. / 1.1 → Agent Format).
-    /// Gibt (goal, todos, agentTasks) zurück.
-    ///
-    /// Robust gegenüber LLM-Artefakten:
-    ///  - Markdown-Fettdruck (**), führende Listenzeichen (-, •, *)
-    ///  - Trailing-Interpunktion am Nummerntoken (1.1:, 1.1., 1))
-    ///  - Mehrere Sub-Items pro Agent → werden zusammengeführt
-    ///  - Canonical Agent-Name gespeichert (nicht roher LLM-String)
-    ///  - Exakter Match bevorzugt vor fuzzy Contains
+    /// Parst den hierarchischen Master-Plan (Text-Format) — Logik in OrchestratorLogic (testbar).
     private func parseMasterPlan(_ plan: String, agents: [AgentDefinition])
         -> (goal: String, todos: [MasterTodoItem], agentTasks: [String: String]) {
-
-        var goal = ""
-        var todos: [MasterTodoItem] = []
-        var agentTasks: [String: String] = [:]
-        let trailingPunct = CharacterSet(charactersIn: ".:)")
-        let listChars    = CharacterSet(charactersIn: "-•* \t")
-
-        for line in plan.components(separatedBy: .newlines) {
-            let raw = line.trimmingCharacters(in: .whitespaces)
-            guard !raw.isEmpty else { continue }
-
-            // ZIEL: Zeile
-            if raw.uppercased().hasPrefix("ZIEL:") {
-                goal = String(raw.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                continue
-            }
-
-            // Normalisieren: **Markdown** + führende Listenzeichen entfernen
-            let normalized = raw
-                .replacingOccurrences(of: "**", with: "")
-                .trimmingCharacters(in: listChars)
-            guard !normalized.isEmpty else { continue }
-
-            // Nummerierungstoken + Rest extrahieren
-            let spaceIdx = normalized.firstIndex(of: " ") ?? normalized.endIndex
-            // Trailing-Interpunktion am Token abschneiden ("1.1:" → "1.1", "1." → "1")
-            let firstToken = String(normalized[..<spaceIdx])
-                .trimmingCharacters(in: trailingPunct)
-            let rest = spaceIdx < normalized.endIndex
-                ? String(normalized[normalized.index(after: spaceIdx)...])
-                    .trimmingCharacters(in: .whitespaces)
-                : ""
-            guard !rest.isEmpty else { continue }
-
-            let dotParts = firstToken.components(separatedBy: ".")
-
-            // Sub-Item: "1.1" — beide Komponenten nicht leer + beide Int
-            if dotParts.count == 2,
-               let _ = Int(dotParts[0]),
-               !dotParts[1].isEmpty,
-               let _ = Int(dotParts[1]) {
-
-                let num = firstToken
-                let sep = rest.contains("→") ? "→" : "->"
-                let parts = rest.components(separatedBy: sep)
-                let title = parts[0].trimmingCharacters(in: .whitespaces)
-                let rawAgent: String? = parts.count > 1
-                    ? parts[1].trimmingCharacters(in: .whitespaces) : nil
-
-                // Exakter Match bevorzugt, dann normalisierter Fuzzy-Contains.
-                // H3: -/_/Leerzeichen normalisieren, damit "Data Analyst" ↔ "data-analyst" matcht
-                // (reines contains scheiterte am Bindestrich). Bei Mehrdeutigkeit ("Designer" ↔
-                // "ux-designer") den LÄNGSTEN Kandidatennamen wählen → deterministisch statt
-                // abhängig von der Array-Reihenfolge.
-                let resolved: AgentDefinition? = rawAgent.flatMap { name -> AgentDefinition? in
-                    if let exact = agents.first(where: {
-                        $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-                    }) { return exact }
-                    func norm(_ s: String) -> String {
-                        s.lowercased()
-                         .replacingOccurrences(of: "-", with: " ")
-                         .replacingOccurrences(of: "_", with: " ")
-                         .trimmingCharacters(in: .whitespaces)
-                    }
-                    let target = norm(name)
-                    guard !target.isEmpty else { return nil }
-                    let candidates = agents.filter { a in
-                        guard !a.name.isEmpty else { return false }
-                        let an = norm(a.name)
-                        return an.contains(target) || target.contains(an)
-                    }
-                    return candidates.max(by: { $0.name.count < $1.name.count })
-                }
-                // Canonical name (aus Agent-Profil, nicht roher LLM-String) für zuverlässige Status-Updates
-                let canonicalName = resolved?.name ?? rawAgent
-
-                if let agent = resolved {
-                    // Mehrere Sub-Items pro Agent → zusammenführen statt überschreiben
-                    if let existing = agentTasks[agent.id] {
-                        agentTasks[agent.id] = existing + "\n- " + title
-                    } else {
-                        agentTasks[agent.id] = title
-                    }
-                }
-
-                todos.append(MasterTodoItem(id: num, number: num, title: title,
-                                            assignedAgent: canonicalName, level: 1, status: .pending))
-                continue
-            }
-
-            // Top-Level Kategorie: "1." → dotParts = ["1",""] oder "1" (nach trailing strip)
-            let isTopLevel = (dotParts.count == 2 && Int(dotParts[0]) != nil && dotParts[1].isEmpty)
-                          || (dotParts.count == 1 && Int(dotParts[0]) != nil
-                              && (raw.contains(".") || raw.contains(")")))
-            if isTopLevel {
-                let num = dotParts[0]
-                todos.append(MasterTodoItem(id: "\(num).", number: "\(num).", title: rest,
-                                            assignedAgent: nil, level: 0, status: .pending))
-            }
-        }
-
-        return (goal, todos, agentTasks)
+        OrchestratorLogic.parseMasterPlan(plan, agents: agents)
     }
 
     /// Setzt Status aller Todos die einem Agent gehören — nutzt canonical name (exact lowercase).
@@ -4413,25 +4251,7 @@ struct SingleChatSessionView: View {
 
     /// Formatiert den aktuellen Master Plan als lesbaren Text für Kontext-Injektion.
     private func formatMasterPlanText() -> String {
-        var lines: [String] = []
-        if !masterGoal.isEmpty {
-            lines.append("🎯 ZIEL: \(masterGoal)")
-            lines.append("")
-        }
-        for item in masterTodos {
-            let indent = item.level == 1 ? "   " : ""
-            let icon: String
-            switch item.status {
-            case .pending:  icon = "○"
-            case .active:   icon = "▶"
-            case .done:     icon = "✓"
-            case .skipped:  icon = "⏸"
-            case .blocked:  icon = "⚠"
-            }
-            let agent = item.assignedAgent.map { " → \($0)" } ?? ""
-            lines.append("\(indent)\(icon) \(item.number) \(item.title)\(agent)")
-        }
-        return lines.joined(separator: "\n")
+        OrchestratorLogic.formatPlan(goal: masterGoal, todos: masterTodos)
     }
 
     @State private var streamingTask: Task<Void, Never>? = nil
@@ -4768,6 +4588,7 @@ struct SingleChatSessionView: View {
             pendingAutoConfirmText = ""
             pendingAutoSentFiles = []
             pendingAutoRoutingIdx = nil
+            currentRunLog = nil
         }
     }
 
@@ -5734,18 +5555,7 @@ extension SingleChatSessionView {
 
     // MARK: - Master Plan Panel
 
-    // Datenstrukturen
-    private enum MasterTodoStatus: Equatable {
-        case pending, active, done, skipped, blocked
-    }
-    private struct MasterTodoItem: Identifiable {
-        let id: String
-        let number: String
-        let title: String
-        let assignedAgent: String?
-        let level: Int              // 0 = Top-Level Kategorie, 1 = ausführbarer Schritt
-        var status: MasterTodoStatus
-    }
+    // Datenstrukturen: MasterTodoStatus/MasterTodoItem leben jetzt in OrchestratorLogic.swift
 
     func planSidePanel(_ plan: String) -> some View {
         let hasTodos   = !masterTodos.isEmpty

@@ -272,6 +272,30 @@ struct SettingsFormView: View {
                                                 .foregroundStyle(theme.tertiaryText)
                                         }
                                     }
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            fieldLabel("Orchestrator Max. Turns")
+                                            HStack(spacing: 6) {
+                                                TextField("60", value: $draft.orchestratorMaxTurns, formatter: NumberFormatter())
+                                                    .styledInput(theme: theme)
+                                                    .frame(width: 50)
+                                                Text("je Agent")
+                                                    .font(.system(size: 12))
+                                                    .foregroundStyle(theme.tertiaryText)
+                                            }
+                                        }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            fieldLabel("Orchestrator Idle-Timeout")
+                                            HStack(spacing: 6) {
+                                                TextField("120", value: $draft.orchestratorIdleTimeout, formatter: NumberFormatter())
+                                                    .styledInput(theme: theme)
+                                                    .frame(width: 50)
+                                                Text("Sek. ohne Event")
+                                                    .font(.system(size: 12))
+                                                    .foregroundStyle(theme.tertiaryText)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -27,6 +27,9 @@ struct GitHubSettings: Codable {
     var historyWindowSize: Int = 8   // Anzahl Turns (= Nachrichten-Paare) die im GitHub-Models-Verlauf mitgesendet werden
     var maxTurns: Int = 10           // --max-turns für Claude CLI (0 = deaktiviert)
     var autoCompactThreshold: Int = 100000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
+    // Orchestrator
+    var orchestratorMaxTurns: Int = 60      // --max-turns je Orchestrator-Agent (0 = Fallback auf maxTurns/Default)
+    var orchestratorIdleTimeout: Int = 120  // Sekunden ohne Stream-Event bis Agent-Abbruch (0 = Default 120)
     // TMetric time tracking
     var tmetricApiToken: String = ""
     // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
@@ -62,6 +65,8 @@ struct GitHubSettings: Codable {
         maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 10
         let savedThreshold = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold)) ?? 100000
         autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
+        orchestratorMaxTurns    = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorMaxTurns))    ?? 60
+        orchestratorIdleTimeout = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorIdleTimeout)) ?? 120
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
         ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
         ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"

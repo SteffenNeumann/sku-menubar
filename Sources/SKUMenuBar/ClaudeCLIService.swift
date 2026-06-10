@@ -158,6 +158,13 @@ final class ClaudeCLIService: ObservableObject {
 
                 do {
                     try process.run()
+                    // Konsument abgebrochen (User-Stop / Idle-Watchdog) → CLI-Prozess beenden.
+                    // Ohne dies läuft `claude` nach einem Task-Cancel als Zombie weiter
+                    // (Process-Leak); onTermination feuert auch bei normalem Ende — dann ist
+                    // der Prozess bereits beendet und terminate() ein No-op.
+                    continuation.onTermination = { _ in
+                        if process.isRunning { process.terminate() }
+                    }
                     // Write message via stdin, then close to signal EOF.
                     // When images are provided we send a stream-json message with
                     // image content blocks (base64); otherwise plain text.

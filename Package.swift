@@ -18,6 +18,11 @@ let package = Package(
                 .process("Assets.xcassets"),
                 .process("AgentPortraits")
             ]
+        ),
+        .testTarget(
+            name: "myClaudeTests",
+            dependencies: ["myClaude"],
+            path: "Tests/myClaudeTests"
         )
     ]
 )
