@@ -73,11 +73,10 @@ struct MainWindowView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var previousSection: AppSection? = nil
     @State private var sectionMonitor: Any? = nil
-    // Lazy flags — heavy views are only instantiated when first visited
-    @State private var chatLoaded       = false
-    @State private var filesLoaded      = false
-    @State private var codeReviewLoaded = false
-    @State private var linearLoaded     = false
+    // Chat wird einmalig „scharf geschaltet" und bleibt dann persistent gemountet
+    // (Streaming + Per-Tab-State). Files/CodeReview/Linear brauchen keine Lade-Flags
+    // mehr — sie werden nur noch aktiv gemountet (siehe detailView, SCHRITT 0).
+    @State private var chatLoaded = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -139,9 +138,16 @@ struct MainWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         ZStack {
-            // Schwere Views: FrozenSectionLayout bricht die AttributeGraph-Abhängigkeit
-            // zwischen dem inaktiven Kind und dem äußeren ZStack. Bei isActive=false wird
-            // sizeThatFits() des Kindes NICHT aufgerufen → kein Layout-Loop bei Animationen.
+            // SCHRITT 0 (Struktur-Hang-Fix): NUR Chat bleibt persistent gemountet.
+            // Grund: Chat trägt das laufende Streaming + schweren Per-Tab-State, der bei
+            // Section-Wechsel NICHT verloren gehen darf (sonst bricht eine laufende Antwort ab).
+            // FrozenSectionLayout unterdrückt die Messung, solange Chat nicht aktiv ist.
+            //
+            // FileExplorer/CodeReview/Linear werden NICHT mehr dauergemountet — sie hingen
+            // sonst zu viert im selben ZStack und blähten jeden Layout-Pass auf (alle Sections
+            // × alle Tabs). Sie wandern ins switch unten und werden nur gemountet, wenn aktiv;
+            // beim Verlassen werden sie abgebaut (ihre Watcher/Timer/States werden freigegeben)
+            // und laden beim nächsten Erscheinen aus ihren Services neu.
             if chatLoaded {
                 FrozenSectionLayout(isActive: selectedSection == .chat) {
                     ChatView()
@@ -150,38 +156,14 @@ struct MainWindowView: View {
                         .accessibilityHidden(selectedSection != .chat)
                 }
             }
-            if filesLoaded {
-                FrozenSectionLayout(isActive: selectedSection == .files) {
-                    FileExplorerView()
-                        .opacity(selectedSection == .files ? 1 : 0)
-                        .allowsHitTesting(selectedSection == .files)
-                        .accessibilityHidden(selectedSection != .files)
-                }
-            }
-            if codeReviewLoaded {
-                FrozenSectionLayout(isActive: selectedSection == .codeReview) {
-                    CodeReviewView()
-                        .opacity(selectedSection == .codeReview ? 1 : 0)
-                        .allowsHitTesting(selectedSection == .codeReview)
-                        .accessibilityHidden(selectedSection != .codeReview)
-                }
-            }
-            if linearLoaded {
-                FrozenSectionLayout(isActive: selectedSection == .linear) {
-                    LinearView()
-                        .opacity(selectedSection == .linear ? 1 : 0)
-                        .allowsHitTesting(selectedSection == .linear)
-                        .accessibilityHidden(selectedSection != .linear)
-                }
-            }
 
-            // Alle anderen Sections werden normal gerendert
+            // Nur die AKTIVE Nicht-Chat-Section wird gerendert (kein Persistenz-ZStack mehr).
             switch selectedSection {
             case .home:       HomeView(selectedSection: $selectedSection)
-            case .chat:       EmptyView()
-            case .files:      EmptyView()
-            case .codeReview: EmptyView()
-            case .linear:     EmptyView()
+            case .chat:       EmptyView()   // wird oben persistent gerendert
+            case .files:      FileExplorerView()
+            case .codeReview: CodeReviewView()
+            case .linear:     LinearView()
             case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
@@ -192,13 +174,11 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: selectedSection) { _, section in
-            if section == .chat       { chatLoaded       = true }
-            if section == .files      { filesLoaded      = true }
-            if section == .codeReview { codeReviewLoaded = true }
-            if section == .linear {
-                linearLoaded = true
-                NotificationCenter.default.post(name: .linearViewBecameVisible, object: nil)
-            }
+            // Chat einmalig „scharf schalten" — danach bleibt es persistent gemountet.
+            if section == .chat { chatLoaded = true }
+            // Hinweis: LinearView lädt jetzt via eigenem `.task` beim Frisch-Mount;
+            // die frühere .linearViewBecameVisible-Benachrichtigung (für den Persistenz-Fall)
+            // entfällt, weil die View bei jedem Wechsel neu erscheint.
         }
     }
 }
