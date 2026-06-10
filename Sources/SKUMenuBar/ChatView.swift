@@ -444,6 +444,33 @@ struct SingleChatSessionView: View {
         return explainPrefixes.contains { lower.hasPrefix($0) }
     }
 
+    /// M1: Erkennt, ob neben einer Erklärbitte noch eine ZWEITE, eigenständige Handlungsaufgabe
+    /// steht (z.B. „Fasse zusammen UND baue dann Tests"). Ein Verbindungswort leitet dabei ein
+    /// Handlungsverb ein. Solche Composite-Sätze sind keine reine Erklärfrage.
+    private func containsAdditionalActionTask(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        // (a) Verbindung + Verb direkt verschmolzen → eindeutig eine zweite Aufgabe.
+        let verbContinuations = [
+            " und baue", " und erstelle", " und erstell", " und implementiere", " und schreibe",
+            " und entwickle", " und füge", " und ergänze", " und teste", " und deploy",
+            " und aktualisiere", " und ändere", " und optimiere", " und repariere", " und fixe",
+            " and build", " and create", " and add", " and implement", " and write",
+            " and test", " and update"]
+        if verbContinuations.contains(where: { lower.contains($0) }) { return true }
+        // (b) Reines Verbindungswort (dann/danach/then) NUR werten, wenn zusätzlich irgendwo ein
+        //     Handlungsverb als ganzes Wort steht — sonst ist "…, danach reden wir" ein
+        //     False-Positive (temporales Adverb ohne Folgeaufgabe).
+        let continuations = [" und dann ", " und danach ", " und anschließend ",
+                             " und zusätzlich ", " then ", " and then "]
+        guard continuations.contains(where: { lower.contains($0) }) else { return false }
+        let actionVerbs: Set<String> = ["baue", "erstelle", "erstell", "implementiere", "schreibe",
+            "entwickle", "füge", "ergänze", "teste", "deploy", "aktualisiere", "ändere",
+            "optimiere", "repariere", "fixe", "mach", "setze", "lege", "build", "create",
+            "add", "implement", "write", "test", "update", "make", "refactor"]
+        let wordSet = Set(lower.split(whereSeparator: { !$0.isLetter }).map(String.init))
+        return !actionVerbs.isDisjoint(with: wordSet)
+    }
+
     private func classifyFollowUp(_ text: String) -> FollowUpIntent {
         let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let words = lower.split(separator: " ")
@@ -476,8 +503,12 @@ struct SingleChatSessionView: View {
         if questionStarts.contains(where: { lower.hasPrefix($0) }) { return .chat }
 
         // 3b) Erklär-/Verständnis-Anfragen zum bestehenden Ergebnis → Chat (direkt beantworten,
-        //     nicht neu orchestrieren — auch wenn sie länger sind, z.B. "Erläutere mir noch wie …")
-        if isExplanationOrQuestion(text) { return .chat }
+        //     nicht neu orchestrieren — auch wenn sie länger sind, z.B. "Erläutere mir noch wie …").
+        //     M1-Ausnahme: Steht zusätzlich eine zweite, eigenständige Handlungsaufgabe im Satz
+        //     ("Fasse zusammen UND baue dann Tests"), ist es keine reine Erklärfrage → ausführen.
+        if isExplanationOrQuestion(text) {
+            return containsAdditionalActionTask(text) ? .fast : .chat
+        }
 
         // 4) Reine Ausführungs-Befehle (NUR wenn die Nachricht primär ein Befehl ist)
         //    "go" / "weiter" / "mach das" → fast
@@ -519,7 +550,7 @@ struct SingleChatSessionView: View {
         Which specialists are DIRECTLY needed for this task? Be very selective — prefer 1–2 focused experts over broad coverage.
 
         STRICT RULES:
-        - Maximum 3 specialists (hard limit)
+        - Prefer 1–3 specialists; never more than 4 (absolute ceiling, enforced in code)
         - Only include a specialist if they have a CLEAR, SPECIFIC role in this task
         - If 1 specialist suffices, return only 1
         - Do NOT include specialists just because the task vaguely touches their domain
@@ -2422,15 +2453,19 @@ struct SingleChatSessionView: View {
     // because `claude mcp get` fails for them — they are managed transparently by the claude.ai
     // session. When they are among the selected servers, --strict-mcp-config must be disabled
     // (strict mode would block them since they can't appear in the JSON).
-    private func buildMCPConfigJSON() async -> (String?, Bool) {
-        // activeMCPIds leer = alle aktiv → kein --strict-mcp-config nötig
-        guard !activeMCPIds.isEmpty else { return (nil, true) }
+    /// Baut die MCP-Config. `ids` erlaubt eine explizite Auswahl (z.B. Per-Agent-Scoping
+    /// im Orchestrator), ohne das geteilte @State `activeMCPIds` zu mutieren — das war
+    /// nicht cancel-sicher (Abbruch mitten im Loop hinterließ einen falschen UI-Zustand).
+    private func buildMCPConfigJSON(ids: Set<String>? = nil) async -> (String?, Bool) {
+        let effectiveIds = ids ?? activeMCPIds
+        // effectiveIds leer = alle aktiv → kein --strict-mcp-config nötig
+        guard !effectiveIds.isEmpty else { return (nil, true) }
         // "__none__" = wirklich alle deaktivieren
-        if activeMCPIds == Set(["__none__"]) {
+        if effectiveIds == Set(["__none__"]) {
             return ("{\"mcpServers\":{}}", true)
         }
 
-        let selectedServers = availableMCPs.filter { activeMCPIds.contains($0.id) }
+        let selectedServers = availableMCPs.filter { effectiveIds.contains($0.id) }
         // OAuth-MCPs are managed by the claude.ai session — they cannot be configured via JSON
         let hasOAuthMCPs = selectedServers.contains { $0.name.hasPrefix("claude.ai ") }
         let regularServers = selectedServers.filter { !$0.name.hasPrefix("claude.ai ") }
@@ -3168,6 +3203,13 @@ struct SingleChatSessionView: View {
             showCompactBanner = false
             compactBannerSeenAt = 0
             activePlan = nil
+            // Ausstehende Orchestrierungs-Tickets verwerfen — sonst kann ein veralteter Plan
+            // (pendingPhase2) nach /new gegen einen leeren Chat ausgeführt werden.
+            pendingPhase2 = nil
+            pendingAutoAgents = []
+            pendingAutoConfirmText = ""
+            pendingAutoSentFiles = []
+            pendingAutoRoutingIdx = nil
         }
     }
 
@@ -3449,8 +3491,8 @@ struct SingleChatSessionView: View {
         messages.append(ChatMessage(role: .user, content: text))
         orchestratorHistory.append((role: "user", content: text))
 
-        // Orchestrator-Kontext als kompakter Block (ohne die letzte user-Zeile)
-        let historyLines = orchestratorHistory.dropLast()
+        // Orchestrator-Kontext als kompakter Block (ohne die letzte user-Zeile) — H4: letzte 6.
+        let historyLines = orchestratorHistory.dropLast().suffix(6)
             .map { turn -> String in
                 let label = turn.role == "user" ? "Benutzer"
                            : turn.role == "orchestrator" ? "Synthese"
@@ -3549,7 +3591,14 @@ struct SingleChatSessionView: View {
 
         // Agents-Check VOR allen Seiteneffekten (vor inputText-Clear, vor message.append)
         let isAutoOrchestrated = autoAgentList != nil
-        let agents = (autoAgentList ?? state.agentService.agents.filter { selectedOrchestrators.contains($0.id) })
+        // Manuelle Auswahl; bei leerer Auswahl (Follow-up NACH Auto-Orchestrierung — dort ist
+        // selectedOrchestrators leer) die Agents der letzten Runde wiederverwenden, sonst würde
+        // ein .fast/.full-Follow-up an der ≥2-Guard scheitern.
+        let manualAgents: [AgentDefinition] = {
+            let sel = state.agentService.agents.filter { selectedOrchestrators.contains($0.id) }
+            return sel.isEmpty ? lastOrchestratorAgents : sel
+        }()
+        let agents = (autoAgentList ?? manualAgents)
             .filter { !$0.isPersona }
         guard agents.count >= 2 else {
             errorMessage = agents.isEmpty
@@ -3587,10 +3636,11 @@ struct SingleChatSessionView: View {
             // Per-Agent-MCP-Scoping: Jeder Agent bekommt nur (User-Auswahl + SEINE eigenen
             // requiredMCPs) statt der Union aller Agents. Spart MCP-Tool-Schemas pro Call —
             // z.B. data-analyst lädt nicht mehr Linear+Make+Brevo, sondern nur was er deklariert.
-            let savedMCPIds = activeMCPIds
+            let baseMCPIds = activeMCPIds   // Snapshot, wird NICHT mehr mutiert (K3)
             var perAgentMCP: [String: PerAgentMCP] = [:]
             for agent in agents where perAgentMCP[agent.id] == nil {
-                var ids = savedMCPIds
+                guard !Task.isCancelled else { break }
+                var ids = baseMCPIds
                 if !agent.requiredMCPs.isEmpty {
                     let reqIds = Set(availableMCPs.filter { agent.requiredMCPs.contains($0.name) }.map(\.id))
                     if ids == Set(["__none__"]) {
@@ -3599,11 +3649,11 @@ struct SingleChatSessionView: View {
                         ids.formUnion(reqIds)           // Zu User-Auswahl addieren
                     }
                 }
-                activeMCPIds = ids
-                let (json, strict) = await buildMCPConfigJSON()
+                // Per-Agent-Scoping über expliziten Parameter — KEINE Mutation von activeMCPIds
+                // (cancel-sicher: ein Abbruch im Loop kann den UI-Zustand nicht mehr verfälschen).
+                let (json, strict) = await buildMCPConfigJSON(ids: ids)
                 perAgentMCP[agent.id] = PerAgentMCP(json: json, strict: strict)
             }
-            activeMCPIds = savedMCPIds                 // UI-Zustand wiederherstellen
             var effectiveAddDirs = fileDirs
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
                 effectiveAddDirs.insert(wd, at: 0)
@@ -3611,13 +3661,17 @@ struct SingleChatSessionView: View {
             // Orchestrator-Agents brauchen genug Turns für MCP-Tool-Aufrufe (Make/Linear).
             // settings.maxTurns gilt für normale Einzel-Chats; hier mindestens 30 Turns garantieren
             // damit Agents mit vielen Tool-Calls (z.B. Linear-Analyse) nicht vorzeitig abbrechen.
-            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 30) : nil
+            // H2: Niemals nil — maxTurns==0 ("unbegrenzt") würde einen Agent ohne Obergrenze
+            // laufen lassen. Hard-Default 60 begrenzt Runaway-Turn-Schleifen; der Wall-Clock-
+            // Watchdog in Phase 2 fängt zusätzlich hängende MCP-Calls ab.
+            let effectiveMaxTurns: Int? = state.settings.maxTurns > 0 ? max(state.settings.maxTurns, 30) : 60
 
             // ── Kontext aufbauen (Fix B: Chat-History erhalten) ──────────
             let priorContext: String
             if orchestratorHistory.count > 1 {
-                // Bisherige Orchestrator-Runden
-                let history = orchestratorHistory.dropLast()
+                // Bisherige Orchestrator-Runden — H4: nur die letzten 6 Einträge (≈3 Runden),
+                // sonst wächst der Kontext pro Folge-Runde unbegrenzt (O(N²)-Token-Aufblähung).
+                let history = orchestratorHistory.dropLast().suffix(6)
                     .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(500))" }
                     .joined(separator: "\n\n")
                 priorContext = "\n\nBisheriger Konversationsverlauf:\n\(history)\n"
@@ -3819,11 +3873,23 @@ struct SingleChatSessionView: View {
                 return
             }
 
+            // H1: Leerer Plan (Stream-Fehler oder Haiku lieferte nichts) → echter Abbruch mit
+            // klarer Ursache statt der irreführenden Folgemeldung „Kein Agent konnte ausgeführt
+            // werden". Den User-Turn aus der History zurücknehmen, damit Folge-Nachrichten nicht
+            // dauerhaft als Orchestrator-Follow-up fehlgeroutet werden.
+            if planText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                messages.append(ChatMessage(role: .assistant,
+                    content: "⚠️ Orchestrierung abgebrochen — es konnte kein Master-Plan erstellt werden (Plan-Phase lieferte kein Ergebnis). Bitte erneut versuchen."))
+                if orchestratorHistory.last?.role == "user" { orchestratorHistory.removeLast() }
+                isStreaming = false
+                return
+            }
+
             // Master Plan parsen → Todos + AgentTasks
             let (parsedGoal, parsedTodos, parsedAgentTasks) = parseMasterPlan(planText, agents: agents)
             masterGoal = parsedGoal
 
-            let agentTasks: [String: String]
+            var agentTasks: [String: String]
             if !parsedAgentTasks.isEmpty {
                 masterTodos = parsedTodos
                 agentTasks = parsedAgentTasks
@@ -3835,6 +3901,22 @@ struct SingleChatSessionView: View {
                     return MasterTodoItem(id: agentId, number: "•", title: task,
                                          assignedAgent: agent.name, level: 1, status: .pending)
                 }
+            }
+
+            // H1-Fallback: Konnte der Plan KEINEM Agent eine Aufgabe zuordnen (Format-Verstoß oder
+            // falsch geschriebene Agent-Namen), trotzdem ausführen — jeder Agent bearbeitet den
+            // Gesamtauftrag aus seiner Spezialisten-Sicht, statt dass die Runde komplett scheitert.
+            if agentTasks.isEmpty {
+                let fallbackTask = masterGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? text : masterGoal
+                for agent in agents {
+                    agentTasks[agent.id] = "Kein spezifischer Plan-Schritt zugeordnet — bearbeite den Gesamtauftrag aus deiner Spezialisten-Perspektive: \(fallbackTask)"
+                }
+                masterTodos = agents.map { a in
+                    MasterTodoItem(id: a.id, number: "•", title: "Gesamtauftrag (Fallback)",
+                                   assignedAgent: a.name, level: 1, status: .pending)
+                }
+                messages[planIdx].content += "\n\n⚠️ Plan-Zuordnung unklar — Fallback: alle Agents bearbeiten den Gesamtauftrag."
             }
 
             // Plan für Follow-Up-Reuse speichern (Fix C)
@@ -3882,7 +3964,15 @@ struct SingleChatSessionView: View {
         let zugangContext   = ctx.zugangContext
         let planText        = activePlan ?? ""
 
-        var agentOutputs: [(name: String, output: String)] = []
+        var agentOutputs: [(name: String, output: String, failed: Bool)] = []
+        // Fortschritts-Zeilen rendern: ✓ bei Erfolg, ⚠️ bei Fehler/Abbruch (failed-Flag aus K1).
+        func renderDoneLines() -> String {
+            agentOutputs.map { o in
+                o.failed
+                    ? "⚠️ **\(o.name)** — fehlgeschlagen\n"
+                    : "✓ **\(o.name)** — \(o.output.count) Zeichen\n"
+            }.joined()
+        }
             // Bei mehreren Agents: alten Solo-Kontext löschen (kein weiteres Follow-Up in alter Session)
             if agents.count > 1 {
                 lastOrchestratorSoloAgentId   = nil
@@ -3899,14 +3989,12 @@ struct SingleChatSessionView: View {
 
                 guard let specificTask = agentTasks[agent.id] else {
                     setTodoStatus(for: agent.name, to: .skipped)
-                    let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
-                    messages[progressIdx].content = doneLines + "⏸ \(agent.name) — nicht relevant, übersprungen\n"
+                    messages[progressIdx].content = renderDoneLines() + "⏸ \(agent.name) — nicht relevant, übersprungen\n"
                     continue
                 }
 
                 setTodoStatus(for: agent.name, to: .active)
-                let doneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
-                messages[progressIdx].content = doneLines + "⏳ \(agent.name)…"
+                messages[progressIdx].content = renderDoneLines() + "⏳ \(agent.name)…"
                 // Agent-Name im Bubble-Header anzeigen (statt nur "⚙️ Agents")
                 messages[progressIdx].agentName = agent.name
 
@@ -3921,15 +4009,19 @@ struct SingleChatSessionView: View {
                 contextParts.append("══════ MASTER PLAN — Kontext-Anker ══════\n\(planAnchor)\n══════════════════════════════════════")
 
                 if orchestratorHistory.count > 1 {
-                    let history = orchestratorHistory.dropLast()
+                    // H4: Sliding-Window auf die letzten 6 Einträge (≈3 Runden) — verhindert,
+                    // dass jeder Agent-Call die komplette wachsende History trägt.
+                    let history = orchestratorHistory.dropLast().suffix(6)
                         .map { "\($0.role == "user" ? "Benutzer" : $0.role): \($0.content.prefix(800))" }
                         .joined(separator: "\n\n")
                     contextParts.append("Bisheriger Konversationsverlauf:\n\(history)")
                 }
-                if !agentOutputs.isEmpty {
+                let priorSucceeded = agentOutputs.filter { !$0.failed }
+                if !priorSucceeded.isEmpty {
                     // P4: Fremd-Outputs auf 1500 Zeichen kappen — verhindert O(N²)-Aufblähung des
                     // Phase-2-Kontexts. Die Synthese (Phase 3) sieht weiterhin die VOLLEN Outputs.
-                    let prior = agentOutputs
+                    // Fehlgeschlagene Agents (K1) werden NICHT als Kontext an Folge-Agents gegeben.
+                    let prior = priorSucceeded
                         .map { o -> String in
                             let body = o.output.count > 1500
                                 ? String(o.output.prefix(1500)) + "\n…[gekürzt]"
@@ -3972,6 +4064,25 @@ struct SingleChatSessionView: View {
                     mcpStrictMode: agentMCP?.strict ?? true,
                     imagePaths: imgPaths
                 )
+
+                // H2: Watchdog — bricht die Orchestrierung ab, wenn EIN Agent ungewöhnlich lange
+                // hängt (z.B. blockierender MCP-Tool-Call). Ohne dies blockiert die sequentielle
+                // Schleife unbegrenzt und der UI bleibt gesperrt. Nutzt den bewährten Stop-Pfad
+                // (streamingTask.cancel) statt eines eigenen Concurrency-Modells.
+                let perAgentTimeoutSec: UInt64 = 240
+                let watchdog = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: perAgentTimeoutSec * 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    if messages.indices.contains(progressIdx) {
+                        messages[progressIdx].content = renderDoneLines()
+                            + "⏱ \(agent.name) — Zeitlimit (\(perAgentTimeoutSec)s) überschritten, Abbruch\n"
+                    }
+                    streamingTask?.cancel()
+                }
+
+                var streamThrew = false
+                var resultIsError = false
+                var resultSubtype = ""
                 do {
                     for try await event in stream {
                         guard !Task.isCancelled else { break }
@@ -3985,52 +4096,84 @@ struct SingleChatSessionView: View {
                             for block in content where block.type == "text" {
                                 if let t = block.text, !t.isEmpty { agentOutput += t }
                             }
+                        case "result":
+                            if event.isError == true { resultIsError = true }
+                            if let st = event.subtype { resultSubtype = st }
+                        case "rate_limit_event":
+                            state.claudeRateLimitActive = true
                         default: break
                         }
                     }
                 } catch {
+                    streamThrew = true
                     agentOutput += "\n⚠️ \(error.localizedDescription)"
                 }
-                agentOutputs.append((name: agent.name, output: agentOutput))
+                watchdog.cancel()
+
+                // K1: Erfolg vs. Fehlschlag bestimmen — ein Fehler darf NICHT als ✓ erfolgreich
+                // gezählt werden oder als Kontext/Synthese-Input durchrutschen.
+                // Fehlgeschlagen = Stream warf ODER result meldet echten Fehler (außer max_turns)
+                // ODER es kam gar kein verwertbarer Text. max_turns mit Teil-Output = kein harter
+                // Fehler, aber mit Hinweis markiert.
+                let trimmedOutput = agentOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Beide CLI-Schreibweisen akzeptieren (roh "error_max_turns", gemappt "max_turns").
+                let hitMaxTurns = resultSubtype == "error_max_turns" || resultSubtype == "max_turns"
+                let agentFailed = streamThrew || (resultIsError && !hitMaxTurns) || trimmedOutput.isEmpty
+                if hitMaxTurns && !trimmedOutput.isEmpty {
+                    agentOutput += "\n\n⚠️ [Hinweis: Turn-Limit erreicht — Ausgabe möglicherweise unvollständig]"
+                }
+
+                // M3: vor dem Festschreiben erneut auf Abbruch prüfen — verhindert, dass ein nach
+                // stopStreaming() noch laufender Task partielle Ergebnisse als .done schreibt.
+                if Task.isCancelled { break }
+
+                agentOutputs.append((name: agent.name, output: agentOutput, failed: agentFailed))
                 // Für Solo-Agent: Session-ID merken für Kontext-Continuity bei Follow-Ups
                 if agents.count == 1 {
                     lastOrchestratorSoloAgentId  = agent.id
                     lastOrchestratorSoloSessionId = capturedAgentSessionId
                 }
 
-                setTodoStatus(for: agent.name, to: .done)
+                setTodoStatus(for: agent.name, to: agentFailed ? .blocked : .done)
 
-                let allDoneLines = agentOutputs.map { "✓ **\($0.name)** — \($0.output.count) Zeichen\n" }.joined()
-                messages[progressIdx].content = allDoneLines
+                messages[progressIdx].content = renderDoneLines()
             }
             messages[progressIdx].isStreaming = false
             messages[progressIdx].finishedCleanly = true
 
             // Abbruch-Check nach Phase 2
             if Task.isCancelled {
-                let partial = agentOutputs.map { "✓ \($0.name)" }.joined(separator: ", ")
+                let partial = agentOutputs.map { $0.failed ? "⚠️ \($0.name)" : "✓ \($0.name)" }.joined(separator: ", ")
                 messages.append(ChatMessage(role: .assistant,
-                    content: "⏹ Orchestrierung abgebrochen nach Phase 2. Fertige Agents: \(partial.isEmpty ? "keine" : partial)"))
+                    content: "⏹ Orchestrierung abgebrochen nach Phase 2. Agents: \(partial.isEmpty ? "keine" : partial)"))
                 isStreaming = false
                 return
             }
 
             // ── Phase 3: Synthesis ────────────────────────────────────────
-            guard !agentOutputs.isEmpty else {
+            // K1/M2: Nur ERFOLGREICHE Agent-Outputs zählen. Fehlgeschlagene (Auth/Fehler/Zeitlimit/
+            // leer) fließen weder in die Synthese noch in den Solo-Pfad.
+            let succeeded = agentOutputs.filter { !$0.failed }
+            guard !succeeded.isEmpty else {
+                let reason = agentOutputs.isEmpty
+                    ? "der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents/Plan prüfen."
+                    : "alle \(agentOutputs.count) Agents sind fehlgeschlagen (Fehler, Zeitlimit oder leere Ausgabe)."
                 messages.append(ChatMessage(role: .assistant,
-                    content: "⚠️ Kein Agent konnte ausgeführt werden — der Master Plan konnte keinem verfügbaren Agent zugewiesen werden. Bitte Agents prüfen."))
+                    content: "⚠️ Kein verwertbares Ergebnis — \(reason)"))
                 isStreaming = false
                 return
             }
 
-            if agents.count > 1 {
+            // M2: Synthese nur bei ≥2 erfolgreichen Agents; bei genau 1 den Solo-Pfad nehmen —
+            // sonst formuliert die Synthese „wie die Teile zusammenspielen" über ein einziges Ergebnis.
+            if succeeded.count > 1 {
                 var synthPlaceholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
                 synthPlaceholder.model = "📋 Synthese"
                 messages.append(synthPlaceholder)
                 let synthIdx = messages.count - 1
                 messages[synthIdx].content = "**📋 Synthese**\n"
 
-                let allOutputs = agentOutputs
+                let allOutputs = succeeded
                     .map { "**\($0.name):**\n\($0.output)" }
                     .joined(separator: "\n\n---\n\n")
 
@@ -4087,13 +4230,13 @@ struct SingleChatSessionView: View {
                 messages[synthIdx].isStreaming = false
                 messages[synthIdx].finishedCleanly = true
 
-                let fullRoundSummary = agentOutputs
+                let fullRoundSummary = succeeded
                     .map { "[\($0.name)] \($0.output.prefix(500))" }
                     .joined(separator: "\n\n")
                 orchestratorHistory.append((role: "orchestrator",
                     content: "Plan:\n\(planText.prefix(300))\n\nAgent-Ergebnisse:\n\(fullRoundSummary)\n\nSynthese:\n\(synthOutput.prefix(800))"))
             } else {
-                if let first = agentOutputs.first {
+                if let first = succeeded.first {
                     var singleMsg = ChatMessage(role: .assistant, content: first.output)
                     // agentName setzen damit der Agent-Badge (farbig, person.fill) erscheint — nicht nur model-Label
                     singleMsg.agentName = first.name
@@ -4205,17 +4348,29 @@ struct SingleChatSessionView: View {
                 let rawAgent: String? = parts.count > 1
                     ? parts[1].trimmingCharacters(in: .whitespaces) : nil
 
-                // Exakter Match bevorzugt, dann fuzzy Contains
-                // → verhindert Kreuz-Matches bei ähnlichen Namen ("Designer" vs "UX-Designer")
-                let resolved: AgentDefinition? = rawAgent.flatMap { name in
-                    agents.first(where: {
+                // Exakter Match bevorzugt, dann normalisierter Fuzzy-Contains.
+                // H3: -/_/Leerzeichen normalisieren, damit "Data Analyst" ↔ "data-analyst" matcht
+                // (reines contains scheiterte am Bindestrich). Bei Mehrdeutigkeit ("Designer" ↔
+                // "ux-designer") den LÄNGSTEN Kandidatennamen wählen → deterministisch statt
+                // abhängig von der Array-Reihenfolge.
+                let resolved: AgentDefinition? = rawAgent.flatMap { name -> AgentDefinition? in
+                    if let exact = agents.first(where: {
                         $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-                    }) ?? agents.first(where: {
-                        !$0.name.isEmpty && (
-                            $0.name.lowercased().contains(name.lowercased())
-                            || name.lowercased().contains($0.name.lowercased())
-                        )
-                    })
+                    }) { return exact }
+                    func norm(_ s: String) -> String {
+                        s.lowercased()
+                         .replacingOccurrences(of: "-", with: " ")
+                         .replacingOccurrences(of: "_", with: " ")
+                         .trimmingCharacters(in: .whitespaces)
+                    }
+                    let target = norm(name)
+                    guard !target.isEmpty else { return nil }
+                    let candidates = agents.filter { a in
+                        guard !a.name.isEmpty else { return false }
+                        let an = norm(a.name)
+                        return an.contains(target) || target.contains(an)
+                    }
+                    return candidates.max(by: { $0.name.count < $1.name.count })
                 }
                 // Canonical name (aus Agent-Profil, nicht roher LLM-String) für zuverlässige Status-Updates
                 let canonicalName = resolved?.name ?? rawAgent
@@ -4607,6 +4762,12 @@ struct SingleChatSessionView: View {
             lastAgentTasks = [:]
             lastOrchestratorAgents = []
             activePlan = nil
+            // Ausstehende Orchestrierungs-Tickets nach Compact ebenfalls verwerfen.
+            pendingPhase2 = nil
+            pendingAutoAgents = []
+            pendingAutoConfirmText = ""
+            pendingAutoSentFiles = []
+            pendingAutoRoutingIdx = nil
         }
     }
 
@@ -4699,8 +4860,9 @@ struct SingleChatSessionView: View {
                     // Direkt aus dem Kontext (Plan + Synthese) beantworten, wenn es eine
                     // Frage/Erklär-Anfrage zum bestehenden Ergebnis ist — unabhängig von der Länge.
                     // Nur echte neue Aufgaben gehen in die Schnell-Orchestrierung.
-                    let shouldAnswerDirectly = routingText.split(separator: " ").count <= 5
-                                     || isExplanationOrQuestion(routingText)
+                    let shouldAnswerDirectly = (routingText.split(separator: " ").count <= 5
+                                     || isExplanationOrQuestion(routingText))
+                                     && !containsAdditionalActionTask(routingText)
                     if shouldAnswerDirectly {
                         sendOrchestratorDirectAnswer()
                         return
