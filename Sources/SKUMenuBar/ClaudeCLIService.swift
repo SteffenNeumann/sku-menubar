@@ -27,7 +27,8 @@ final class ClaudeCLIService: ObservableObject {
         mcpConfigJSON: String? = nil,   // wenn gesetzt: --mcp-config <json>
         mcpStrictMode: Bool = true,     // wenn true zusätzlich --strict-mcp-config (disabled für OAuth-MCPs)
         imagePaths: [String] = [],      // optional image files to attach (for persona reviews)
-        disableTools: Bool = false      // wenn true: --tools "" (keine Built-in-Tools) — für reine Reasoning-Phasen
+        disableTools: Bool = false,     // wenn true: --tools "" (keine Built-in-Tools) — für reine Reasoning-Phasen
+        permissionMode: String? = nil   // wenn gesetzt: --permission-mode <mode> (z.B. "plan" → nur planen, nichts ausführen)
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -35,6 +36,9 @@ final class ClaudeCLIService: ObservableObject {
                 var args: [String] = ["--print", "--output-format", "stream-json", "--verbose"]
                 if skipPermissions {
                     args.append("--dangerously-skip-permissions")
+                } else if let pm = permissionMode, !pm.isEmpty {
+                    // Plan-Modus etc. — schließt sich mit --dangerously-skip-permissions aus.
+                    args += ["--permission-mode", pm]
                 }
                 if let mcpJson = mcpConfigJSON, !mcpJson.isEmpty {
                     if mcpStrictMode { args.append("--strict-mcp-config") }

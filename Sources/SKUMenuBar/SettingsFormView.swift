@@ -233,6 +233,16 @@ struct SettingsFormView: View {
                                 }
                             }
                             rowDivider()
+                            configRow(title: "Auto-Orchestrierung",
+                                      icon: "rectangle.3.group.bubble",
+                                      hint: "Lange Nachrichten automatisch auf mehrere Agents verteilen") {
+                                Toggle("Auto-Orchestrierung aktiv", isOn: $draft.autoOrchestrationEnabled)
+                                    .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(theme.primaryText)
+                                    .help("Aus: lange Nachrichten lösen nie automatisch eine Multi-Agent-Orchestrierung aus — es bleibt beim Einzel-Agent.")
+                            }
+                            rowDivider()
                             configRow(title: "Token-Optimierung",
                                       icon: "slider.horizontal.3",
                                       hint: "History, Max-Turns, Auto-Compact") {

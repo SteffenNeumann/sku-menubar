@@ -312,6 +312,11 @@ struct SingleChatSessionView: View {
     @State private var pendingAutoConfirmText: String = ""
     @State private var pendingAutoSentFiles: [AttachedFile] = []
     @State private var pendingAutoRoutingIdx: Int? = nil
+    // Sofort-Abbruch: true während der "🔍 KI prüft Routing…"-Phase der Auto-Orchestrierung
+    // (bevor der Bestätigungs-Banner erscheint). Stop-Button räumt dann sauber auf statt
+    // eine tote Routing-Bubble stehen zu lassen.
+    @State private var autoRoutingActive: Bool = false
+    @State private var autoRoutingText: String = ""
     // Plan-Freigabe (manueller Orchestrator: Haiku erstellt Plan → pausiert → wartet auf Go)
     @State private var pendingPhase2: PendingPhase2Context? = nil
     // V4: Run-Log des aktuellen Orchestrierungs-Laufs (JSONL-Protokoll bei Abschluss)
@@ -326,6 +331,9 @@ struct SingleChatSessionView: View {
     @State private var filePreviewPanelWidth: CGFloat = 380
     @State private var inputBarHeight: CGFloat = 56
     @AppStorage("chat.autoApprove") private var autoApprove: Bool = false
+    // Plan-Modus: Agent erstellt nur einen Plan (--permission-mode plan), führt nichts aus.
+    // Gegenseitig exklusiv mit autoApprove (siehe Permission-Picker).
+    @AppStorage("chat.planMode") private var planMode: Bool = false
     @State private var isCompacting: Bool = false
     @State private var compactedSummary: String? = nil
     // Streaming timing (for Live-Plan-Panel)
@@ -2060,11 +2068,14 @@ struct SingleChatSessionView: View {
             .modifier(panelStyle)
         } else if showPermPicker {
             VStack(alignment: .leading, spacing: 0) {
-                pickerRow(label: "🛡  Standard", selected: !autoApprove) {
-                    autoApprove = false; showPermPicker = false
+                pickerRow(label: "🛡  Standard", selected: !autoApprove && !planMode) {
+                    autoApprove = false; planMode = false; showPermPicker = false
                 }
-                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove) {
-                    autoApprove = true; showPermPicker = false
+                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove && !planMode) {
+                    autoApprove = true; planMode = false; showPermPicker = false
+                }
+                pickerRow(label: "📋  Plan-Modus", selected: planMode) {
+                    planMode = true; autoApprove = false; showPermPicker = false
                 }
             }
             .modifier(panelStyle)
@@ -2625,17 +2636,21 @@ struct SingleChatSessionView: View {
 
             // Permission mode
             pickerButton(
-                icon: autoApprove ? "shield.slash.fill" : "shield.fill",
-                label: autoApprove ? "Auto" : "Standard",
-                active: autoApprove,
+                icon: planMode ? "list.clipboard.fill" : (autoApprove ? "shield.slash.fill" : "shield.fill"),
+                label: planMode ? "Plan" : (autoApprove ? "Auto" : "Standard"),
+                active: autoApprove || planMode,
                 isPresented: $showPermPicker
             ) {
-                pickerRow(label: "🛡  Standard", selected: !autoApprove) {
-                    autoApprove = false
+                pickerRow(label: "🛡  Standard", selected: !autoApprove && !planMode) {
+                    autoApprove = false; planMode = false
                     showPermPicker = false
                 }
-                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove) {
-                    autoApprove = true
+                pickerRow(label: "⚡  Auto-Approve", selected: autoApprove && !planMode) {
+                    autoApprove = true; planMode = false
+                    showPermPicker = false
+                }
+                pickerRow(label: "📋  Plan-Modus", selected: planMode) {
+                    planMode = true; autoApprove = false
                     showPermPicker = false
                 }
             }
@@ -3084,6 +3099,8 @@ struct SingleChatSessionView: View {
             pendingAutoConfirmText = ""
             pendingAutoSentFiles = []
             pendingAutoRoutingIdx = nil
+            autoRoutingActive = false
+            autoRoutingText = ""
             // Offenes Run-Log verwerfen (struktureller Abbruch, kein Pipeline-Outcome) und
             // Solo-Session-Continuity kappen — sonst erbt die frische Session den alten Agent.
             currentRunLog = nil
@@ -3157,6 +3174,10 @@ struct SingleChatSessionView: View {
         messages.append(routingMsg)
         let routingIdx = messages.count - 1
         isStreaming = true; streamingStartTime = Date()
+        // Sofort-Abbruch scharf schalten: ab hier räumt der Stop-Button die Routing-Phase
+        // sauber auf (Bubbles weg, Text zurück ins Eingabefeld).
+        autoRoutingActive = true
+        autoRoutingText = text
 
         let workAgents = state.agentService.agents.filter { !$0.isPersona }
 
@@ -3164,7 +3185,10 @@ struct SingleChatSessionView: View {
             // LLM-basierte Agent-Auswahl: Haiku bestimmt WELCHE Agents relevant sind
             let haikuAgents = await selectRelevantAgents(text, agents: workAgents)
             guard !Task.isCancelled else {
-                if messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
+                // Hat stopStreaming() bereits abgeräumt (autoRoutingActive == false), nichts tun —
+                // sonst würde ein veralteter routingIdx eine falsche Nachricht entfernen.
+                if autoRoutingActive, messages.indices.contains(routingIdx) { messages.remove(at: routingIdx) }
+                autoRoutingActive = false
                 isStreaming = false; return
             }
 
@@ -3194,9 +3218,13 @@ struct SingleChatSessionView: View {
                 pendingAutoConfirmText = text
                 pendingAutoSentFiles = sentFiles
                 pendingAutoRoutingIdx = routingIdx
+                // Routing-Phase vorbei → ab jetzt regelt der Banner das Abbrechen.
+                autoRoutingActive = false
                 isStreaming = false
             } else {
                 // ── 0–1 relevante Agents → Einzelagent ────────────────────────
+                // Routing-Phase vorbei → ab jetzt gilt der normale Stop (performSend-Stream).
+                autoRoutingActive = false
                 // Bei genau 1 Treffer DEN Spezialisten verwenden (sein System-Prompt + MCP),
                 // sonst generischer Einzelagent.
                 let soloAgent = selectedAgents.first
@@ -4280,6 +4308,23 @@ struct SingleChatSessionView: View {
     private func stopStreaming() {
         streamingTask?.cancel()
         isStreaming = false
+        // Sofort-Abbruch der Auto-Orchestrierung WÄHREND der "🔍 KI prüft Routing…"-Phase:
+        // Routing-Bubble + auslösende User-Nachricht entfernen und den Text zurück ins
+        // Eingabefeld legen, damit ohne tote Bubble normal weitergesendet werden kann.
+        if autoRoutingActive {
+            autoRoutingActive = false
+            if let rIdx = messages.lastIndex(where: { $0.role == .assistant }) {
+                messages.remove(at: rIdx)
+            }
+            if let uIdx = messages.lastIndex(where: { $0.role == .user }) {
+                messages.remove(at: uIdx)
+            }
+            if inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                inputText = autoRoutingText
+            }
+            autoRoutingText = ""
+            return
+        }
         if var last = messages.last, last.isStreaming {
             last.isStreaming = false
             messages[messages.count - 1] = last
@@ -4609,6 +4654,8 @@ struct SingleChatSessionView: View {
             pendingAutoConfirmText = ""
             pendingAutoSentFiles = []
             pendingAutoRoutingIdx = nil
+            autoRoutingActive = false
+            autoRoutingText = ""
             currentRunLog = nil
         }
     }
@@ -4728,9 +4775,10 @@ struct SingleChatSessionView: View {
             // ── Frischer Start, manuell ausgewählte Agents ───────────────────────
             sendOrchestrator()
             return
-        } else if isComplexTask(routingText) && !routingText.isEmpty && workerAgentCount >= 2 {
+        } else if state.settings.autoOrchestrationEnabled && isComplexTask(routingText) && !routingText.isEmpty && workerAgentCount >= 2 {
             // ── Kein Orchestrator, komplexe Aufgabe → Auto-Orchestrierung ──────
             // Haiku wählt die relevanten Agents aus (nicht MULTI/SINGLE, sondern WELCHE)
+            // Per Settings-Schalter abschaltbar → bleibt dann beim Einzel-Agent.
             sendAutoOrchestration()
             return
         }
@@ -4966,7 +5014,8 @@ struct SingleChatSessionView: View {
                 maxTurns: effectiveMaxTurns,
                 mcpConfigJSON: mcpJson,
                 mcpStrictMode: mcpStrict,
-                imagePaths: cliImagePaths
+                imagePaths: cliImagePaths,
+                permissionMode: planMode ? "plan" : nil
             )
         }
 
