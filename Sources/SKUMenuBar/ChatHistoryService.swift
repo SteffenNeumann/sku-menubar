@@ -436,8 +436,14 @@ final class ChatHistoryService: ObservableObject {
     // MARK: - Helpers
 
     private func encodePath(_ path: String) -> String {
-        // /Users/steffen/foo -> -Users-steffen-foo
-        path.replacingOccurrences(of: "/", with: "-")
+        // Claude CLI builds the project directory name by replacing every
+        // non-alphanumeric character with a hyphen — not just "/". So a space,
+        // "." or "_" in the path also becomes "-":
+        //   /Users/steffen/Documents/GitHub/Excel Leads -> -Users-steffen-Documents-GitHub-Excel-Leads
+        //   /Users/.../Vitalis_Seniorendienst            -> -Users-...-Vitalis-Seniorendienst
+        // Only replacing "/" produced a non-existent path for such projects, so
+        // their sessions could never be found on disk and got dropped.
+        String(path.map { c in (c.isASCII && (c.isLetter || c.isNumber)) ? c : "-" })
     }
 
     /// Reads the session JSONL to find the first meaningful user text message.
