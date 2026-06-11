@@ -1291,9 +1291,18 @@ struct SingleChatSessionView: View {
     }
 
     private var messagesArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
+        // SCHRITT B (Struktur-Hang-Fix): GeometryReader entkoppelt die Messung des schweren
+        // Message-Subtrees vom Parent-Layout. Sample zeigte: die Center-VStack misst die
+        // ScrollView→LazyVStack→MessageBubble-Kaskade 3×/Pass (StackLayout prioritize/resize/
+        // placeChildren) — der dominante CPU-Posten beim Streaming-Hang.
+        // GeometryReader ist für den Parent „greedy & flexibel": sein sizeThatFits liefert die
+        // vorgeschlagene Größe zurück OHNE das Kind zu messen. Dadurch steigt die 3-Phasen-
+        // Messung des Parents nicht mehr in den LazyVStack ab — der ScrollView bekommt eine
+        // FIXE Frame und wird nur EINMAL beim Placement mit konkreter Größe gemessen.
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
                     // Hinweis wenn frühere Nachrichten ausgeblendet sind (Layout-Optimierung)
                     if hiddenMessageCount > 0 {
                         HStack(spacing: 6) {
@@ -1339,6 +1348,10 @@ struct SingleChatSessionView: View {
             .onChange(of: isStreaming) {
                 if !isStreaming { scrollToBottom(proxy, animated: false) }
             }
+            }
+            // FIXE Frame aus dem GeometryReader: gibt dem ScrollView eine konkrete Größe, sodass
+            // der Parent ihn nicht mehr 3× durchmessen muss (er kennt die Größe bereits).
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
