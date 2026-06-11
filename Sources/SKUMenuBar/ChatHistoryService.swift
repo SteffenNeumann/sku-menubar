@@ -224,7 +224,14 @@ final class ChatHistoryService: ObservableObject {
 
         var result: [ProjectHistory] = []
         for (path, entries) in byProject {
+            // Use the session file's modification date as the activity time:
+            // a resumed/continued session keeps its old start timestamp otherwise
+            // and would sort too low even though it was just active.
             let sessions = entries
+                .map { e -> (session: String, preview: String, ts: Date) in
+                    let modDate = sessionFileModDate(sessionId: e.session, projectPath: path)
+                    return (e.session, e.preview, max(e.ts, modDate ?? e.ts))
+                }
                 .sorted { $0.ts > $1.ts }
                 .map { e in
                     // Use firstUserMessage as preview if history.jsonl shows a slash-command or empty
@@ -329,6 +336,17 @@ final class ChatHistoryService: ObservableObject {
                 byProject[path, default: []].append((sessionId, "", ts))
             }
         }
+    }
+
+    /// Content-modification date of a session's `.jsonl` file. Reflects the last
+    /// time the session was written to (i.e. resumed/continued), which is the true
+    /// "last activity" — unlike the first-message timestamp used for ordering.
+    private func sessionFileModDate(sessionId: String, projectPath: String) -> Date? {
+        let file = projectsDir
+            .appendingPathComponent(encodePath(projectPath))
+            .appendingPathComponent("\(sessionId).jsonl")
+        return (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
     }
 
     // MARK: - Load messages for a session
