@@ -252,6 +252,30 @@ enum OrchestratorLogic {
         return candidates.max(by: { $0.name.count < $1.name.count })
     }
 
+    /// P4: Löst ein `agent`-Feld auf, das MEHRERE Namen enthalten kann (Trenner: ",", "&", "/",
+    /// " und ", " and "). Gibt die eindeutige Liste der getroffenen Agents in Reihenfolge zurück
+    /// (leer, wenn keiner matcht). Verhindert den stillen Verlust bei Sammelschritten wie
+    /// "data-analyst, excel-vba-developer", die `resolveAgent` sonst auf nur EINEN reduziert.
+    static func resolveAgents(named raw: String?, in agents: [AgentDefinition]) -> [AgentDefinition] {
+        guard let raw = raw?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return [] }
+        let normalizedSeparators = raw
+            .replacingOccurrences(of: " und ", with: ",")
+            .replacingOccurrences(of: " and ", with: ",")
+        let parts = normalizedSeparators
+            .components(separatedBy: CharacterSet(charactersIn: ",&/"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let names = parts.isEmpty ? [raw] : parts
+        var result: [AgentDefinition] = []
+        for n in names {
+            if let a = resolveAgent(named: n, in: agents),
+               !result.contains(where: { $0.id == a.id }) {
+                result.append(a)
+            }
+        }
+        return result
+    }
+
     // MARK: Phase-0-Parsing (Bulk-Analyse)
 
     /// Ordnet die gebündelte Domain-Analyse (ein Haiku-Call für alle Agents, P3) je Agent zu.
@@ -419,29 +443,58 @@ enum OrchestratorLogic {
         let steps = plan.schritte ?? plan.steps ?? []
         guard !steps.isEmpty else { return nil }
 
-        var todos: [MasterTodoItem] = []
-        var agentTasks: [String: String] = [:]
+        // Schritte erst SAMMELN (Titel + Nummer + aufgelöste Agents) und Todos/Tasks danach bauen.
+        // So kann bei 0 Treffern eine positionsbasierte Recovery greifen, statt non-nil mit leerem
+        // agentTasks zurückzugeben (was im Caller den "alle machen alles"-Fallback auslöste).
+        struct ParsedStep { let num: String; let title: String; let resolved: [AgentDefinition] }
+        var parsed: [ParsedStep] = []
         for (i, step) in steps.enumerated() {
             let title = (step.titel ?? step.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { continue }
             let rawNum = (step.nr ?? step.id ?? "").trimmingCharacters(in: .whitespaces)
             let num = rawNum.isEmpty ? "\(i + 1)" : rawNum
-            let rawAgent = step.agent?.trimmingCharacters(in: .whitespaces)
-            let resolved = rawAgent.flatMap { resolveAgent(named: $0, in: agents) }
-            if let a = resolved {
-                if let existing = agentTasks[a.id] {
-                    agentTasks[a.id] = existing + "\n- " + title
-                } else {
-                    agentTasks[a.id] = title
-                }
+            // P4: agent-Feld kann mehrere Namen tragen → alle auflösen.
+            parsed.append(ParsedStep(num: num, title: title,
+                                     resolved: resolveAgents(named: step.agent, in: agents)))
+        }
+        guard !parsed.isEmpty else { return nil }
+
+        var agentTasks: [String: String] = [:]
+        func assign(_ agentId: String, _ title: String) {
+            if let existing = agentTasks[agentId] {
+                agentTasks[agentId] = existing + "\n- " + title
+            } else {
+                agentTasks[agentId] = title
+            }
+        }
+
+        // P2-Recovery: Konnte KEIN Schritt einem Agent zugeordnet werden (agent fehlt, ist ein
+        // Platzhalter wie "AgentName" oder ein übersetzter/erfundener Name), die Schritt-Titel
+        // positionsbasiert (round-robin) auf die gewählten Agents verteilen — sinnvolle Teil-
+        // aufgaben statt eines undifferenzierten Gesamtauftrags an alle.
+        let anyResolved = parsed.contains { !$0.resolved.isEmpty }
+        let usePositional = !anyResolved && !agents.isEmpty
+
+        var todos: [MasterTodoItem] = []
+        for (i, p) in parsed.enumerated() {
+            let assignedName: String?
+            if usePositional {
+                let agent = agents[i % agents.count]
+                assign(agent.id, p.title)
+                assignedName = agent.name
+            } else {
+                for a in p.resolved { assign(a.id, p.title) }
+                assignedName = p.resolved.first?.name
             }
             // id muss eindeutig sein (Identifiable) — Index anhängen falls Nummer doppelt vorkommt
-            let uid = todos.contains(where: { $0.id == num }) ? "\(num)#\(i)" : num
-            todos.append(MasterTodoItem(id: uid, number: num, title: title,
-                                        assignedAgent: resolved?.name ?? rawAgent,
-                                        level: 1, status: .pending))
+            let uid = todos.contains(where: { $0.id == p.num }) ? "\(p.num)#\(i)" : p.num
+            todos.append(MasterTodoItem(id: uid, number: p.num, title: p.title,
+                                        assignedAgent: assignedName, level: 1, status: .pending))
         }
-        guard !todos.isEmpty else { return nil }
+
+        // P1: Nie non-nil mit leerem agentTasks. Nur nil, wenn wirklich nichts zugeordnet werden
+        // konnte (z.B. agents-Liste leer) — dann greift im Caller bewusst der Gesamtauftrag-Fallback.
+        guard !todos.isEmpty, !agentTasks.isEmpty else { return nil }
         return (goal, todos, agentTasks)
     }
 

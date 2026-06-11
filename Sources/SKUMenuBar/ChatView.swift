@@ -3741,6 +3741,10 @@ struct SingleChatSessionView: View {
 
             // V6: Plan im JSON-Format anfordern — strukturiert parsebar statt Format-Konvention.
             // Text-Format bleibt als Fallback vollständig erhalten (parseMasterPlan).
+            // P3: Beispiel mit ECHTEN Agent-Namen statt Platzhalter "AgentName" — sonst kopiert
+            // ein kleines Modell den Platzhalter wörtlich und kein Schritt lässt sich zuordnen.
+            let exampleA = agents.first?.name ?? "agent-name"
+            let exampleB = agents.count > 1 ? agents[1].name : exampleA
             let masterPlanPrompt = """
             Erstelle einen Master-Plan als strukturierte Schritt-Liste.
             \(priorContext)
@@ -3749,13 +3753,14 @@ struct SingleChatSessionView: View {
 
             Benutzer-Auftrag: \(planTask)
 
-            Verfügbare Agents: \(agentNamesList)
+            Verfügbare Agents (exakt diese Strings als "agent" verwenden): \(agentNamesList)
 
             Antworte AUSSCHLIESSLICH mit einem JSON-Objekt — kein Markdown, keine Code-Fences, kein anderer Text:
-            {"ziel":"Hauptziel in einem Satz — was am Ende erreicht sein soll","schritte":[{"nr":"1.1","titel":"Konkrete Teilaufgabe, max. 1 Satz","agent":"AgentName"},{"nr":"1.2","titel":"Andere Teilaufgabe","agent":"AgentName"}]}
+            {"ziel":"Hauptziel in einem Satz — was am Ende erreicht sein soll","schritte":[{"nr":"1.1","titel":"Konkrete Teilaufgabe, max. 1 Satz","agent":"\(exampleA)"},{"nr":"1.2","titel":"Andere Teilaufgabe","agent":"\(exampleB)"}]}
 
             Regeln:
-            - "agent" NUR aus dieser Liste: \(agentNamesList)
+            - JEDER Schritt MUSS ein "agent"-Feld haben.
+            - "agent" ist EXAKT einer dieser Strings (Copy-Paste, keine Übersetzung, kein Plural-Array, kein Komma, genau EIN Name pro Schritt): \(agentNamesList)
             - Lieber 2-3 fokussierte Schritte als viele oberflächliche
             - Jeder Agent erhält eine ANDERE Aufgabe — keine Wiederholungen
             - Beziehe bisherigen Kontext ein wenn vorhanden

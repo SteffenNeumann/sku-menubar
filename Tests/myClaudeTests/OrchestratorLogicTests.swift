@@ -220,6 +220,83 @@ final class OrchestratorLogicTests: XCTestCase {
         XCTAssertNil(OrchestratorLogic.parsePlanJSON("{\"ziel\":\"x\",\"schritte\":[]}", agents: agents))
     }
 
+    // MARK: - parsePlanJSON Recovery (P1/P2/P4)
+
+    /// Fehlendes agent-Feld → positionsbasierte Recovery statt leerem agentTasks (kein Fallback).
+    func testParsePlanJSONMissingAgentRecoversPositional() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"Aufgabe A"},{"nr":"1.2","titel":"Aufgabe B"}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertNotNil(result)
+        XCTAssertFalse(result?.agentTasks.isEmpty ?? true)
+        // Round-robin über die übergebene Agent-Liste: Schritt 0 → backend, Schritt 1 → data
+        XCTAssertEqual(result?.agentTasks["backend"], "Aufgabe A")
+        XCTAssertEqual(result?.agentTasks["data"], "Aufgabe B")
+    }
+
+    /// Platzhalter "AgentName" aus dem Prompt-Beispiel wörtlich kopiert → Recovery.
+    func testParsePlanJSONPlaceholderAgentRecovers() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"A","agent":"AgentName"},{"nr":"1.2","titel":"B","agent":"AgentName"}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.agentTasks["backend"], "A")
+        XCTAssertEqual(result?.agentTasks["data"], "B")
+    }
+
+    /// Übersetzter/erfundener Name (matcht nicht) → Recovery statt Gesamtauftrag-Fallback.
+    func testParsePlanJSONTranslatedNameRecovers() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"A","agent":"Datenanalyst"},{"nr":"1.2","titel":"B","agent":"Backend-Entwickler"}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.agentTasks["backend"], "A")
+        XCTAssertEqual(result?.agentTasks["data"], "B")
+    }
+
+    /// P4: Komma-Liste in einem agent-Feld → BEIDE Agents erhalten die Aufgabe (kein stiller Verlust).
+    func testParsePlanJSONCommaListResolvesBoth() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"Gemeinsam","agent":"data-analyst, qa-test-engineer"}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.agentTasks["data"], "Gemeinsam")
+        XCTAssertEqual(result?.agentTasks["qa"], "Gemeinsam")
+        XCTAssertEqual(result?.todos.count, 1)
+    }
+
+    /// P4: "und"-getrennte Namen → beide aufgelöst.
+    func testParsePlanJSONUndSeparatorResolvesBoth() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"X","agent":"backend-developer und qa-test-engineer"}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertEqual(result?.agentTasks["backend"], "X")
+        XCTAssertEqual(result?.agentTasks["qa"], "X")
+    }
+
+    /// Falscher Key (Plural "agents") → agent nil → Recovery positionsbasiert.
+    func testParsePlanJSONUnknownAgentKeyRecovers() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"A","agents":["data-analyst"]}]}
+        """
+        let result = OrchestratorLogic.parsePlanJSON(raw, agents: agents)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.agentTasks["backend"], "A")
+    }
+
+    /// Ohne Agent-Liste KEINE Recovery möglich → nil (Caller nutzt bewusst Gesamtauftrag-Fallback).
+    func testParsePlanJSONNoAgentsListReturnsNil() {
+        let raw = """
+        {"ziel":"Z","schritte":[{"nr":"1.1","titel":"A","agent":"AgentName"}]}
+        """
+        XCTAssertNil(OrchestratorLogic.parsePlanJSON(raw, agents: []))
+    }
+
     // MARK: - parseOrchestratorPlan (Legacy)
 
     func testParseLegacyPlan() {
