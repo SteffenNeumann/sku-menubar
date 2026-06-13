@@ -45,21 +45,19 @@ private func detectLanguage(for url: URL) -> String? {
 final class CodeTextView: NSTextView {
     var isDark: Bool = true
 
-    // Font-Fallback: NSFont.monospacedSystemFont ist ObjC-nillable (non-optional nur als
-    // Swift-Bridge), kann unter Font-System-/Speicherdruck nil zurückliefern. Nil-Wert
-    // in NSAttributedString-Dictionary → CoreText-Crash "insert nil object from objects[0]".
-    // `as AnyObject as? NSFont` fängt den nil-bridged Pointer sicher ab (kein unsafeBitCast).
-    static func safeMonospacedFont(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        let candidate = (NSFont.monospacedSystemFont(ofSize: size, weight: weight) as AnyObject) as? NSFont
-        return candidate
-            ?? NSFont(name: "Menlo", size: size)
-            ?? NSFont(name: "Monaco", size: size)
-            ?? .systemFont(ofSize: size)
+    private static var selectedCodeFont: AppFontChoice {
+        let raw = UserDefaults.standard.string(forKey: FontKey.codeBlock) ?? "system"
+        return AppFontChoice(rawValue: raw) ?? .system
     }
 
-    // Gecacht: Font ist eine Konstante des Views; nie pro Draw neu allozieren.
-    static let gutterFont: NSFont = safeMonospacedFont(ofSize: 10, weight: .light)
-    static let codeFont:   NSFont = safeMonospacedFont(ofSize: 13)
+    // Gecacht als static let beim ersten Zugriff — für Runtime-Änderungen über
+    // safeMonospacedFont(ofSize:) direkt aufrufen.
+    static func safeMonospacedFont(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        FontManager.nsFont(choice: selectedCodeFont, size: size, weight: weight)
+    }
+
+    static var gutterFont: NSFont { FontManager.nsFont(choice: selectedCodeFont, size: 10, weight: .light) }
+    static var codeFont:   NSFont { FontManager.nsFont(choice: selectedCodeFont, size: 13) }
 
     /// Called when the mouse hovers a different line (nil = mouse left).
     var onHoverLine: ((Int?) -> Void)?

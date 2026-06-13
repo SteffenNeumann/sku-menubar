@@ -32,6 +32,12 @@ struct SettingsFormView: View {
     @State private var draft = GitHubSettings()
     @State private var hasDocumentsAccess: Bool? = nil
 
+    @AppStorage(FontKey.chatText)  private var chatFontRaw:  String = AppFontChoice.system.rawValue
+    @AppStorage(FontKey.codeBlock) private var codeFontRaw:  String = AppFontChoice.system.rawValue
+
+    private var chatFont:  AppFontChoice { AppFontChoice(rawValue: chatFontRaw)  ?? .system }
+    private var codeFont:  AppFontChoice { AppFontChoice(rawValue: codeFontRaw)  ?? .system }
+
     private var accent: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
@@ -422,6 +428,45 @@ struct SettingsFormView: View {
                     // CLUSTER: Appearance
                     // ═══════════════════════════════════════════════════════
                     VStack(alignment: .leading, spacing: 12) {
+                        clusterLabel("Schrift")
+                        clusterCard {
+                            VStack(alignment: .leading, spacing: 16) {
+
+                                // Chat-Text
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Chat-Text")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(theme.secondaryText)
+                                    HStack(spacing: 8) {
+                                        ForEach(AppFontChoice.allCases, id: \.rawValue) { choice in
+                                            fontChip(choice, selected: chatFont == choice) {
+                                                chatFontRaw = choice.rawValue
+                                            }
+                                        }
+                                    }
+                                    fontPreview(choice: chatFont, monospace: false)
+                                }
+
+                                Divider().foregroundStyle(theme.cardBorder)
+
+                                // Code-Blöcke
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Code-Blöcke")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(theme.secondaryText)
+                                    HStack(spacing: 8) {
+                                        ForEach(AppFontChoice.allCases, id: \.rawValue) { choice in
+                                            fontChip(choice, selected: codeFont == choice) {
+                                                codeFontRaw = choice.rawValue
+                                            }
+                                        }
+                                    }
+                                    fontPreview(choice: codeFont, monospace: true)
+                                }
+                            }
+                            .padding(18)
+                        }
+
                         clusterLabel("Appearance")
                         clusterCard {
                             VStack(alignment: .leading, spacing: 16) {
@@ -503,6 +548,48 @@ struct SettingsFormView: View {
             let accessible = (try? FileManager.default.contentsOfDirectory(atPath: docs.path)) != nil
             await MainActor.run { hasDocumentsAccess = accessible }
         }
+    }
+
+    // MARK: - Font Helpers
+
+    @ViewBuilder
+    private func fontChip(_ choice: AppFontChoice, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(choice.displayName)
+                .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? theme.windowBg : theme.primaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(selected ? Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255) : theme.cardBg)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(theme.cardBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func fontPreview(choice: AppFontChoice, monospace: Bool) -> some View {
+        let sample = monospace
+            ? "func greet(_ name: String) -> String {\n    return \"Hello, \\(name)!\"\n}"
+            : "Die KI analysiert den Kontext und generiert eine präzise Antwort basierend auf deiner Anfrage."
+        let font: Font = {
+            switch choice {
+            case .system:        return monospace ? .system(size: 12, design: .monospaced) : .system(size: 13)
+            case .jetbrainsMono: return .custom("JetBrainsMono-Regular", size: 12)
+            }
+        }()
+        Text(sample)
+            .font(font)
+            .foregroundStyle(theme.secondaryText)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6).fill(theme.rowBg))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.cardBorder, lineWidth: 1))
     }
 
     // MARK: - Cluster Label

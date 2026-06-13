@@ -84,9 +84,17 @@ struct MarkdownTextView: View, Equatable {
     let text: String
     @Environment(\.appTheme) var theme
     @Environment(\.colorScheme) var colorScheme
+    @AppStorage(FontKey.chatText) private var chatFontRaw: String = AppFontChoice.system.rawValue
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
+    }
+
+    private var chatFont: Font {
+        FontManager.swiftUIFont(choice: AppFontChoice(rawValue: chatFontRaw) ?? .system, size: 13)
+    }
+    private func chatFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        FontManager.swiftUIFont(choice: AppFontChoice(rawValue: chatFontRaw) ?? .system, size: size, weight: weight)
     }
 
     var body: some View {
@@ -229,7 +237,7 @@ struct MarkdownTextView: View, Equatable {
         switch block {
         case .heading(let level, let text):
             inlineMarkdown(text)
-                .font(.system(size: level == 1 ? 18 : level == 2 ? 15 : 13.5,
+                .font(chatFont(size: level == 1 ? 18 : level == 2 ? 15 : 13.5,
                                weight: level == 1 ? .bold : .semibold))
                 .foregroundStyle(theme.primaryText)
                 .padding(.top, level == 1 ? 6 : 2)
@@ -237,29 +245,29 @@ struct MarkdownTextView: View, Equatable {
 
         case .paragraph(let text):
             inlineMarkdown(text)
-                .font(.system(size: 13))
+                .font(chatFont)
                 .foregroundStyle(theme.primaryText)
                 .lineSpacing(2)
 
         case .bulletItem(let indent, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("•")
-                    .font(.system(size: 13))
+                    .font(chatFont)
                     .foregroundStyle(theme.tertiaryText)
                     .padding(.leading, CGFloat(indent) * 14)
                 inlineMarkdown(text)
-                    .font(.system(size: 13))
+                    .font(chatFont)
                     .foregroundStyle(theme.primaryText)
             }
 
         case .numberedItem(let number, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("\(number).")
-                    .font(.system(size: 13).monospacedDigit())
+                    .font(chatFont)
                     .foregroundStyle(theme.tertiaryText)
                     .frame(minWidth: 20, alignment: .trailing)
                 inlineMarkdown(text)
-                    .font(.system(size: 13))
+                    .font(chatFont)
                     .foregroundStyle(theme.primaryText)
             }
 
@@ -269,7 +277,7 @@ struct MarkdownTextView: View, Equatable {
                     .fill(accentColor.opacity(0.55))
                     .frame(width: 3)
                 inlineMarkdown(text)
-                    .font(.system(size: 13))
+                    .font(chatFont)
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)

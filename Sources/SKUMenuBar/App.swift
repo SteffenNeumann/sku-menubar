@@ -7,6 +7,7 @@ struct SKUMenuBarApp: App {
     @StateObject private var themeManager = ThemeManager()
 
     init() {
+        FontManager.registerBundledFonts()
         DispatchQueue.main.async {
             NSApp?.applicationIconImage = makeAppIcon()
         }
