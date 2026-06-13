@@ -149,7 +149,7 @@ final class ClaudeCLIService: ObservableObject {
                                         sessionId: event.sessionId, message: event.message,
                                         costUsd: event.costUsd, inputTokens: event.inputTokens,
                                         outputTokens: event.outputTokens, isError: event.isError,
-                                        result: snap, error: event.error))
+                                        result: snap, error: event.error, errors: event.errors))
                                     continue
                                 }
                             }

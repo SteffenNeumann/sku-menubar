@@ -5205,6 +5205,33 @@ struct SingleChatSessionView: View {
                             }
                         }
 
+                        // Veraltete/nicht (mehr) existierende CLI-Session: --resume <id> schlägt
+                        // mit „No conversation found with session ID …" fehl (häufigste Ursache der
+                        // error_during_execution-Fehler). Robuste Erholung: gespeicherte Session-ID
+                        // verwerfen und einmal OHNE --resume frisch neu senden — der Agent-System-
+                        // Prompt wird dabei automatisch wieder injiziert (currentSessionId == nil).
+                        let staleSession = (currentSessionId != nil) &&
+                            (combined.contains("no conversation found") ||
+                             (event.errors?.contains { $0.lowercased().contains("no conversation found") } ?? false))
+                        if staleSession && !isErrorRetryAttempt {
+                            currentSessionId = nil
+                            if messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].content = ""
+                                messages[assistantIndex].toolCalls = []
+                            }
+                            await performSend(
+                                message: message,
+                                assistantIndex: assistantIndex,
+                                model: model,
+                                agentOverride: agentOverride,
+                                addDirs: addDirs,
+                                imageAttachments: imageAttachments,
+                                cliImagePaths: cliImagePaths,
+                                isErrorRetryAttempt: true
+                            )
+                            return
+                        }
+
                         // Transienter Mid-Turn-Fehler der CLI (error_during_execution o.ä. ohne
                         // verwertbaren Fehlertext, kein Rate-Limit): einmal automatisch in
                         // derselben Session neu senden — fängt Stream-/API-Aussetzer ab, wie sie
@@ -5233,9 +5260,12 @@ struct SingleChatSessionView: View {
                         // Fehlermeldung: contentText ist bereits in der Nachrichtenblase sichtbar —
                         // nicht doppelt als Error-Bubble anzeigen. Stattdessen eventResult
                         // (CLI-seitige Fehlerbeschreibung) oder subtype verwenden.
+                        let errorsJoined = (event.errors ?? []).joined(separator: "; ")
                         let bestError: String
                         if !eventResult.isEmpty && eventResult != contentText {
                             bestError = eventResult
+                        } else if !errorsJoined.isEmpty {
+                            bestError = errorsJoined
                         } else if subtype == "error_during_execution" {
                             bestError = "Fehler während der Ausführung (error_during_execution). "
                                 + "Die automatische Wiederholung blieb erfolglos. Häufige Ursachen: "

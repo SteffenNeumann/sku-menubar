@@ -221,14 +221,29 @@ struct StreamEvent: Decodable {
     let isError: Bool?
     let result: String?    // text result in "result" events
     let error: String?     // e.g. "rate_limit" in assistant events
+    let errors: [String]?  // detailed errors in error result events
+                           // (z.B. ["No conversation found with session ID: …"])
 
     enum CodingKeys: String, CodingKey {
-        case type, subtype, message, result, error
+        case type, subtype, message, result, error, errors
         case sessionId    = "session_id"
         case costUsd      = "cost_usd"
         case inputTokens  = "input_tokens"
         case outputTokens = "output_tokens"
         case isError      = "is_error"
+    }
+
+    // Expliziter Initializer mit Defaults (errors am Ende), damit bestehende
+    // Aufrufer (GitHubModelsService) ohne errors:-Argument weiter kompilieren.
+    init(type: String, subtype: String? = nil, sessionId: String? = nil,
+         message: StreamMessage? = nil, costUsd: Double? = nil,
+         inputTokens: Int? = nil, outputTokens: Int? = nil, isError: Bool? = nil,
+         result: String? = nil, error: String? = nil, errors: [String]? = nil) {
+        self.type = type; self.subtype = subtype; self.sessionId = sessionId
+        self.message = message; self.costUsd = costUsd
+        self.inputTokens = inputTokens; self.outputTokens = outputTokens
+        self.isError = isError; self.result = result; self.error = error
+        self.errors = errors
     }
 }
 
