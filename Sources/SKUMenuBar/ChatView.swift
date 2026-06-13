@@ -481,7 +481,7 @@ struct SingleChatSessionView: View {
 
     private var orchestratorMode: Bool { !selectedOrchestrators.isEmpty }
 
-    private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+    private let models = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
     private let copilotModels = KnownModel.all.filter { $0.apiName.hasPrefix("github/") }
 
     private struct SlashCommand {

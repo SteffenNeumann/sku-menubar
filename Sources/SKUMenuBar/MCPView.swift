@@ -163,6 +163,8 @@ struct KnownModel: Identifiable {
 
     static let all: [KnownModel] = [
         // GitHub Copilot (via Claude CLI --model github/...)
+        .init(name: "Claude Sonnet 4.6",        apiName: "github/claude-sonnet-4-6",        provider: "GitHub",    contextK: 200),
+        .init(name: "Claude Opus 4.6",          apiName: "github/claude-opus-4-6",          provider: "GitHub",    contextK: 200),
         .init(name: "Claude Sonnet 4.5",        apiName: "github/claude-sonnet-4-5",        provider: "GitHub",    contextK: 200),
         .init(name: "Claude Opus 4",            apiName: "github/claude-opus-4-5",          provider: "GitHub",    contextK: 200),
         .init(name: "Claude 3.7 Sonnet",        apiName: "github/claude-3-7-sonnet",        provider: "GitHub",    contextK: 200),
@@ -171,6 +173,10 @@ struct KnownModel: Identifiable {
         .init(name: "GPT-4o",                   apiName: "github/gpt-4o",                   provider: "GitHub",    contextK: 128),
         .init(name: "o3",                       apiName: "github/o3",                       provider: "GitHub",    contextK: 200),
         // Anthropic
+        .init(name: "Claude Fable 5",           apiName: "claude-fable-5",                 provider: "Anthropic", contextK: 200),
+        .init(name: "Claude Opus 4.8",          apiName: "claude-opus-4-8",                provider: "Anthropic", contextK: 200),
+        .init(name: "Claude Sonnet 4.6",        apiName: "claude-sonnet-4-6",              provider: "Anthropic", contextK: 200),
+        .init(name: "Claude Haiku 4.5",         apiName: "claude-haiku-4-5-20251001",      provider: "Anthropic", contextK: 200),
         .init(name: "Claude Opus 4",            apiName: "claude-opus-4-5",                provider: "Anthropic", contextK: 200),
         .init(name: "Claude Sonnet 4.5",        apiName: "claude-sonnet-4-5",              provider: "Anthropic", contextK: 200),
         .init(name: "Claude 3.7 Sonnet",        apiName: "claude-3-7-sonnet-20250219",     provider: "Anthropic", contextK: 200),

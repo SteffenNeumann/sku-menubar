@@ -139,7 +139,7 @@ struct CodeReviewView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
-    private let models = ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"]
+    private let models = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
 
     var body: some View {
         HSplitView {
