@@ -1310,7 +1310,16 @@ struct SingleChatSessionView: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
+                    // SCHRITT C (Struktur-Hang-Fix, MultiTab+Streaming): LazyVStack → VStack.
+                    // Sample des MultiTab-Streaming-Hangs (99% CPU) zeigte den Hotspot in
+                    // LazyLayoutViewCache.initialPlacement → LazyStack → Array.motionVectors:
+                    // die wachsende letzte Nachricht ändert pro Batch ihre Bubble-Höhe →
+                    // LazyVStack rechnet seine kumulative Platzierungs-Cache-Maschinerie über
+                    // alle realisierten Bubbles neu. Die Liste ist bereits auf 75 gecappt
+                    // (maxVisibleMessages), d.h. Laziness bringt keinen Nutzen mehr, nur die
+                    // Cache-Churn. VStack hat keine LazyLayoutViewCache/motionVectors-Maschinerie
+                    // → der 41×-Hotspot entfällt; nur der aktive Tab misst (FSL friert inaktive).
+                    VStack(spacing: 0) {
                     // Hinweis wenn frühere Nachrichten ausgeblendet sind (Layout-Optimierung)
                     if hiddenMessageCount > 0 {
                         HStack(spacing: 6) {
