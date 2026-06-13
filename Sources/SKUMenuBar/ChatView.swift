@@ -4894,7 +4894,8 @@ struct SingleChatSessionView: View {
         addDirs: [String] = [],
         imageAttachments: [GitHubImageAttachment] = [],
         cliImagePaths: [String] = [],
-        isFallbackAttempt: Bool = false
+        isFallbackAttempt: Bool = false,
+        isErrorRetryAttempt: Bool = false
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
@@ -5204,12 +5205,43 @@ struct SingleChatSessionView: View {
                             }
                         }
 
+                        // Transienter Mid-Turn-Fehler der CLI (error_during_execution o.ä. ohne
+                        // verwertbaren Fehlertext, kein Rate-Limit): einmal automatisch in
+                        // derselben Session neu senden — fängt Stream-/API-Aussetzer ab, wie sie
+                        // z.B. nach einem Modellwechsel im langen Verlauf auftreten.
+                        let isTransientExecError =
+                            subtype == "error_during_execution" ||
+                            (subtype.isEmpty && eventResult.isEmpty && !isRateLimit)
+                        if isTransientExecError && !isErrorRetryAttempt && !isFallbackAttempt {
+                            if messages.indices.contains(assistantIndex) {
+                                messages[assistantIndex].content = ""
+                                messages[assistantIndex].toolCalls = []
+                            }
+                            await performSend(
+                                message: message,
+                                assistantIndex: assistantIndex,
+                                model: model,
+                                agentOverride: agentOverride,
+                                addDirs: addDirs,
+                                imageAttachments: imageAttachments,
+                                cliImagePaths: cliImagePaths,
+                                isErrorRetryAttempt: true
+                            )
+                            return
+                        }
+
                         // Fehlermeldung: contentText ist bereits in der Nachrichtenblase sichtbar —
                         // nicht doppelt als Error-Bubble anzeigen. Stattdessen eventResult
                         // (CLI-seitige Fehlerbeschreibung) oder subtype verwenden.
                         let bestError: String
                         if !eventResult.isEmpty && eventResult != contentText {
                             bestError = eventResult
+                        } else if subtype == "error_during_execution" {
+                            bestError = "Fehler während der Ausführung (error_during_execution). "
+                                + "Die automatische Wiederholung blieb erfolglos. Häufige Ursachen: "
+                                + "transienter API-/Stream-Aussetzer oder ein zu langer Verlauf nach "
+                                + "Modellwechsel. Tipp: neuen Tab öffnen (frische Session) oder den "
+                                + "Verlauf kürzen."
                         } else if !subtype.isEmpty {
                             bestError = "Fehler: \(subtype)"
                         } else {

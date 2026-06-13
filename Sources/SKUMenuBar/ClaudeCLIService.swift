@@ -116,6 +116,14 @@ final class ClaudeCLIService: ObservableObject {
                 var lineBuffer = Data()
                 var stderrBuffer = Data()
                 let decoder = JSONDecoder()
+                // stderrBuffer wird vom stderr-Handler beschrieben und vom stdout-Handler
+                // (Anreicherung opaker Fehler-Events) + terminationHandler gelesen → Lock.
+                let stderrLock = NSLock()
+                func stderrSnapshot() -> String {
+                    stderrLock.lock(); defer { stderrLock.unlock() }
+                    return String(data: stderrBuffer, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }
 
                 stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
@@ -129,6 +137,22 @@ final class ClaudeCLIService: ObservableObject {
 
                         guard !lineData.isEmpty else { continue }
                         if let event = try? decoder.decode(StreamEvent.self, from: lineData) {
+                            // Opakes Fehler-Result (z.B. error_during_execution) ohne result-Text:
+                            // stderr der CLI anhängen, damit die UI die echte Ursache zeigt statt
+                            // nur des nackten Subtypes.
+                            if event.type == "result", event.isError == true,
+                               (event.result?.isEmpty ?? true) {
+                                let snap = stderrSnapshot()
+                                if !snap.isEmpty {
+                                    continuation.yield(StreamEvent(
+                                        type: event.type, subtype: event.subtype,
+                                        sessionId: event.sessionId, message: event.message,
+                                        costUsd: event.costUsd, inputTokens: event.inputTokens,
+                                        outputTokens: event.outputTokens, isError: event.isError,
+                                        result: snap, error: event.error))
+                                    continue
+                                }
+                            }
                             continuation.yield(event)
                         }
                         // else: non-JSON line (e.g. debug output), silently skip
@@ -138,7 +162,7 @@ final class ClaudeCLIService: ObservableObject {
                 stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     guard !data.isEmpty else { return }
-                    stderrBuffer.append(data)
+                    stderrLock.lock(); stderrBuffer.append(data); stderrLock.unlock()
                 }
 
                 process.terminationHandler = { proc in
@@ -157,8 +181,7 @@ final class ClaudeCLIService: ObservableObject {
                     }
 
                     let exitCode = proc.terminationStatus
-                    let errText = String(data: stderrBuffer, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let errText = stderrSnapshot()
 
                     if exitCode != 0 {
                         let detail = errText.isEmpty ? "exit code \(exitCode)" : errText
