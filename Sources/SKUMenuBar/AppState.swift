@@ -176,6 +176,7 @@ final class AppState: ObservableObject {
     }()
 
     @Published var activeSessions: [ActiveCLISession] = []
+    @Published var agentActiveSince: [String: Date] = [:]    // agentId → first use this app-session
     @Published var historySelectedProjectId: String? = nil   // set by sidebar recent-projects tap
     @Published var gitRepoStatuses: [GitRepoStatus] = []
     @Published var gitStatusIsLoading = false

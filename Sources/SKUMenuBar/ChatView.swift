@@ -4851,7 +4851,9 @@ struct SingleChatSessionView: View {
         // (autoTriggerAgent() ist im Orchestrator-Kontext gesperrt → Solo-Agent explizit übergeben)
         let triggerAgent: String? = orchestratorMode
             ? selectedOrchestrators.first
-            : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId)
+            : (!selectedAgent.isEmpty
+               ? selectedAgent
+               : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId))
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
@@ -4914,7 +4916,10 @@ struct SingleChatSessionView: View {
         let effectiveAgent = agentOverride ?? (selectedAgent.isEmpty ? nil : selectedAgent)
         // Läuft ein Agent, als Session-Agent merken → Folge-Nachrichten ohne Trigger-Keyword
         // erben ihn weiter (Continuity), statt auf nil zu kippen.
-        if let ea = effectiveAgent { lastSessionAgentId = ea }
+        if let ea = effectiveAgent {
+            lastSessionAgentId = ea
+            if state.agentActiveSince[ea] == nil { state.agentActiveSince[ea] = Date() }
+        }
 
         // Agent-Anzeigename für den Antwort-Header setzen (statt rohem Modell)
         if let agentId = effectiveAgent,

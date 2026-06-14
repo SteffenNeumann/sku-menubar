@@ -409,6 +409,7 @@ private struct AgentBaseballCard: View {
     let lastError: String?
     let isRunning: Bool
     let liveText: String
+    let activeSince: Date?
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onDuplicate: () -> Void
@@ -631,6 +632,27 @@ private struct AgentBaseballCard: View {
                     .padding(.top, 2)
                     .popover(isPresented: $showSkillsPopover, arrowEdge: .bottom) {
                         SkillsPopover(agent: agent, isResearcher: isResearcher, theme: theme)
+                    }
+                }
+
+                // ── Runtime badge ─────────────────────────────
+                if let since = activeSince {
+                    TimelineView(.periodic(from: since, by: 60)) { _ in
+                        let elapsed = Int(Date().timeIntervalSince(since))
+                        let h = elapsed / 3600
+                        let m = (elapsed % 3600) / 60
+                        HStack(spacing: 4) {
+                            Image(systemName: "timer")
+                                .font(.system(size: 10))
+                                .foregroundStyle(agent.dotColor.opacity(0.85))
+                            Text(h > 0 ? "\(h)h \(String(format: "%02d", m))m" : "\(m)min")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(agent.dotColor.opacity(0.85))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(agent.dotColor.opacity(0.12), in: Capsule())
+                        .overlay(Capsule().strokeBorder(agent.dotColor.opacity(0.35), lineWidth: 0.5))
+                        .padding(.top, 2)
                     }
                 }
 
@@ -1293,6 +1315,7 @@ struct AgentsView: View {
             }(),
             isRunning: state.agentService.runningAgents.contains(agent.id),
             liveText: state.agentService.liveOutput[agent.id] ?? "",
+            activeSince: state.agentActiveSince[agent.id],
             onEdit: { startEditingAgent(agent) },
             onDelete: { pendingDeleteAgent = agent },
             onDuplicate: { duplicateAgent(agent) },
