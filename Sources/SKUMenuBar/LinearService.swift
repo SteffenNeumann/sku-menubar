@@ -142,11 +142,15 @@ final class LinearService: ObservableObject {
     private var session: MCPClientSession?
     private var sessionConnected = false
     private var linearAccessToken: String?
+    /// True sobald configure() einmal lief — erlaubt LinearView beim Neu-Mount zu erkennen,
+    /// dass der geteilte Service schon eingerichtet ist (kein erneutes configure/Reload nötig).
+    private(set) var isConfigured = false
 
     func configure(config: MCPServerConfig) {
         session?.stop()
         session = MCPClientSession(config: config)
         sessionConnected = false
+        isConfigured = true
         linearAccessToken = config.envVars
             .first { $0.hasPrefix("LINEAR_ACCESS_TOKEN=") }
             .map { String($0.dropFirst("LINEAR_ACCESS_TOKEN=".count)) }

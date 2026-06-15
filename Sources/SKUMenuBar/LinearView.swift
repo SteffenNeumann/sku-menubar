@@ -110,7 +110,13 @@ struct LinearStateIcon: View {
 struct LinearView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
-    @StateObject private var service = LinearService()
+    // Geteilter Service aus AppState (NICHT @StateObject) — überlebt das Neu-Mounten von
+    // LinearView beim Section-Wechsel, damit Daten + Auswahl erhalten bleiben.
+    @ObservedObject private var service: LinearService
+
+    init(service: LinearService) {
+        _service = ObservedObject(wrappedValue: service)
+    }
 
     @State private var selectedProject: LinearProject?
     @State private var selectedIssue: LinearIssue?
@@ -172,6 +178,13 @@ struct LinearView: View {
         .task {
             await setupAndLoad()
         }
+        // Auswahl in AppState spiegeln, damit sie das Neu-Mounten beim Section-Wechsel überlebt
+        .onChange(of: selectedProject?.id) { _, newId in
+            state.linearSelectedProjectId = newId
+        }
+        .onChange(of: selectedIssue?.id) { _, newId in
+            state.linearSelectedIssueId = newId
+        }
         // Refresh when an agent updates a Linear issue via MCP in the chat
         .onReceive(NotificationCenter.default.publisher(for: .linearMCPDidChange)) { _ in
             guard Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
@@ -220,18 +233,53 @@ struct LinearView: View {
     // MARK: - Setup
 
     private func setupAndLoad() async {
-        if configured && service.error == nil { return }
-        service.error = nil
-        service.stopSession()
-        configured = false
+        // Fall A: Geteilter Service ist schon eingerichtet UND hat Daten (vorheriger Mount).
+        // → KEIN Reload, keine neue Session. Letzte Auswahl sofort wiederherstellen (bleibt
+        //   sichtbar) und nur im Hintergrund synchronisieren.
+        if service.isConfigured && !service.projects.isEmpty {
+            configured = true
+            restoreSelection()
+            await forceRefresh()   // sequenziell; behält selectedProject + re-resolved selectedIssue
+            return
+        }
 
+        // Lokaler Erst-Mount, Service aber bereits konfiguriert (z.B. Daten noch am Laden) →
+        // nicht neu konfigurieren, nur Auswahl wiederherstellen sobald Daten da sind.
+        if service.isConfigured {
+            configured = true
+            await service.loadProjects()
+            await service.loadTeams()
+            restoreSelection()
+            if let proj = selectedProject { await service.loadIssues(projectId: proj.id) }
+            restoreSelection()
+            return
+        }
+
+        // Fall B: Allererster Aufruf dieser App-Session — Service einrichten + voll laden.
+        service.error = nil
+        configured = false
         if let cfg = await state.cliService.getMCPServerConfig(name: "linear") {
             service.configure(config: cfg)
             configured = true
             await service.loadProjects()
             await service.loadTeams()
+            restoreSelection()
+            if let proj = selectedProject { await service.loadIssues(projectId: proj.id) }
+            restoreSelection()
         } else {
             service.error = "Linear MCP nicht konfiguriert. Bitte in MCP-Einstellungen aktivieren."
+        }
+    }
+
+    /// Stellt die zuletzt gewählte Projekt-/Issue-Auswahl aus AppState wieder her,
+    /// indem die IDs gegen die bereits geladenen Service-Daten aufgelöst werden.
+    /// Idempotent — überschreibt eine bereits gesetzte Auswahl nicht.
+    private func restoreSelection() {
+        if selectedProject == nil, let pid = state.linearSelectedProjectId {
+            selectedProject = service.projects.first { $0.id == pid }
+        }
+        if let proj = selectedProject, selectedIssue == nil, let iid = state.linearSelectedIssueId {
+            selectedIssue = service.issues[proj.id]?.first { $0.id == iid }
         }
     }
 

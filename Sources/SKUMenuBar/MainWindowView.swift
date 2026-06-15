@@ -163,7 +163,7 @@ struct MainWindowView: View {
             case .chat:       EmptyView()   // wird oben persistent gerendert
             case .files:      FileExplorerView()
             case .codeReview: CodeReviewView()
-            case .linear:     LinearView()
+            case .linear:     LinearView(service: state.linearService)
             case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
