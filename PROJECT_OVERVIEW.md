@@ -150,6 +150,21 @@ User-Nachricht
 - **Nested `async func`** in einem `@MainActor`-Task-Closure muss selbst `@MainActor` sein, sonst
   „expression is async but not marked with await".
 
+## Agent-Skills (`~/.claude/skills/` + Agent-Prompts)
+
+Worker-Agents liegen in `~/.claude/agents/*.md` (App-Watcher lädt Änderungen automatisch). Skills
+liegen in `~/.claude/skills/<name>/SKILL.md` mit Frontmatter (`name`/`description`/`version`) und
+**aktivieren sich bei Bedarf** — der volle Skill-Body wird nur geladen, wenn die Aufgabe zur
+`description` passt; sonst nur 1 Zeile. Agents verweisen über `## 🛠 Skill Recommendations` bzw.
+`## Active Skills` darauf (von `AgentService.buildContextPreamble` in den System-Prompt gespiegelt).
+
+- **`ponytail-lazy-code`** — „schreibe nur den nötigen Code"-Leiter (YAGNI → stdlib → native
+  Plattform → vorhandene Dependency → eine Zeile → Minimum; Validierung/Security/Error-Handling/A11y
+  nie kürzen). Scoped auf die 3 Code-Agents (`backend-developer`, `excel-vba-developer`,
+  `frontend-webdesigner`), greift nur bei Code-Aufgaben. **Bewusst NICHT** als globales
+  ponytail-Plugin installiert (Always-on-Ruleset + Hooks würden im Multi-Turn-Orchestrator und bei
+  Nicht-Code-Agents Tokens kosten). Details: Memory `project_ponytail_lazy_code_skill`.
+
 ---
 
 ## Tests
