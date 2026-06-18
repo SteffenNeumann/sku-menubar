@@ -431,7 +431,11 @@ struct SingleChatSessionView: View {
             message: prompt,
             systemPrompt: "List specialist names, one per line. Maximum 3. Nothing else.",
             model: "claude-haiku-4-5-20251001",
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            maxTurns: 1,                    // Routing ist einturnig — nur Namen zurückgeben
+            mcpConfigJSON: Self.noMCPJson,  // A: KEINE MCP-Tools — sonst lädt die CLI den vollen
+            mcpStrictMode: true,            //    Tool-Surface (~400+ Schemas) für einen Namens-Call
+            disableTools: true              //    Reasoning-only → kein Tool-Call bei maxTurns:1
         )
         do {
             for try await event in stream {
@@ -3116,6 +3120,9 @@ struct SingleChatSessionView: View {
             lastOrchestratorSoloAgentId = nil
             lastOrchestratorSoloSessionId = nil
             lastSessionAgentId = nil
+            // Fix B: verdichtete Zusammenfassung verwerfen — sonst leckt sie als falscher
+            // Kontext in eine frische, unverwandte Session.
+            compactedSummary = nil
         }
     }
 
@@ -3590,6 +3597,11 @@ struct SingleChatSessionView: View {
                         ids.formUnion(reqIds)           // Zu User-Auswahl addieren
                     }
                 }
+                // D: „leer = alle" darf im Orchestrator NICHT den vollen MCP-Tool-Surface (~400+
+                // Schemas) PRO Agent laden. Ein Agent ohne explizite User-Auswahl UND ohne
+                // deklarierte requiredMCPs bekommt KEINE MCP-Tools statt aller. Wer MCPs braucht,
+                // deklariert sie (required_mcps) — genau dafür ist das Per-Agent-Scoping da.
+                if ids.isEmpty { ids = Set(["__none__"]) }
                 // Per-Agent-Scoping über expliziten Parameter — KEINE Mutation von activeMCPIds
                 // (cancel-sicher: ein Abbruch im Loop kann den UI-Zustand nicht mehr verfälschen).
                 let (json, strict) = await buildMCPConfigJSON(ids: ids)
@@ -3629,6 +3641,11 @@ struct SingleChatSessionView: View {
                     .joined(separator: "\n\n")
                 let compactPart = compactedSummary.map { "\n\nZusammenfassung der vorherigen Konversation:\n\($0)\n" } ?? ""
                 priorContext = "\n\nBisheriger Chat-Verlauf:\n\(chatHistory)\(compactPart)\n"
+            } else if let cs = compactedSummary,
+                      !cs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Fix B: frische Orchestrierung direkt nach /compact — History ist leer, aber die
+                // verdichtete Zusammenfassung trägt den Kontext.
+                priorContext = "\n\nZusammenfassung der bisherigen Konversation:\n\(cs)\n"
             } else {
                 priorContext = ""
             }
@@ -3699,6 +3716,7 @@ struct SingleChatSessionView: View {
                     imagePaths: [],
                     disableTools: true                // Reasoning-only → kein Tool-Call bei maxTurns:1
                 )
+                var bulkResultText = ""
                 do {
                     for try await event in aStream {
                         guard !Task.isCancelled else { break }
@@ -3706,9 +3724,16 @@ struct SingleChatSessionView: View {
                             for block in content where block.type == "text" {
                                 if let t = block.text, !t.isEmpty { bulkOutput += t }
                             }
+                        } else if event.type == "result", let r = event.result, !r.isEmpty {
+                            bulkResultText = r   // C: Fallback, falls keine assistant-Blöcke kamen
                         }
                     }
                 } catch { bulkOutput = "" }
+                // C: leeres assistant-Ergebnis → result-Event nutzen (Phase 0 ist nicht-fatal,
+                // daher kein Retry — der Fallback reicht).
+                if bulkOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    bulkOutput = bulkResultText
+                }
 
                 agentAnalyses = parseBulkAnalysis(bulkOutput, agents: agents)
                 currentRunLog?.phase0Sec = Date().timeIntervalSince(phase0Start)
@@ -3780,36 +3805,56 @@ struct SingleChatSessionView: View {
             let phase1Start = Date()
 
             var planText = ""
-            let planStream = state.cliService.send(
-                message: masterPlanPrompt,
-                systemPrompt: "Antworte ausschließlich mit gültigem JSON. Lies KEINE Dateien. Nutze AUSSCHLIESSLICH den gegebenen Text.",
-                model: "claude-haiku-4-5-20251001",
-                workingDirectory: workingDirectory,
-                addDirs: [],                          // Kein Dateizugriff für Plan-Reasoning (kein Read-Versuch)
-                skipPermissions: autoApprove,
-                maxTurns: 1,                          // P5: Plan ist einturnig
-                mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools nötig
-                mcpStrictMode: true,
-                imagePaths: [],                       // P2: kein Bild für Plan-Reasoning
-                disableTools: true                    // keine Built-in-Tools → maxTurns:1 valide (kein Read-Versuch)
-            )
-            do {
-                for try await event in planStream {
-                    guard !Task.isCancelled else { break }
-                    if case "assistant" = event.type, let content = event.message?.content {
-                        for block in content where block.type == "text" {
-                            if let t = block.text, !t.isEmpty {
-                                planText += t
-                                // V6: Roh-JSON nicht in die Bubble streamen — nur Fortschritt zeigen;
-                                // der formatierte Plan wird nach dem Parsen gerendert.
-                                messages[planIdx].content = planHeader
-                                    + "⏳ Plan wird erstellt… (\(planText.count) Zeichen)"
+            // C: Ein Plan-Durchlauf. Liefert den eingesammelten Text — bevorzugt aus den
+            // assistant-Blöcken, fällt aber auf das terminale result-Event zurück (manche
+            // kalten Erst-Calls liefern den JSON nur dort). Gibt "" zurück bei Leerlauf/Fehler.
+            @MainActor func runPlanAttempt() async -> String {
+                var assistantText = ""
+                var resultText = ""
+                let planStream = state.cliService.send(
+                    message: masterPlanPrompt,
+                    systemPrompt: "Antworte ausschließlich mit gültigem JSON. Lies KEINE Dateien. Nutze AUSSCHLIESSLICH den gegebenen Text.",
+                    model: "claude-haiku-4-5-20251001",
+                    workingDirectory: workingDirectory,
+                    addDirs: [],                          // Kein Dateizugriff für Plan-Reasoning (kein Read-Versuch)
+                    skipPermissions: autoApprove,
+                    maxTurns: 1,                          // P5: Plan ist einturnig
+                    mcpConfigJSON: Self.noMCPJson,        // P1: keine MCP-Tools nötig
+                    mcpStrictMode: true,
+                    imagePaths: [],                       // P2: kein Bild für Plan-Reasoning
+                    disableTools: true                    // keine Built-in-Tools → maxTurns:1 valide (kein Read-Versuch)
+                )
+                do {
+                    for try await event in planStream {
+                        guard !Task.isCancelled else { break }
+                        if case "assistant" = event.type, let content = event.message?.content {
+                            for block in content where block.type == "text" {
+                                if let t = block.text, !t.isEmpty {
+                                    assistantText += t
+                                    // V6: Roh-JSON nicht in die Bubble streamen — nur Fortschritt zeigen;
+                                    // der formatierte Plan wird nach dem Parsen gerendert.
+                                    messages[planIdx].content = planHeader
+                                        + "⏳ Plan wird erstellt… (\(assistantText.count) Zeichen)"
+                                }
                             }
+                        } else if event.type == "result", let r = event.result, !r.isEmpty {
+                            resultText = r   // C: Fallback-Quelle, falls keine assistant-Blöcke kamen
                         }
                     }
+                } catch {
+                    messages[planIdx].content = planHeader + "⚠️ Plan-Fehler: \(error.localizedDescription)"
                 }
-            } catch {
-                messages[planIdx].content = planHeader + "⚠️ Plan-Fehler: \(error.localizedDescription)"
+                return assistantText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? resultText : assistantText
+            }
+
+            planText = await runPlanAttempt()
+            // C: One-Shot-Retry — der erste CLI-Subprozess einer Session ist am anfälligsten
+            // (Cold-Start/Warmup). Ein transienter Leerlauf darf nicht sofort zum
+            // „kein Master-Plan"-Abbruch führen; der zweite Versuch trifft eine warme CLI.
+            if planText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !Task.isCancelled {
+                messages[planIdx].content = planHeader + "⏳ Plan-Phase wird erneut versucht…"
+                planText = await runPlanAttempt()
             }
             currentRunLog?.phase1Sec = Date().timeIntervalSince(phase1Start)
 
@@ -3977,9 +4022,13 @@ struct SingleChatSessionView: View {
 
                 var contextParts: [String] = []
 
-                // Zugangsdaten voranstellen (höchste Priorität — muss Agent sofort sehen)
+                // Zugangsdaten voranstellen (höchste Priorität — muss Agent sofort sehen).
+                // E: cappen — wird PRO Agent injiziert; eine doku-lastige zugang.md sonst N×.
                 if let zk = zugangContext {
-                    contextParts.append("━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(zk)\n━━━━━━━━━━━━━━━━━━━━━━━━")
+                    let cappedZk = zk.count > OrchestratorLimits.zugangCap
+                        ? String(zk.prefix(OrchestratorLimits.zugangCap)) + "\n…[gekürzt — vollständig via Read von zugang.md]"
+                        : zk
+                    contextParts.append("━━ Zugangsdaten & Kontext (zugang.md) ━━\n\(cappedZk)\n━━━━━━━━━━━━━━━━━━━━━━━━")
                 }
 
                 let planAnchor = formatMasterPlanText()
@@ -4024,7 +4073,7 @@ struct SingleChatSessionView: View {
                 Wiederhole nicht, was andere Agents bereits geliefert haben.
                 """
 
-                let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent)
+                let agentSystemPrompt = state.agentService.fullSystemPrompt(for: agent, orchestratorMode: true)
                 var agentOutput = ""
                 var capturedAgentSessionId: String? = nil   // Session-ID für Follow-Up-Continuity
 
@@ -4960,7 +5009,13 @@ struct SingleChatSessionView: View {
                 return GitHubMessage(role: msg.role == .user ? "user" : "assistant", content: msg.content)
             }
             // Projektkontext in System-Prompt injizieren (GitHub API hat keine --add-dir Option)
-            var ghSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
+            // Fix B: compactedSummary mit dem Agent-Prompt KOMBINIEREN (nicht Entweder-Oder) —
+            // sonst verliert ein aktiver Agent nach /compact den Konversationskontext.
+            var ghSystemPrompt = agentSystemPrompt
+            if let cs = compactedSummary, !cs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let csBlock = "Konversationskontext (verdichtet):\n\(cs)"
+                ghSystemPrompt = ghSystemPrompt.map { "\($0)\n\n\(csBlock)" } ?? csBlock
+            }
             if let wd = workingDirectory, !wd.isEmpty {
                 let projectName = URL(fileURLWithPath: wd).lastPathComponent
                 // Option A: Dateibaum (max 3 Ebenen, ohne hidden/build) in System-Prompt
@@ -4988,8 +5043,10 @@ struct SingleChatSessionView: View {
             if let wd = workingDirectory, !wd.isEmpty, !effectiveAddDirs.contains(wd) {
                 effectiveAddDirs.insert(wd, at: 0)
             }
-            // Inject compacted summary as system prompt if no agent prompt is set
-            let effectiveSystemPrompt = agentSystemPrompt ?? compactedSummary.map { "Konversationskontext (verdichtet):\n\($0)" }
+            // Fix B: compactedSummary NICHT in den System-Prompt (ein aktiver Agent-Prompt würde
+            // ihn überschreiben → Agent ohne Kontext nach /compact). Stattdessen unten der Nachricht
+            // voranstellen (gleicher Mechanismus wie Orchestrator-Block/zugang.md).
+            let effectiveSystemPrompt = agentSystemPrompt
             // zugang.md für Agent-Runs: Credentials/Zugangsdaten in die Nachricht prependen.
             // Funktioniert bei fresh UND resumed Sessions (message-Ebene, nicht nur system-prompt).
             var finalMessage = message
@@ -5017,6 +5074,14 @@ struct SingleChatSessionView: View {
             // die fortgesetzte CLI-Session den Kontext bereits.
             if currentSessionId == nil, let orchCtx = buildOrchestratorContextBlock() {
                 finalMessage = orchCtx + "\n\n" + finalMessage
+            }
+            // Fix B: Nach einer Verdichtung (/compact) trägt die Zusammenfassung den Kontext.
+            // Wie der Orchestrator-Block der Nachricht voranstellen und nur auf der ersten
+            // Nachricht der frischen Session (currentSessionId == nil) — die fortgesetzte
+            // CLI-Session trägt ihn danach selbst.
+            if currentSessionId == nil, let cs = compactedSummary,
+               !cs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                finalMessage = "━━ Zusammenfassung der bisherigen Konversation ━━\n\(cs)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + finalMessage
             }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 20 wenn ein Agent aktiv ist.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil

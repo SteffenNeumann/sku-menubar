@@ -37,12 +37,21 @@ enum OrchestratorLimits {
     static let historyEntryCapPhase2 = 800
     /// Zeichen-Cap für Fremd-Agent-Outputs im Phase-2-Kontext (P4).
     static let foreignOutputCap = 1500
+    /// Zeichen-Cap für zugang.md im Phase-2-Kontext (E) — wird PRO Agent injiziert; ungekappt
+    /// vervielfacht eine doku-lastige Datei die Tokens. Großzügig, damit echte Keys nicht
+    /// abgeschnitten werden; nur pathologisch große Dateien werden begrenzt.
+    static let zugangCap = 4000
+    /// Zeichen-Cap für MEMORY.md im Orchestrator-Agent-Preamble (E) — pro Agent, daher gekappt.
+    static let memoryCapOrchestrator = 1500
     /// Hard-Cap der Agent-Anzahl bei Auto-Orchestrierung.
     static let maxAgents = 4
-    /// maxTurns-Default je Orchestrator-Agent, wenn keine Settings greifen.
-    static let defaultMaxTurns = 60
-    /// Mindest-Turns je Orchestrator-Agent (MCP-lastige Aufgaben brauchen viele Tool-Calls).
-    static let minAgentTurns = 30
+    /// maxTurns-Default je Orchestrator-Agent, wenn keine Settings greifen (E: 60→20; ein
+    /// fokussierter Schritt braucht selten viele Turns, jeder Turn re-sendet den Kontext.
+    /// MCP-lastige Agents können über die Einstellung orchestratorMaxTurns höher gestellt werden;
+    /// der Idle-Watchdog fängt Hänger zusätzlich ab).
+    static let defaultMaxTurns = 20
+    /// Mindest-Turns je Orchestrator-Agent (E: 30→20, konsistent mit defaultMaxTurns).
+    static let minAgentTurns = 20
     /// Idle-Timeout-Default (Sekunden ohne Stream-Event, bis ein Agent abgebrochen wird).
     static let defaultIdleTimeoutSec = 120
 }

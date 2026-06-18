@@ -520,7 +520,10 @@ Consolidate memory for "\(agent.name)".
     }
 
     /// Builds a context preamble from MEMORY.md + learning_log.txt to inject before the system prompt.
-    private func buildContextPreamble(for agent: AgentDefinition) -> String {
+    /// - Parameter orchestratorMode: in Multi-Agent-Läufen wird der Preamble PRO Agent gesendet;
+    ///   dann MEMORY.md kappen und die Memory-Maintenance-Instruktion weglassen (E — der Agent
+    ///   soll in der Orchestrierung liefern, nicht Memory pflegen).
+    private func buildContextPreamble(for agent: AgentDefinition, orchestratorMode: Bool = false) -> String {
         var parts: [String] = []
 
         // Current date — so agents write correct timestamps
@@ -532,9 +535,13 @@ Consolidate memory for "\(agent.name)".
         let memDir = writableMemoryDir(for: agent)
         let memPath = memDir.appendingPathComponent("MEMORY.md").path
 
-        // Persistent MEMORY.md
+        // Persistent MEMORY.md — im Orchestrator-Modus gekappt (E), da pro Agent gesendet.
         if let mem = readMemoryFile(named: "MEMORY.md", for: agent) {
-            parts.append("## Your Persistent Memory\n\(mem.trimmingCharacters(in: .whitespacesAndNewlines))")
+            let trimmed = mem.trimmingCharacters(in: .whitespacesAndNewlines)
+            let memText = (orchestratorMode && trimmed.count > OrchestratorLimits.memoryCapOrchestrator)
+                ? String(trimmed.prefix(OrchestratorLimits.memoryCapOrchestrator)) + "\n…[gekürzt]"
+                : trimmed
+            parts.append("## Your Persistent Memory\n\(memText)")
         }
 
         // Learning log — last 20 entries, CHAT entries excluded
@@ -565,7 +572,10 @@ Consolidate memory for "\(agent.name)".
             }
         }
 
-        // Memory maintenance instruction — agent updates its own MEMORY.md autonomously
+        // Memory maintenance instruction — agent updates its own MEMORY.md autonomously.
+        // E: im Orchestrator-Modus weglassen — der Agent soll liefern, nicht Memory pflegen
+        // (spart ~600 Zeichen PRO Agent und keine Turns für Datei-Schreibvorgänge).
+        if !orchestratorMode {
         let memInstruction = """
 ## Memory Maintenance
 Your persistent memory file is at: `\(memPath)`
@@ -578,7 +588,8 @@ At the very end of your final response, output exactly one line in this format:
 LEARNED: <one concise sentence summarising the most important insight from this session>
 Only include this line when you have a genuine technical or domain insight worth remembering — omit it for routine tasks.
 """
-        parts.append(memInstruction)
+            parts.append(memInstruction)
+        }
 
         return parts.joined(separator: "\n\n")
     }
@@ -620,8 +631,8 @@ Only include this line when you have a genuine technical or domain insight worth
 
     /// Returns the full system prompt for an agent (preamble + promptBody).
     /// Used by the chat flow to inject agent identity and memory context.
-    func fullSystemPrompt(for agent: AgentDefinition) -> String {
-        let preamble = buildContextPreamble(for: agent)
+    func fullSystemPrompt(for agent: AgentDefinition, orchestratorMode: Bool = false) -> String {
+        let preamble = buildContextPreamble(for: agent, orchestratorMode: orchestratorMode)
         let body = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.isEmpty { return preamble }
         return preamble + "\n\n---\n\n" + body
