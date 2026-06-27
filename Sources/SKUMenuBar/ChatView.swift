@@ -2485,7 +2485,8 @@ struct SingleChatSessionView: View {
         var agentMCPs: Set<String> = []
         if !selectedAgent.isEmpty,
            let agent = state.agentService.agents.first(where: { $0.id == selectedAgent }) {
-            agentMCPs = Set(agent.requiredMCPs)
+            // Frontmatter-requiredMCPs + Researcher-Empfehlungen (Enable-MCPs-Zeile)
+            agentMCPs = Set(agent.requiredMCPs).union(agent.recommendedMCPNames)
         }
 
         let wanted = alwaysOn.union(agentMCPs)
@@ -3589,8 +3590,11 @@ struct SingleChatSessionView: View {
             for agent in agents where perAgentMCP[agent.id] == nil {
                 guard !Task.isCancelled else { break }
                 var ids = baseMCPIds
-                if !agent.requiredMCPs.isEmpty {
-                    let reqIds = Set(availableMCPs.filter { agent.requiredMCPs.contains($0.name) }.map(\.id))
+                // requiredMCPs (Frontmatter) + vom Researcher empfohlene MCPs (Enable-MCPs-Zeile).
+                // Match gegen installierte Server → nicht installierte Namen werden ignoriert.
+                let wantMCPNames = Set(agent.requiredMCPs).union(agent.recommendedMCPNames)
+                if !wantMCPNames.isEmpty {
+                    let reqIds = Set(availableMCPs.filter { wantMCPNames.contains($0.name) }.map(\.id))
                     if ids == Set(["__none__"]) {
                         ids = reqIds                    // War "alle aus" → nur Required dieses Agents
                     } else {

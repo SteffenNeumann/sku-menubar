@@ -516,6 +516,19 @@ struct AgentDefinition: Identifiable, Hashable {
 
     var isPersona: Bool { category == "persona" }
 
+    /// MCP server names the Researcher recommended for auto-activation, parsed from
+    /// an `Enable-MCPs: name1, name2` line inside the `## 🛠 Skill Recommendations`
+    /// section. The caller matches these against actually-installed servers, so
+    /// unknown/uninstalled names here are harmless no-ops (no false activation).
+    var recommendedMCPNames: [String] {
+        guard let range = promptBody.range(of: "Enable-MCPs:", options: .caseInsensitive) else { return [] }
+        let line = promptBody[range.upperBound...].prefix(while: { $0 != "\n" })
+        return line
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// Returns explicit triggers if set, otherwise auto-extracts keywords from content.
     var effectiveTriggers: [String] {
         if !triggers.isEmpty { return triggers }
