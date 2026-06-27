@@ -2107,12 +2107,24 @@ struct AddMCPServerSheet: View {
             }
         }
 
+        // Validate the name BEFORE touching the existing server. The CLI only
+        // accepts letters, numbers, hyphens and underscores; renaming to an invalid
+        // name (e.g. "magic (21st.dev)") used to remove the old server and then fail
+        // to add the new one → silent data loss. Abort early instead.
+        let nameValid = !trimmedName.isEmpty &&
+            trimmedName.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil
+        guard nameValid else {
+            errorMsg = "Ungültiger Name „\(trimmedName)\". Nur Buchstaben, Zahlen, Bindestriche und Unterstriche erlaubt — keine Leerzeichen, Klammern oder Punkte."
+            return
+        }
+
+        let trimmedProjectDir = projectDir.trimmingCharacters(in: .whitespaces)
+
         // In edit mode: remove the old server first (even if name changed)
         if let existing = editingServer {
             _ = await state.cliService.removeMCPServer(name: existing.name, scope: existing.scope)
         }
 
-        let trimmedProjectDir = projectDir.trimmingCharacters(in: .whitespaces)
         let (ok, output) = await state.cliService.addMCPServer(
             name: trimmedName,
             transport: transport,
@@ -2128,6 +2140,20 @@ struct AddMCPServerSheet: View {
             await onDone()
             dismiss()
         } else {
+            // Rollback: if adding failed in edit mode, re-add the original server so
+            // an edit error never destroys an existing configuration.
+            if let existing = editingServer {
+                _ = await state.cliService.addMCPServer(
+                    name: existing.name,
+                    transport: transport,
+                    commandOrUrl: trimmedCmd,
+                    args: argList,
+                    headers: headers,
+                    envVars: envVars,
+                    scope: existing.scope,
+                    projectDir: trimmedProjectDir.isEmpty ? nil : trimmedProjectDir
+                )
+            }
             errorMsg = output.isEmpty ? "Unbekannter Fehler" : output
         }
     }
