@@ -825,95 +825,51 @@ Only include this line when you have a genuine technical or domain insight worth
         liveOutput[agent.id] = ""
 
         let timeoutSeconds: TimeInterval = TimeInterval(agent.timeoutMinutes * 60)
+        // Single shared deadline across ALL retries — a flapping network must NOT
+        // extend the agent's total runtime beyond its configured timeout.
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+        // Rate-limited before we even start → go straight to the Copilot fallback.
+        if rateLimitActive {
+            await executeScheduledAgentViaCopilot(agent, entry: &entry)
+            let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
+            if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
+            liveOutput.removeValue(forKey: agent.id)
+            runningAgents.remove(agent.id)
+            updateEntry(entry)
+            return
+        }
+
+        // Build enriched system prompt: preamble (memory + learning log) + body.
+        let preamble = buildContextPreamble(for: agent)
+        let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+        let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
+
+        // CLI path with bounded retry on transient network errors. The researcher
+        // makes many web-search calls over up to 60 min; a single dropped connection
+        // ("The network connection was lost") used to abort the whole run with no
+        // retry (only rate-limits had a fallback). We now resume the SAME session
+        // — preserving the work done so far — up to maxAttempts with backoff.
+        let maxAttempts = 4
+        var attempt = 0
+        var resumeId: String? = nil
+        var triedFreshAfterStale = false
         var outputText = ""
         var resultText = ""
-        do {
-            // Build enriched system prompt: preamble (memory + learning log) + body + LEARNED instruction
-            let preamble = buildContextPreamble(for: agent)
-            let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
-            let instructions: String
-            if body.isEmpty {
-                instructions = preamble
-            } else {
-                instructions = preamble + "\n\n---\n\n" + body
-            }
 
-            let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
-
-            // Choose backend: Copilot when rate-limited, otherwise CLI
-            let stream: AsyncThrowingStream<StreamEvent, Error>
-            if rateLimitActive {
-                let fallbackModel = agent.model.hasPrefix("github/")
-                    ? agent.model
-                    : Self.copilotFallbackModel
-                let token = appState?.settings.token ?? ""
-                stream = ghModelsService.send(
-                    message: userMessage,
-                    model: fallbackModel,
-                    systemPrompt: instructions.isEmpty ? nil : instructions,
-                    history: [],
-                    githubToken: token
-                )
-            } else {
-                stream = cliService!.send(
-                    message: userMessage,
-                    systemPrompt: instructions.isEmpty ? nil : instructions,
-                    model: agent.model.isEmpty ? nil : agent.model,
-                    workingDirectory: agent.projectDirectory,
-                    skipPermissions: true,
-                    maxTurns: 50
-                )
-            }
-            let deadline = Date().addingTimeInterval(timeoutSeconds)
-            for try await event in stream {
-                if Date() > deadline {
-                    entry.status = .failed
-                    entry.error  = "Timeout nach \(Int(timeoutSeconds / 60)) Minuten."
-                    entry.finishedAt = Date()
-                    break
-                }
-                switch event.type {
-                case "assistant":
-                    if let contents = event.message?.content {
-                        for c in contents where c.type == "text" {
-                            let chunk = c.text ?? ""
-                            outputText += chunk
-                            liveOutput[agent.id] = outputText
-                        }
-                    }
-                case "result":
-                    if let r = event.result, !r.isEmpty { resultText = r }
-                    // Detect rate-limit in result payload → switch to Copilot fallback
-                    if event.isError == true {
-                        let combined = ((event.result ?? "") + " " + (event.error ?? "") + " " + outputText).lowercased()
-                        if isRateLimitText(combined) {
-                            appState?.parseRateLimitExpiry(from: combined)
-                            appState?.claudeRateLimitActive = true
-                            if !rateLimitActive {
-                                // Retry with Copilot
-                                liveOutput.removeValue(forKey: agent.id)
-                                runningAgents.remove(agent.id)
-                                entry.status = .running
-                                entry.error  = ""
-                                await executeScheduledAgentViaCopilot(agent, entry: &entry)
-                                let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
-                                if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
-                                liveOutput.removeValue(forKey: agent.id)
-                                runningAgents.remove(agent.id)
-                                updateEntry(entry)
-                                return
-                            }
-                        }
-                    }
-                case "rate_limit_event":
-                    appState?.claudeRateLimitActive = true
-                default:
-                    break
-                }
-            }
-            if entry.status == .running {
+        retryLoop: while true {
+            let outcome = await runCLIAgentAttempt(
+                agent: agent, instructions: instructions, userMessage: userMessage,
+                resumeSessionId: resumeId, deadline: deadline
+            )
+            switch outcome {
+            case .completed(let out, let res):
+                outputText = out
+                resultText = res
                 entry.status = .success
-                // Check for a dedicated daily report file (agents can write to name/ or id/ directory)
+                // Prefer a dedicated daily report file if the agent wrote one this run
+                // (agents can write to name/ or id/ directory).
                 let reportByName = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.name)/daily_report.txt")
                 let reportById   = URL(fileURLWithPath: "\(home)/.claude/agent-memory/\(agent.id)/daily_report.txt")
                 let fm = FileManager.default
@@ -928,15 +884,12 @@ Only include this line when you have a genuine technical or domain insight worth
                     entry.output = outputText.isEmpty ? resultText : outputText
                 }
                 entry.finishedAt = Date()
-            }
-        } catch {
-            let errText = error.localizedDescription.lowercased()
-            if !rateLimitActive, isRateLimitText(errText) {
-                // Rate-limit hit via throw → mark + retry with Copilot
-                appState?.parseRateLimitExpiry(from: error.localizedDescription)
+                break retryLoop
+
+            case .rateLimited(let combined):
+                // Rate-limit detected mid-run → switch to the Copilot fallback.
+                appState?.parseRateLimitExpiry(from: combined.lowercased())
                 appState?.claudeRateLimitActive = true
-                liveOutput.removeValue(forKey: agent.id)
-                runningAgents.remove(agent.id)
                 entry.status = .running
                 entry.error  = ""
                 await executeScheduledAgentViaCopilot(agent, entry: &entry)
@@ -946,25 +899,156 @@ Only include this line when you have a genuine technical or domain insight worth
                 runningAgents.remove(agent.id)
                 updateEntry(entry)
                 return
+
+            case .timedOut(let partial):
+                entry.status = .failed
+                entry.error  = "Timeout nach \(Int(timeoutSeconds / 60)) Minuten."
+                if !partial.isEmpty {
+                    entry.output = partial.count > 800 ? "…\n" + String(partial.suffix(800)) : partial
+                }
+                entry.finishedAt = Date()
+                break retryLoop
+
+            case .transient(let msg, let sid):
+                attempt += 1
+                resumeId = sid ?? resumeId   // continue the same session on retry
+                let backoffs = [5, 15, 30]
+                let backoff  = backoffs[min(attempt - 1, backoffs.count - 1)]
+                // Stop if we are out of attempts OR the backoff would blow the deadline.
+                guard attempt < maxAttempts,
+                      Date().addingTimeInterval(TimeInterval(backoff)) < deadline else {
+                    entry.status = .failed
+                    entry.error  = "Netzwerkfehler nach \(attempt) Versuch(en): \(msg)"
+                    entry.finishedAt = Date()
+                    break retryLoop
+                }
+                liveOutput[agent.id, default: ""] += "\n⚠️ Netzwerkfehler — neuer Versuch \(attempt + 1)/\(maxAttempts) in \(backoff)s…\n"
+                try? await Task.sleep(nanoseconds: UInt64(backoff) * 1_000_000_000)
+                if Task.isCancelled {
+                    entry.status = .failed
+                    entry.error  = "Abgebrochen während Retry-Wartezeit."
+                    entry.finishedAt = Date()
+                    break retryLoop
+                }
+                continue retryLoop
+
+            case .failed(let msg, let partial):
+                // Safety valve: a --resume attempt whose session is gone
+                // ("No conversation found …") gets ONE fresh start before giving up.
+                if resumeId != nil, !triedFreshAfterStale,
+                   msg.lowercased().contains("no conversation found") {
+                    triedFreshAfterStale = true
+                    resumeId = nil
+                    liveOutput[agent.id, default: ""] += "\n⚠️ Session abgelaufen — Neustart…\n"
+                    continue retryLoop
+                }
+                entry.status = .failed
+                entry.error  = msg
+                if !partial.isEmpty {
+                    entry.output = partial.count > 800 ? "…\n" + String(partial.suffix(800)) : partial
+                }
+                entry.finishedAt = Date()
+                break retryLoop
             }
-            entry.status = .failed
-            entry.error  = error.localizedDescription
-            // Preserve whatever output was collected before the failure
-            if !outputText.isEmpty {
-                let tail = outputText.count > 800 ? "…\n" + String(outputText.suffix(800)) : outputText
-                entry.output = tail
-            }
-            entry.finishedAt = Date()
         }
 
-        // Write learning log entry only when agent produced a LEARNED: marker
-        if let learned = extractLearnedLine(from: outputText) {
+        // Write learning log entry only when agent produced a LEARNED: marker.
+        let learnSource = outputText.isEmpty ? (liveOutput[agent.id] ?? "") : outputText
+        if let learned = extractLearnedLine(from: learnSource) {
             appendLearningEntry(for: agent, status: entry.status, learned: learned)
         }
 
         liveOutput.removeValue(forKey: agent.id)
         runningAgents.remove(agent.id)
         updateEntry(entry)
+    }
+
+    // MARK: - Single attempt + transient-network classification
+
+    private enum AgentAttemptOutcome {
+        case completed(output: String, result: String)
+        case rateLimited(combined: String)
+        case transient(message: String, sessionId: String?)
+        case failed(message: String, partialOutput: String)
+        case timedOut(partialOutput: String)
+    }
+
+    /// Runs ONE CLI attempt for a scheduled agent and classifies the result.
+    /// Lifecycle bookkeeping (runningAgents / entry / cleanup) is owned by the
+    /// caller; this helper only streams chunks into `liveOutput` and returns a
+    /// typed outcome. `resumeSessionId` (when set) continues an existing session
+    /// via `--resume` so a retried run keeps the work it already did.
+    private func runCLIAgentAttempt(
+        agent: AgentDefinition,
+        instructions: String,
+        userMessage: String,
+        resumeSessionId: String?,
+        deadline: Date
+    ) async -> AgentAttemptOutcome {
+        var outputText = ""
+        var resultText = ""
+        var capturedSession: String? = resumeSessionId
+        do {
+            let stream = cliService!.send(
+                message: userMessage,
+                sessionId: resumeSessionId,
+                systemPrompt: instructions.isEmpty ? nil : instructions,
+                model: agent.model.isEmpty ? nil : agent.model,
+                workingDirectory: agent.projectDirectory,
+                skipPermissions: true,
+                maxTurns: 50
+            )
+            for try await event in stream {
+                if Date() > deadline { return .timedOut(partialOutput: outputText) }
+                if let sid = event.sessionId, !sid.isEmpty { capturedSession = sid }
+                switch event.type {
+                case "assistant":
+                    if let contents = event.message?.content {
+                        for c in contents where c.type == "text" {
+                            let chunk = c.text ?? ""
+                            outputText += chunk
+                            liveOutput[agent.id, default: ""] += chunk
+                        }
+                    }
+                case "result":
+                    if let r = event.result, !r.isEmpty { resultText = r }
+                    if event.isError == true {
+                        let combined = (event.result ?? "") + " " + (event.error ?? "") + " "
+                            + (event.errors?.joined(separator: " ") ?? "") + " " + outputText
+                        // Precedence: rate-limit (→ Copilot) beats transient (→ retry)
+                        // beats a generic terminal failure.
+                        if isRateLimitText(combined) { return .rateLimited(combined: combined) }
+                        if isTransientNetworkText(combined) {
+                            return .transient(
+                                message: event.result ?? event.error ?? "Netzwerkfehler",
+                                sessionId: capturedSession
+                            )
+                        }
+                        // Non-rate-limit, non-transient error → terminal failure.
+                        // (Previously this fell through and was wrongly logged as success.)
+                        return .failed(
+                            message: event.result ?? event.error
+                                ?? event.errors?.joined(separator: "; ")
+                                ?? "Unbekannter Fehler im Result-Event",
+                            partialOutput: outputText
+                        )
+                    }
+                case "rate_limit_event":
+                    appState?.claudeRateLimitActive = true
+                default:
+                    break
+                }
+            }
+            return .completed(output: outputText, result: resultText)
+        } catch {
+            let errText = error.localizedDescription
+            let lower   = errText.lowercased()
+            if isRateLimitText(lower) { return .rateLimited(combined: errText) }
+            if isTransientNetworkText(lower) {
+                return .transient(message: errText, sessionId: capturedSession)
+            }
+            return .failed(message: errText, partialOutput: outputText)
+        }
     }
     // MARK: - Rate-limit helpers
 
@@ -974,6 +1058,29 @@ Only include this line when you have a genuine technical or domain insight worth
                t.contains("rate limit")   || t.contains("overloaded") ||
                t.contains("quota")        || t.contains(" 529")       ||
                t.contains(" 429")         || t.contains("regain access")
+    }
+
+    /// Transient network/connectivity failures that are worth retrying. Always
+    /// check `isRateLimitText` FIRST — rate-limits have a better recovery path
+    /// (Copilot fallback) and must not be swallowed by the network retry loop.
+    private func isTransientNetworkText(_ text: String) -> Bool {
+        let t = text.lowercased()
+        return t.contains("network connection was lost")
+            || t.contains("connection was lost")
+            || t.contains("the request timed out") || t.contains("request timed out")
+            || t.contains("connection reset")
+            || t.contains("could not connect to")
+            || t.contains("cannot connect to host")
+            || t.contains("network is unreachable")
+            || t.contains("connection refused")
+            || t.contains("socket hang up")
+            || t.contains("nsurlerrordomain")
+            || t.contains("econnreset") || t.contains("etimedout")
+            || t.contains("econnrefused") || t.contains("enotfound") || t.contains("eai_again")
+            || t.contains("fetch failed")
+            || t.contains(" 502") || t.contains(" 503") || t.contains(" 504")
+            || t.contains("bad gateway") || t.contains("service unavailable")
+            || t.contains("gateway timeout")
     }
 
     /// Runs the agent via GitHub Copilot API (used as rate-limit fallback).
