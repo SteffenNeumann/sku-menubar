@@ -429,6 +429,9 @@ struct SingleChatSessionView: View {
             .map(\.canonical)
         guard !hitCanon.isEmpty else { return [] }
         return availableMCPs.filter { server in
+            // Nur aktive (verbundene) MCPs — nicht eingeloggte claude.ai-Connectoren
+            // (needsAuth) o.ä. nicht stillschweigend mitaktivieren.
+            guard case .connected = server.status else { return false }
             let name = server.name.lowercased()
             return hitCanon.contains { name.contains($0) }
         }
