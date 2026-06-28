@@ -745,6 +745,12 @@ struct SingleChatSessionView: View {
                         .transition(.opacity)
                     }
 
+                    // 📋 Plan-Modus-Hinweis — unübersehbar solange aktiv, damit der
+                    // Modus nicht vergessen wird (Symptom „Verlauf bleibt im Plan-Modus").
+                    if planMode {
+                        planModeBanner
+                    }
+
                     inputBar
                         .background(GeometryReader { geo in
                             Color.clear.preference(key: InputBarHeightKey.self, value: geo.size.height)
@@ -1702,6 +1708,37 @@ struct SingleChatSessionView: View {
         .padding(.vertical, 7)
         .background(theme.statusOrange.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
         .overlay(Rectangle().fill(theme.statusOrange.opacity(0.25)).frame(height: 0.5), alignment: .top)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // 📋 Plan-Modus aktiv — bleibt sichtbar, solange geplant statt ausgeführt wird.
+    // „Beenden" schaltet sofort zurück auf Standard.
+    private var planModeBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "list.clipboard.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accentColor)
+            Text("Plan-Modus aktiv — es wird nur geplant, nichts ausgeführt.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.secondaryText)
+            Spacer()
+            Button {
+                planMode = false
+            } label: {
+                Text("Beenden")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help("Plan-Modus beenden und zu Standard zurückkehren")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
+        .overlay(Rectangle().fill(accentColor.opacity(0.25)).frame(height: 0.5), alignment: .top)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -5464,6 +5501,12 @@ struct SingleChatSessionView: View {
         }
         isStreaming = false
         state.tmetricActivity()
+
+        // A: Plan-Modus ist ein Einmal-Schuss (wie ExitPlanMode der CLI) — nach einem
+        // erfolgreich erstellten Plan zurück auf Standard, damit Folge-Nachrichten nicht
+        // still weiter im Plan-Modus laufen. Nur der äußere (erfolgreiche) Send erreicht
+        // diese Stelle; Retries kehren vorher per return zurück.
+        if planMode { planMode = false }
 
         // Record session learnings in agent memory log
         if let agentId = effectiveAgent,
