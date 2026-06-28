@@ -297,6 +297,7 @@ struct SingleChatSessionView: View {
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
+    @State private var pendingMCPKeywordNames: [String] = []  // inaktive MCPs, deren Stichwort im Text erkannt wurde
     // Solo-Orchestrator-Agent Session — für nahtlose Follow-Up-Continuity
     // Wenn ein Einzel-Agent im Orchestrator läuft und nachfragt, soll die Antwort
     // in DERSELBEN CLI-Session landen (nicht als fresh-session starten).
@@ -376,6 +377,64 @@ struct SingleChatSessionView: View {
         guard selectedAgent.isEmpty, !text.isEmpty, orchestratorHistory.isEmpty else { return nil }
         return state.agentService.agents.first { agent in
             agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
+        }
+    }
+
+    // MARK: - Auto-MCP per Stichwort
+
+    /// Zusätzliche Stichwörter je MCP-Name (lowercase). Ergänzen den MCP-Namen selbst.
+    private static let mcpKeywordAliases: [String: [String]] = [
+        "linear":  ["jira"],
+        "make":    ["make.com", "make szenario", "make scenario", "make automation", "make-szenario"],
+        "brevo":   ["sendinblue", "newsletter"],
+        "docuseal": ["docuseal", "signatur", "signature"],
+    ]
+
+    /// Mehrdeutige Allerwelts-Wörter: dürfen NICHT allein über den nackten MCP-Namen
+    /// auslösen — nur über die spezifischen Aliase oben (z.B. „make" → „make.com").
+    private static let ambiguousBareMCPNames: Set<String> = ["make", "memory", "notes", "calendar"]
+
+    /// Strenges Matching: einzelne Wörter nur an Wortgrenzen, Phrasen (mit Leerzeichen/Punkt)
+    /// als Substring. Verhindert „make" in „homemade"/„mach mal".
+    private func mcpKeywordMatches(_ text: String, keyword: String) -> Bool {
+        let t = text.lowercased()
+        let k = keyword.lowercased()
+        if k.contains(" ") || k.contains(".") {
+            return t.contains(k)
+        }
+        let pattern = "(^|[^a-z0-9])" + NSRegularExpression.escapedPattern(for: k) + "([^a-z0-9]|$)"
+        return t.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// Verfügbare MCPs, deren Name/Alias als Stichwort im Text vorkommt.
+    private func matchedKeywordMCPs(in text: String) -> [MCPServer] {
+        guard !text.isEmpty else { return [] }
+        return availableMCPs.filter { server in
+            let name = server.name.lowercased()
+            var keywords = Self.mcpKeywordAliases[name] ?? []
+            if !Self.ambiguousBareMCPNames.contains(name) { keywords.append(name) }
+            return keywords.contains { mcpKeywordMatches(text, keyword: $0) }
+        }
+    }
+
+    /// true wenn der MCP für die nächste Nachricht aktiv ist (Sentinel-Semantik von activeMCPIds).
+    private func mcpIsActive(_ server: MCPServer) -> Bool {
+        if activeMCPIds.isEmpty { return true }              // [] = alle aktiv
+        if activeMCPIds == Set(["__none__"]) { return false } // keiner aktiv
+        return activeMCPIds.contains(server.id)
+    }
+
+    /// Aktiviert erkannte MCPs additiv (nie abschalten). Wird beim Senden aufgerufen.
+    private func activateKeywordMCPs(in text: String) {
+        guard state.settings.autoActivateMCPByKeyword else { return }
+        let matched = matchedKeywordMCPs(in: text)
+        guard !matched.isEmpty else { return }
+        if activeMCPIds.isEmpty { return }                  // schon alle aktiv → nichts zu tun
+        let ids = Set(matched.map(\.id))
+        if activeMCPIds == Set(["__none__"]) {
+            activeMCPIds = ids
+        } else {
+            activeMCPIds.formUnion(ids)
         }
     }
 
@@ -719,6 +778,27 @@ struct SingleChatSessionView: View {
                         .background(theme.windowBg)
                     }
 
+                    // ＋ MCP-Stichwort erkannt — zeigt, welche MCPs beim Senden aktiviert werden
+                    if !pendingMCPKeywordNames.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(pendingMCPKeywordNames, id: \.self) { name in
+                                HStack(spacing: 3) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 9))
+                                    Text(name)
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(accentColor)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Capsule().fill(accentColor.opacity(0.12)))
+                                .help("MCP \(name) wird beim Senden für diese Nachricht aktiviert")
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 3)
+                        .background(theme.windowBg)
+                    }
+
                     // Persona Validation Banner
                     if isValidating {
                         PersonaValidatingBanner(theme: theme)
@@ -986,6 +1066,14 @@ struct SingleChatSessionView: View {
         pendingTriggerAgentName = (selectedAgent.isEmpty && !inputText.isEmpty)
             ? autoTriggerAgent(for: inputText)?.name
             : nil
+        // MCP-Stichwort-Vorschau (nur inaktive MCPs, die beim Senden dazukommen würden)
+        if state.settings.autoActivateMCPByKeyword, !inputText.isEmpty {
+            pendingMCPKeywordNames = matchedKeywordMCPs(in: inputText)
+                .filter { !mcpIsActive($0) }
+                .map(\.name)
+        } else {
+            pendingMCPKeywordNames = []
+        }
     }
 
     private func tryAutoMatchTMetricProject() {
@@ -4836,6 +4924,12 @@ struct SingleChatSessionView: View {
                || routingText.hasPrefix("/files") || routingText.hasPrefix("/agent") {
             if handleSlashCommand(routingText) { return }
         }
+
+        // ── Auto-MCP per Stichwort ────────────────────────────────────────────
+        // Fällt ein MCP-Name (linear, make.com, figma …) im Text, den MCP additiv für
+        // diese Nachricht aktivieren — nie etwas abschalten. Gilt für alle Pfade unten.
+        activateKeywordMCPs(in: routingText)
+        pendingMCPKeywordNames = []
 
         // ── Smart Routing ─────────────────────────────────────────────────────
         let workerAgentCount = state.agentService.agents.filter { !$0.isPersona }.count

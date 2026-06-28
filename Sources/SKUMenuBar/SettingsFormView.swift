@@ -249,6 +249,16 @@ struct SettingsFormView: View {
                                     .help("Aus: lange Nachrichten lösen nie automatisch eine Multi-Agent-Orchestrierung aus — es bleibt beim Einzel-Agent.")
                             }
                             rowDivider()
+                            configRow(title: "Auto-MCP per Stichwort",
+                                      icon: "bolt.horizontal.circle",
+                                      hint: "MCP-Name im Chat (linear, make.com …) aktiviert den MCP automatisch") {
+                                Toggle("Auto-MCP per Stichwort aktiv", isOn: $draft.autoActivateMCPByKeyword)
+                                    .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(theme.primaryText)
+                                    .help("An: Fällt ein MCP-Name im Chat-Text, wird dieser MCP-Server für die Nachricht aktiviert (additiv, nie abgeschaltet). 'make' nur bei klarem Bezug wie 'make.com'.")
+                            }
+                            rowDivider()
                             configRow(title: "Token-Optimierung",
                                       icon: "slider.horizontal.3",
                                       hint: "History, Max-Turns, Auto-Compact") {

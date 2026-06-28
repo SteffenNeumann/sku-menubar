@@ -31,6 +31,7 @@ struct GitHubSettings: Codable {
     var orchestratorMaxTurns: Int = 60      // --max-turns je Orchestrator-Agent (0 = Fallback auf maxTurns/Default)
     var orchestratorIdleTimeout: Int = 120  // Sekunden ohne Stream-Event bis Agent-Abbruch (0 = Default 120)
     var autoOrchestrationEnabled: Bool = true  // false = lange Nachrichten lösen NIE automatisch eine Orchestrierung aus
+    var autoActivateMCPByKeyword: Bool = true  // true = MCP-Stichwort im Chat (linear, make.com …) aktiviert den MCP automatisch
     // TMetric time tracking
     var tmetricApiToken: String = ""
     // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
@@ -69,6 +70,7 @@ struct GitHubSettings: Codable {
         orchestratorMaxTurns    = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorMaxTurns))    ?? 60
         orchestratorIdleTimeout = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorIdleTimeout)) ?? 120
         autoOrchestrationEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .autoOrchestrationEnabled)) ?? true
+        autoActivateMCPByKeyword = (try? c.decodeIfPresent(Bool.self, forKey: .autoActivateMCPByKeyword)) ?? true
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
         ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
         ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"
