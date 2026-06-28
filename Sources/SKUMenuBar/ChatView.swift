@@ -382,17 +382,30 @@ struct SingleChatSessionView: View {
 
     // MARK: - Auto-MCP per Stichwort
 
-    /// Zusätzliche Stichwörter je MCP-Name (lowercase). Ergänzen den MCP-Namen selbst.
-    private static let mcpKeywordAliases: [String: [String]] = [
-        "linear":  ["jira"],
-        "make":    ["make.com", "make szenario", "make scenario", "make automation", "make-szenario"],
-        "brevo":   ["sendinblue", "newsletter"],
-        "docuseal": ["docuseal", "signatur", "signature"],
+    /// Kanonische Stichwort-Gruppen. `canonical` = Teilstring, der im MCP-Namen vorkommt
+    /// (deckt lokal „linear" UND Cloud „claude.ai Linear" zugleich ab). `triggers` = Wörter
+    /// im Chat-Text, die diese Gruppe auslösen. Deckt ALLE verfügbaren MCPs ab — lokal + Cloud.
+    /// Mehrdeutige Allerwelts-Wörter (make, memory) sind bewusst eng gefasst (nur spezifische
+    /// Phrasen), damit „mach mal" / „im Hinterkopf" nicht fälschlich auslösen.
+    private static let mcpKeywordGroups: [(canonical: String, triggers: [String])] = [
+        ("linear",          ["linear", "jira", "ticket", "issue"]),
+        ("make",            ["make.com", "make szenario", "make scenario", "make automation", "make-szenario", "make automatisierung"]),
+        ("figma",           ["figma", "mockup"]),
+        ("gmail",           ["gmail", "email", "e-mail"]),
+        ("calendar",        ["calendar", "kalender", "termin"]),
+        ("drive",           ["google drive", "gdrive", "google-drive"]),
+        ("docuseal",        ["docuseal", "signatur", "signature", "unterschrift"]),
+        ("brevo",           ["brevo", "sendinblue", "newsletter"]),
+        ("penpot",          ["penpot"]),
+        ("magicui",         ["magicui", "magic ui"]),
+        ("magic-21st",      ["21st", "magic-21st", "magic component"]),
+        ("stitch",          ["stitch"]),
+        ("playwright",      ["playwright"]),
+        ("chrome-devtools", ["chrome-devtools", "chrome devtools", "devtools"]),
+        ("markitdown",      ["markitdown"]),
+        ("sequential",      ["sequential-thinking", "sequential thinking"]),
+        ("memory",          ["memory mcp", "memory-mcp"]),
     ]
-
-    /// Mehrdeutige Allerwelts-Wörter: dürfen NICHT allein über den nackten MCP-Namen
-    /// auslösen — nur über die spezifischen Aliase oben (z.B. „make" → „make.com").
-    private static let ambiguousBareMCPNames: Set<String> = ["make", "memory", "notes", "calendar"]
 
     /// Strenges Matching: einzelne Wörter nur an Wortgrenzen, Phrasen (mit Leerzeichen/Punkt)
     /// als Substring. Verhindert „make" in „homemade"/„mach mal".
@@ -406,14 +419,18 @@ struct SingleChatSessionView: View {
         return t.range(of: pattern, options: .regularExpression) != nil
     }
 
-    /// Verfügbare MCPs, deren Name/Alias als Stichwort im Text vorkommt.
+    /// Verfügbare MCPs, deren Stichwort-Gruppe im Text vorkommt. Eine getroffene Gruppe
+    /// aktiviert JEDEN verfügbaren MCP, dessen Name den `canonical`-Teilstring enthält —
+    /// also lokalen UND Cloud-Connector (z.B. „linear" → „linear" + „claude.ai Linear").
     private func matchedKeywordMCPs(in text: String) -> [MCPServer] {
         guard !text.isEmpty else { return [] }
+        let hitCanon = Self.mcpKeywordGroups
+            .filter { group in group.triggers.contains { mcpKeywordMatches(text, keyword: $0) } }
+            .map(\.canonical)
+        guard !hitCanon.isEmpty else { return [] }
         return availableMCPs.filter { server in
             let name = server.name.lowercased()
-            var keywords = Self.mcpKeywordAliases[name] ?? []
-            if !Self.ambiguousBareMCPNames.contains(name) { keywords.append(name) }
-            return keywords.contains { mcpKeywordMatches(text, keyword: $0) }
+            return hitCanon.contains { name.contains($0) }
         }
     }
 
