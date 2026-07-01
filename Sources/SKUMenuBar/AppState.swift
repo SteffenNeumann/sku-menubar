@@ -1017,20 +1017,33 @@ final class AppState: ObservableObject {
         }
     }
 
-    // Fetch last 90 days to seed the known-projects picker
+    // Seed the known-projects picker from the authoritative project list,
+    // enriched with time data from the last 90 days of entries.
     @MainActor
     func fetchKnownTMetricProjects() async {
         let token = settings.tmetricApiToken
         guard !token.isEmpty else { return }
+
+        // Authoritative list — includes brand-new projects that have no time entries yet.
+        let allProjects = await TMetricService.fetchProjects(token: token)
+
+        // 90-day summary for time totals (and userId).
         var gcal = Calendar(identifier: .gregorian); gcal.timeZone = TimeZone.current
         let now = Date()
         let from = gcal.date(byAdding: .day, value: -90, to: now) ?? now
-        if let result = try? await TMetricService.fetchSummary(token: token, from: from, to: now) {
-            let newIds = Set(tmetricKnownProjects.map(\.id))
-            let fresh  = result.summaries.filter { $0.id != 0 && !newIds.contains($0.id) }
-            tmetricKnownProjects = (tmetricKnownProjects + fresh).sorted { $0.name < $1.name }
-            if let uid = result.userId { tmetricCachedUserId = uid }
-        }
+        let summary = try? await TMetricService.fetchSummary(token: token, from: from, to: now)
+        if let uid = summary?.userId { tmetricCachedUserId = uid }
+        let timeById = Dictionary(summary?.summaries.map { ($0.id, $0) } ?? [], uniquingKeysWith: { a, _ in a })
+
+        // Merge: project list wins (authoritative), with time data folded in where available.
+        var merged: [Int: TMetricProjectSummary] = [:]
+        for p in allProjects where p.id != 0 { merged[p.id] = timeById[p.id] ?? p }
+        // Safety net: summary-only projects the list didn't return (e.g. archived but recently tracked),
+        // plus anything already known, so nothing that used to show up disappears.
+        for s in summary?.summaries ?? [] where s.id != 0 && merged[s.id] == nil { merged[s.id] = s }
+        for e in tmetricKnownProjects where merged[e.id] == nil { merged[e.id] = e }
+
+        tmetricKnownProjects = merged.values.sorted { $0.name < $1.name }
     }
 
     // MARK: - TMetric Project Auto-Detect

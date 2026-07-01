@@ -123,6 +123,14 @@ private struct TMetricMe: Codable {
     let id: Int?
 }
 
+// Full project list from GET /timeentries/projects (includes projects w/o time entries)
+private struct TMetricProjectListItem: Codable {
+    let id: Int?
+    let name: String?
+    let status: String?
+    let client: TMetricEntryClient?
+}
+
 // MARK: - Public Output
 
 struct TMetricTimelineEntry: Identifiable {
@@ -189,6 +197,24 @@ enum TMetricService {
         let me: TMetricMe? = await get("users/me", token: token)
         NSLog("[TMetric] userId=\(String(describing: me?.id))")
         return me?.id
+    }
+
+    // MARK: Fetch full project list
+
+    /// Returns ALL projects (including brand-new ones without any time entries) so the
+    /// picker isn't limited to projects that already have tracked time. Time fields are 0.
+    static func fetchProjects(token: String) async -> [TMetricProjectSummary] {
+        let list: [TMetricProjectListItem]? = await get("accounts/\(accountId)/timeentries/projects", token: token)
+        guard let list else { return [] }
+        let projects = list.compactMap { p -> TMetricProjectSummary? in
+            guard let id = p.id, id != 0, let name = p.name else { return nil }
+            // Keep active (and status-less) projects; skip archived/deleted
+            if let s = p.status, s != "active" { return nil }
+            return TMetricProjectSummary(id: id, name: name, clientName: p.client?.name ?? "",
+                                         totalSeconds: 0, entryCount: 0, lastEntryDate: nil)
+        }
+        NSLog("[TMetric] fetchProjects: \(projects.count) active projects")
+        return projects
     }
 
     // MARK: Timer control
