@@ -77,6 +77,35 @@ final class AnthropicService {
         return resp.content.compactMap(\.text).joined()
     }
 
+    // MARK: - Models API (GET /v1/models)
+    // Liefert verfügbare Modell-IDs. Anthropic gibt hier KEINE Preise zurück —
+    // nur id + display_name. Kostenlos (verbraucht keine Tokens).
+
+    func fetchModels(apiKey: String) async throws -> [String] {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw APIError.http(401, "Kein API-Key hinterlegt") }
+        guard let url = URL(string: "https://api.anthropic.com/v1/models?limit=100") else {
+            throw APIError.badURL
+        }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        req.setValue(key, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            let msg = extractError(from: data)
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw APIError.http(http.statusCode, msg)
+        }
+        struct ModelsResponse: Decodable {
+            struct Model: Decodable { let id: String }
+            let data: [Model]
+        }
+        let resp = try JSONDecoder().decode(ModelsResponse.self, from: data)
+        // Nur Claude-Modelle (keine anderen Objekt-Typen), stabile Reihenfolge.
+        return resp.data.map(\.id).filter { $0.hasPrefix("claude-") }
+    }
+
     // MARK: - OpenAI-compatible API (Ollama, LM Studio, etc.)
     // baseURL e.g. "http://localhost:11434/v1"  — no API key required for Ollama
 

@@ -139,7 +139,10 @@ struct CodeReviewView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
-    private let models = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+    // Anthropic-Modelle aus dem zentralen Katalog + per API entdeckte (Settings).
+    private var models: [String] {
+        ModelCatalog.anthropicModelIDs(discovered: state.settings.discoveredModelIDs)
+    }
 
     var body: some View {
         HSplitView {
@@ -322,7 +325,7 @@ struct CodeReviewView: View {
 
                 Menu {
                     ForEach(models, id: \.self) { m in
-                        Button(m) { selectedModel = m }
+                        Button(ModelCatalog.pickerLabel(for: m)) { selectedModel = m }
                     }
                 } label: {
                     HStack(spacing: 3) {

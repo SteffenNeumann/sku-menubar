@@ -37,6 +37,11 @@ struct GitHubSettings: Codable {
     // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
     var ollamaBaseUrl: String = "http://localhost:11434/v1"
     var ollamaModel:   String = "llama3.2"
+    // Modell-Katalog: per „Modelle aktualisieren"-Button (GET /v1/models) entdeckte
+    // Modell-IDs, die NICHT im gebündelten ModelCatalog stehen. Werden im Picker
+    // ergänzt; Preis fällt auf die Tier-Heuristik zurück.
+    var discoveredModelIDs: [String] = []
+    var modelsLastRefresh:  Date?    = nil
 
     init() {}
 
@@ -74,6 +79,8 @@ struct GitHubSettings: Codable {
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
         ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
         ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"
+        discoveredModelIDs = (try? c.decodeIfPresent([String].self, forKey: .discoveredModelIDs)) ?? []
+        modelsLastRefresh  = (try? c.decodeIfPresent(Date.self,     forKey: .modelsLastRefresh))  ?? nil
     }
 }
 

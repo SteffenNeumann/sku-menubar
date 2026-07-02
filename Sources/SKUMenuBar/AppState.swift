@@ -825,11 +825,45 @@ final class AppState: ObservableObject {
     }
 
     /// Per-model price lookup (input, output) per token.
+    /// Zieht aus dem zentralen ModelCatalog (exakter Katalog-Wert oder Tier-Fallback).
     nonisolated static func modelPrice(_ model: String) -> (Double, Double) {
-        let m = model.lowercased()
-        if m.contains("opus")  { return (15.0 / 1_000_000, 75.0  / 1_000_000) }
-        if m.contains("haiku") { return ( 0.8 / 1_000_000,  4.0  / 1_000_000) }
-        return (3.0 / 1_000_000, 15.0 / 1_000_000)  // sonnet / default
+        ModelCatalog.price(for: model)
+    }
+
+    // MARK: - Modell-Katalog aktualisieren (Variante C: Button)
+
+    @Published var modelsRefreshInProgress = false
+    @Published var modelsRefreshResult: String? = nil   // Kurz-Feedback für die UI
+
+    /// Fragt GET /v1/models ab und mergt neu entdeckte Modell-IDs in die Settings.
+    /// Braucht den `sk-ant-api03`-Key (settings.anthropicApiKey).
+    func refreshAvailableModels() async {
+        guard !modelsRefreshInProgress else { return }
+        let key = settings.anthropicApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            modelsRefreshResult = "API-Key erforderlich (Settings → Messages API Key)"
+            return
+        }
+        modelsRefreshInProgress = true
+        modelsRefreshResult = nil
+        defer { modelsRefreshInProgress = false }
+        do {
+            let ids = try await AnthropicService().fetchModels(apiKey: key)
+            let known = Set(ModelCatalog.anthropicBundled.map(\.apiName))
+            // Nur Modelle, die NICHT schon im Basis-Katalog stehen, merken.
+            let extras = ids.filter { !known.contains($0) }
+            let newOnes = extras.filter { !settings.discoveredModelIDs.contains($0) }
+            settings.discoveredModelIDs = extras          // ersetzt (entfernt verschwundene)
+            settings.modelsLastRefresh = Date()           // triggert persist() via didSet
+            if newOnes.isEmpty {
+                modelsRefreshResult = "Alles aktuell (\(ids.count) Modelle)"
+            } else {
+                let names = newOnes.map { ModelCatalog.displayName(for: $0) }.joined(separator: ", ")
+                modelsRefreshResult = "\(newOnes.count) neu: \(names)"
+            }
+        } catch {
+            modelsRefreshResult = "Fehler: \(error.localizedDescription)"
+        }
     }
 
     /// Accumulate Copilot / GitHub Models token usage (subscription → $0 cost, tokens tracked only).

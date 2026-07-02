@@ -42,6 +42,56 @@ struct SettingsFormView: View {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
     }
 
+    // Variante C: „Modelle aktualisieren"-Button (GET /v1/models).
+    // Braucht den Messages API Key; ausgegraut solange keiner hinterlegt ist.
+    @ViewBuilder
+    private var modelCatalogRow: some View {
+        let hasKey = !state.settings.anthropicApiKey.trimmingCharacters(in: .whitespaces).isEmpty
+        VStack(alignment: .leading, spacing: 6) {
+            fieldLabel("Modell-Katalog")
+            HStack(alignment: .top, spacing: 10) {
+                Button {
+                    Task { await state.refreshAvailableModels() }
+                } label: {
+                    HStack(spacing: 5) {
+                        if state.modelsRefreshInProgress {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text("Modelle aktualisieren")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.15)))
+                    .foregroundStyle(accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasKey || state.modelsRefreshInProgress)
+                .opacity(hasKey ? 1 : 0.5)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    let total = ModelCatalog.anthropicBundled.count + state.settings.discoveredModelIDs.count
+                    let stamp = state.settings.modelsLastRefresh
+                        .map { " · " + $0.formatted(date: .abbreviated, time: .shortened) } ?? ""
+                    Text("\(total) Modelle\(stamp)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                    if let r = state.modelsRefreshResult {
+                        Text(r)
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.secondaryText)
+                    } else if !hasKey {
+                        Text("API-Key erforderlich")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // ── Page Header ───────────────────────────────────────────────
@@ -170,6 +220,7 @@ struct SettingsFormView: View {
                                             .textFieldStyle(.plain)
                                             .styledInput(theme: theme)
                                     }
+                                    modelCatalogRow
                                     VStack(alignment: .leading, spacing: 4) {
                                         fieldLabel("Plan Limits")
                                         HStack(spacing: 12) {

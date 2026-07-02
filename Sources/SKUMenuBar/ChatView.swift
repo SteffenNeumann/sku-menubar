@@ -564,7 +564,10 @@ struct SingleChatSessionView: View {
 
     private var orchestratorMode: Bool { !selectedOrchestrators.isEmpty }
 
-    private let models = ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"]
+    // Anthropic-Modelle aus dem zentralen Katalog + per API entdeckte (Settings).
+    private var models: [String] {
+        ModelCatalog.anthropicModelIDs(discovered: state.settings.discoveredModelIDs)
+    }
     private let copilotModels = KnownModel.all.filter { $0.apiName.hasPrefix("github/") }
 
     private struct SlashCommand {
@@ -2241,7 +2244,7 @@ struct SingleChatSessionView: View {
             VStack(alignment: .leading, spacing: 0) {
                 pickerSectionHeader("Claude (Anthropic)")
                 ForEach(models, id: \.self) { m in
-                    pickerRow(label: m, selected: m == selectedModel) {
+                    pickerRow(label: ModelCatalog.pickerLabel(for: m), selected: m == selectedModel) {
                         selectedModel = m; showModelPicker = false
                     }
                 }
@@ -2850,7 +2853,7 @@ struct SingleChatSessionView: View {
                 // Claude (Anthropic)
                 pickerSectionHeader("Claude (Anthropic)")
                 ForEach(models, id: \.self) { m in
-                    pickerRow(label: m, selected: m == selectedModel) {
+                    pickerRow(label: ModelCatalog.pickerLabel(for: m), selected: m == selectedModel) {
                         selectedModel = m
                         showModelPicker = false
                     }
