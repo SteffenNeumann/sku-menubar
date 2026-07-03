@@ -396,6 +396,7 @@ struct SingleChatSessionView: View {
         ("drive",           ["google drive", "gdrive", "google-drive"]),
         ("docuseal",        ["docuseal", "signatur", "signature", "unterschrift"]),
         ("brevo",           ["brevo", "sendinblue", "newsletter"]),
+        ("vercel",          ["vercel"]),
         ("penpot",          ["penpot"]),
         ("magicui",         ["magicui", "magic ui"]),
         ("magic-21st",      ["21st", "magic-21st", "magic component"]),
