@@ -831,7 +831,7 @@ Only include this line when you have a genuine technical or domain insight worth
 
         // Rate-limited before we even start → go straight to the Copilot fallback.
         if rateLimitActive {
-            await executeScheduledAgentViaCopilot(agent, entry: &entry)
+            await executeScheduledAgentViaCopilot(agent, entry: &entry, deadline: deadline)
             let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
             if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
             liveOutput.removeValue(forKey: agent.id)
@@ -892,7 +892,7 @@ Only include this line when you have a genuine technical or domain insight worth
                 appState?.claudeRateLimitActive = true
                 entry.status = .running
                 entry.error  = ""
-                await executeScheduledAgentViaCopilot(agent, entry: &entry)
+                await executeScheduledAgentViaCopilot(agent, entry: &entry, deadline: deadline)
                 let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
                 if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
                 liveOutput.removeValue(forKey: agent.id)
@@ -1054,9 +1054,14 @@ Only include this line when you have a genuine technical or domain insight worth
 
     private func isRateLimitText(_ text: String) -> Bool {
         let t = text.lowercased()
+        // NOTE: `overloaded`/529 are Anthropic-side *transient* capacity signals
+        // (Anthropic documents them as retryable) and now live in
+        // isTransientNetworkText — NOT here. Only genuine usage/quota limits belong
+        // here, because a match flips the scheduled run to the Copilot fallback
+        // instead of just retrying on the primary model. Misclassifying a morning
+        // overload as a rate-limit is exactly what aborted the researcher.
         return t.contains("usage limits") || t.contains("rate_limit") ||
-               t.contains("rate limit")   || t.contains("overloaded") ||
-               t.contains("quota")        || t.contains(" 529")       ||
+               t.contains("rate limit")   || t.contains("quota")      ||
                t.contains(" 429")         || t.contains("regain access")
     }
 
@@ -1079,51 +1084,97 @@ Only include this line when you have a genuine technical or domain insight worth
             || t.contains("econnrefused") || t.contains("enotfound") || t.contains("eai_again")
             || t.contains("fetch failed")
             || t.contains(" 502") || t.contains(" 503") || t.contains(" 504")
+            || t.contains(" 529") || t.contains("overloaded")
             || t.contains("bad gateway") || t.contains("service unavailable")
             || t.contains("gateway timeout")
     }
 
     /// Runs the agent via GitHub Copilot API (used as rate-limit fallback).
-    private func executeScheduledAgentViaCopilot(_ agent: AgentDefinition, entry: inout ScheduledTaskLogEntry) async {
+    /// Bounded retry on transient network errors — the Copilot HTTP stream can drop
+    /// mid-flight ("The network connection was lost") exactly like the CLI path did,
+    /// and previously a single drop aborted the whole fallback with 0 output (the
+    /// failure the researcher hit). A shared `deadline` (passed from the caller)
+    /// keeps all retries within the agent's configured timeout. Copilot is stateless
+    /// (history: []), so a retry simply re-issues the request from the start.
+    private func executeScheduledAgentViaCopilot(
+        _ agent: AgentDefinition,
+        entry: inout ScheduledTaskLogEntry,
+        deadline: Date? = nil
+    ) async {
         runningAgents.insert(agent.id)
         liveOutput[agent.id] = ""
 
         let timeoutSeconds: TimeInterval = TimeInterval(agent.timeoutMinutes * 60)
+        let effectiveDeadline = deadline ?? Date().addingTimeInterval(timeoutSeconds)
         let fallbackModel = agent.model.hasPrefix("github/") ? agent.model : Self.copilotFallbackModel
         let token = appState?.settings.token ?? ""
 
         let preamble = buildContextPreamble(for: agent)
         let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructions = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+        let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
 
-        var outputText = ""
-        do {
-            let stream = ghModelsService.send(
-                message: "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions.",
-                model: fallbackModel,
-                systemPrompt: instructions.isEmpty ? nil : instructions,
-                history: [],
-                githubToken: token
-            )
-            let deadline = Date().addingTimeInterval(timeoutSeconds)
-            for try await event in stream {
-                if Date() > deadline { break }
-                if event.type == "assistant", let contents = event.message?.content {
-                    for c in contents where c.type == "text" {
-                        let chunk = c.text ?? ""
-                        outputText += chunk
-                        liveOutput[agent.id] = outputText
+        let maxAttempts = 4
+        var attempt = 0
+
+        while true {
+            var outputText = ""
+            var transientError: String? = nil
+            do {
+                let stream = ghModelsService.send(
+                    message: userMessage,
+                    model: fallbackModel,
+                    systemPrompt: instructions.isEmpty ? nil : instructions,
+                    history: [],
+                    githubToken: token
+                )
+                for try await event in stream {
+                    if Date() > effectiveDeadline { break }
+                    if event.type == "assistant", let contents = event.message?.content {
+                        for c in contents where c.type == "text" {
+                            let chunk = c.text ?? ""
+                            outputText += chunk
+                            liveOutput[agent.id] = outputText
+                        }
                     }
                 }
+                entry.status    = .success
+                entry.output    = outputText
+                entry.finishedAt = Date()
+                return
+            } catch {
+                let errText = error.localizedDescription
+                if isTransientNetworkText(errText.lowercased()) {
+                    transientError = errText
+                } else {
+                    // Non-transient (bad token, invalid model, 4xx auth) → terminal.
+                    entry.status    = .failed
+                    entry.error     = "[Copilot Fallback] \(errText)"
+                    entry.output    = outputText
+                    entry.finishedAt = Date()
+                    return
+                }
             }
-            entry.status    = .success
-            entry.output    = outputText
-            entry.finishedAt = Date()
-        } catch {
-            entry.status    = .failed
-            entry.error     = "[Copilot Fallback] \(error.localizedDescription)"
-            entry.output    = outputText
-            entry.finishedAt = Date()
+
+            // Transient failure → backoff and retry within the shared deadline.
+            attempt += 1
+            let backoffs = [5, 15, 30]
+            let backoff  = backoffs[min(attempt - 1, backoffs.count - 1)]
+            guard attempt < maxAttempts,
+                  Date().addingTimeInterval(TimeInterval(backoff)) < effectiveDeadline else {
+                entry.status    = .failed
+                entry.error     = "[Copilot Fallback] Netzwerkfehler nach \(attempt) Versuch(en): \(transientError ?? "Netzwerkfehler")"
+                entry.finishedAt = Date()
+                return
+            }
+            liveOutput[agent.id, default: ""] += "\n⚠️ Netzwerkfehler (Copilot) — neuer Versuch \(attempt + 1)/\(maxAttempts) in \(backoff)s…\n"
+            try? await Task.sleep(nanoseconds: UInt64(backoff) * 1_000_000_000)
+            if Task.isCancelled {
+                entry.status    = .failed
+                entry.error     = "[Copilot Fallback] Abgebrochen während Retry-Wartezeit."
+                entry.finishedAt = Date()
+                return
+            }
         }
     }
 
