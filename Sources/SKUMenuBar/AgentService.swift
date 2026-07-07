@@ -591,6 +591,17 @@ Only include this line when you have a genuine technical or domain insight worth
             parts.append(memInstruction)
         }
 
+        // Antwort-Stil: knappe Feedback-Prosa (Toggle conciseAgentOutput, default an).
+        // Gilt NUR für Worker-/Scheduled-Agents (Personas laufen nicht über diese Funktion).
+        // Kürzt bewusst nur die begleitende Prosa — Deliverables bleiben vollständig.
+        if appState?.settings.conciseAgentOutput ?? true {
+            parts.append("""
+## Antwort-Stil
+Fasse dich kurz. Liefere direkt das Ergebnis — keine Vorrede, keine Nacherzählung des Auftrags, keine „Ich habe jetzt …"-Zusammenfassung, keine Höflichkeitsfloskeln. Erkläre nur, was nicht offensichtlich ist. Stichpunkte statt Prosa, wo möglich.
+Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) bleiben vollständig und in gewohnter Qualität — knapp ist nur dein begleitendes Feedback.
+""")
+        }
+
         return parts.joined(separator: "\n\n")
     }
 

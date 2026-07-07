@@ -310,6 +310,16 @@ struct SettingsFormView: View {
                                     .help("An: Fällt ein MCP-Name im Chat-Text, wird dieser MCP-Server für die Nachricht aktiviert (additiv, nie abgeschaltet). 'make' nur bei klarem Bezug wie 'make.com'.")
                             }
                             rowDivider()
+                            configRow(title: "Agents fassen sich kurz",
+                                      icon: "text.badge.minus",
+                                      hint: "Knappe Feedback-Prosa; Deliverables bleiben vollständig") {
+                                Toggle("Kurze Agent-Antworten", isOn: $draft.conciseAgentOutput)
+                                    .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(theme.primaryText)
+                                    .help("An: Worker-Agents antworten knapp — keine Vorrede, keine Nacherzählung des Auftrags, Stichpunkte statt Prosa. Code, E-Mails und Reports bleiben vollständig. Gilt nicht für Kunden-Personas.")
+                            }
+                            rowDivider()
                             configRow(title: "Token-Optimierung",
                                       icon: "slider.horizontal.3",
                                       hint: "History, Max-Turns, Auto-Compact") {
