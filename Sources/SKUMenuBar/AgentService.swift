@@ -819,9 +819,13 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
     func executeScheduledAgent(_ agent: AgentDefinition) async {
         let rateLimitActive = appState?.claudeRateLimitActive == true
         let cliAvailable    = cliService != nil
+        // Copilot-Fallback nur wenn der Nutzer ihn explizit aktiviert hat (Default: aus).
+        // Vorher schwenkten Scheduled-Agents allein wegen claudeRateLimitActive auf Copilot
+        // — auch bei ausgeschaltetem Schalter und selbst wenn Opus gesund war (stale Flag).
+        let fallbackEnabled = appState?.settings.copilotFallbackEnabled == true
 
-        // Need either CLI (no rate limit) or rate-limit-fallback via Copilot
-        if !rateLimitActive, !cliAvailable {
+        // Braucht die CLI (Opus) — es sei denn, ein aktivierter Copilot-Fallback springt bei Rate-Limit ein.
+        if !cliAvailable, !(rateLimitActive && fallbackEnabled) {
             var entry = ScheduledTaskLogEntry(
                 agentId: agent.id, startedAt: Date(), status: .failed, error: "CLI-Service nicht verfügbar."
             )
@@ -840,8 +844,10 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
         // extend the agent's total runtime beyond its configured timeout.
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
-        // Rate-limited before we even start → go straight to the Copilot fallback.
-        if rateLimitActive {
+        // Rate-limited before we even start: nur mit aktiviertem Fallback direkt zu Copilot.
+        // Ohne Fallback läuft es normal über Opus/CLI weiter — ist das Flag stale, gelingt der
+        // Lauf; ist das Limit echt, meldet der CLI-Pfad es und der .rateLimited-Zweig greift.
+        if rateLimitActive && fallbackEnabled {
             await executeScheduledAgentViaCopilot(agent, entry: &entry, deadline: deadline)
             let learnedR = extractLearnedLine(from: liveOutput[agent.id] ?? "")
             if let learnedR { appendLearningEntry(for: agent, status: entry.status, learned: learnedR) }
@@ -898,9 +904,17 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
                 break retryLoop
 
             case .rateLimited(let combined):
-                // Rate-limit detected mid-run → switch to the Copilot fallback.
                 appState?.parseRateLimitExpiry(from: combined.lowercased())
                 appState?.claudeRateLimitActive = true
+                guard fallbackEnabled else {
+                    // Kein Umschalten: echtes Rate-Limit klärt sich nicht in Sekunden.
+                    // Lauf sauber beenden; der nächste geplante Zyklus versucht es erneut auf Opus.
+                    entry.status = .failed
+                    entry.error  = "Rate-Limit aktiv — Copilot-Fallback ist deaktiviert. Lauf übersprungen; nächster geplanter Lauf versucht es erneut auf Opus."
+                    entry.finishedAt = Date()
+                    break retryLoop
+                }
+                // Rate-limit detected mid-run → switch to the Copilot fallback.
                 entry.status = .running
                 entry.error  = ""
                 await executeScheduledAgentViaCopilot(agent, entry: &entry, deadline: deadline)
