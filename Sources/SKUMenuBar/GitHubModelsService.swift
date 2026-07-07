@@ -86,6 +86,20 @@ final class GitHubModelsService {
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
                 do {
+                    // Fresh per-call URLSession. `URLSession.shared` keeps ONE
+                    // process-wide HTTP/2 connection pool; when the Copilot endpoint
+                    // half-closes a pooled connection, every subsequent `.shared`
+                    // request reuses that dead socket and fails reproducibly with
+                    // -1005 "network connection was lost". That is why the caller's
+                    // bounded retry (which re-enters send()) kept hitting the SAME
+                    // poisoned pool and never recovered. An ephemeral session per call
+                    // gets its own pool, so each retry reconnects cleanly.
+                    let sessionConfig = URLSessionConfiguration.ephemeral
+                    sessionConfig.timeoutIntervalForRequest = 180  // slow first byte on large researcher prompts
+                    sessionConfig.waitsForConnectivity = true
+                    let urlSession = URLSession(configuration: sessionConfig)
+                    defer { urlSession.finishTasksAndInvalidate() }
+
                     let token = self.ghAuthToken() ?? githubToken
                     guard !token.isEmpty else { throw GitHubModelsError.noToken }
 
@@ -159,7 +173,7 @@ final class GitHubModelsService {
                     req.setValue(requestId, forHTTPHeaderField: "X-Request-Id")
                     req.httpBody = try JSONSerialization.data(withJSONObject: bodyDict)
 
-                    let (stream, response) = try await URLSession.shared.bytes(for: req)
+                    let (stream, response) = try await urlSession.bytes(for: req)
                     if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                         var errData = Data()
                         for try await byte in stream { errData.append(byte) }
