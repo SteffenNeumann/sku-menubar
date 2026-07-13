@@ -591,16 +591,9 @@ Only include this line when you have a genuine technical or domain insight worth
             parts.append(memInstruction)
         }
 
-        // Antwort-Stil: knappe Feedback-Prosa (Toggle conciseAgentOutput, default an).
-        // Gilt NUR für Worker-/Scheduled-Agents (Personas laufen nicht über diese Funktion).
-        // Kürzt bewusst nur die begleitende Prosa — Deliverables bleiben vollständig.
-        if appState?.settings.conciseAgentOutput ?? true {
-            parts.append("""
-## Antwort-Stil
-Fasse dich kurz. Liefere direkt das Ergebnis — keine Vorrede, keine Nacherzählung des Auftrags, keine „Ich habe jetzt …"-Zusammenfassung, keine Höflichkeitsfloskeln. Erkläre nur, was nicht offensichtlich ist. Stichpunkte statt Prosa, wo möglich.
-Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) bleiben vollständig und in gewohnter Qualität — knapp ist nur dein begleitendes Feedback.
-""")
-        }
+        // Hinweis: Der Antwort-Stil-Block (conciseAgentOutput) wird bewusst NICHT hier,
+        // sondern in fullSystemPrompt() ganz ans Ende gehängt (nach promptBody) — als letzte
+        // Instruktion vor der Antwort hat er die stärkste Wirkung (Recency). Siehe conciseStyleBlock().
 
         return parts.joined(separator: "\n\n")
     }
@@ -640,13 +633,34 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
             .filter { $0.hasPrefix(today) }
     }
 
-    /// Returns the full system prompt for an agent (preamble + promptBody).
+    /// Verbindlicher Antwort-Stil-Block (Toggle conciseAgentOutput, default an).
+    /// Bewusst konkret + hart formuliert und wird ans ENDE des System-Prompts gehängt
+    /// (nach promptBody) — als letzte Instruktion vor der Antwort greift er am stärksten.
+    /// Gilt NUR für Worker-/Scheduled-Agents; Personas laufen nicht über fullSystemPrompt.
+    private func conciseStyleBlock() -> String? {
+        guard appState?.settings.conciseAgentOutput ?? true else { return nil }
+        return """
+## Antwort-Stil (verbindlich, überschreibt anderslautende Format-Hinweise oben)
+Deine begleitende Prosa: höchstens ~5 Sätze ODER eine kurze Stichpunktliste. Konkret:
+- Wiederhole NICHT den Auftrag, den Kontext oder eine Rückfrage — der Leser kennt sie bereits.
+- Keine doppelten Abschnitte, keine „Ich habe jetzt …"-Nacherzählung, keine Höflichkeitsfloskeln, keine Vorrede.
+- Erkläre nicht ausschweifend, *warum* du etwas (nicht) tust — nenne das Ergebnis und höchstens EINEN Satz Begründung.
+- Brauchst du eine Freigabe? Schreibe knapp, *was* du tun würdest und dass du auf Freigabe wartest — ohne die Analyse erneut auszubreiten.
+Ausnahme: NUR ausdrücklich angefragte Artefakte (Code, E-Mail, Dokument, Datei) bleiben vollständig und in gewohnter Qualität. Deine Analyse-/Feedback-Prosa ist KEIN solches Artefakt — sie bleibt knapp.
+"""
+    }
+
+    /// Returns the full system prompt for an agent (preamble + promptBody + Antwort-Stil).
     /// Used by the chat flow to inject agent identity and memory context.
     func fullSystemPrompt(for agent: AgentDefinition, orchestratorMode: Bool = false) -> String {
         let preamble = buildContextPreamble(for: agent, orchestratorMode: orchestratorMode)
         let body = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        if body.isEmpty { return preamble }
-        return preamble + "\n\n---\n\n" + body
+        var prompt = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+        // R1: Stil-Regel ans ENDE (Recency) statt in den Preamble.
+        if let style = conciseStyleBlock() {
+            prompt += "\n\n---\n\n" + style
+        }
+        return prompt
     }
 
     /// Appends one timestamped entry to the agent's learning_log.txt.
@@ -857,10 +871,8 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
             return
         }
 
-        // Build enriched system prompt: preamble (memory + learning log) + body.
-        let preamble = buildContextPreamble(for: agent)
-        let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructions = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+        // Build enriched system prompt: preamble (memory + learning log) + body + Antwort-Stil.
+        let instructions = fullSystemPrompt(for: agent)
         let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
 
         // CLI path with bounded retry on transient network errors. The researcher
@@ -1134,9 +1146,7 @@ Ausnahme: Die eigentlichen Deliverables (Code, E-Mails, Dokumente, Reports) blei
         let fallbackModel = agent.model.hasPrefix("github/") ? agent.model : Self.copilotFallbackModel
         let token = appState?.settings.token ?? ""
 
-        let preamble = buildContextPreamble(for: agent)
-        let body     = agent.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
-        let instructions = body.isEmpty ? preamble : preamble + "\n\n---\n\n" + body
+        let instructions = fullSystemPrompt(for: agent)
         let userMessage = "Begin your session now. Execute your defined role as described in your system prompt — do not wait for further instructions."
 
         let maxAttempts = 4
