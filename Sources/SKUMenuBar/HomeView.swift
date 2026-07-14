@@ -2016,35 +2016,57 @@ private struct TMetricDotTimeline: View {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
     }()
 
-    private var sorted: [TMetricTimelineEntry] { entries.sorted { $0.start < $1.start } }
+    /// Maximale Anzahl Stunden-Marken — schützt gegen korrupte End-Daten
+    /// (weit in der Zukunft liegend), die sonst eine Endlos-Schleife auslösen.
+    private static let maxHourMarks = 240   // 10 Tage à 24h, deckt jeden Realfall
 
-    private var timelineStart: Date { sorted.first?.start ?? now }
-    private var timelineEnd:   Date { max(now, sorted.compactMap(\.end).max() ?? now) }
-    private var totalRange: Double  { max(1.0, timelineEnd.timeIntervalSince(timelineStart)) }
+    /// Alle abgeleiteten Werte EINMAL pro body-Auswertung berechnen.
+    /// Vorher wurden `sorted`/`timelineEnd` in Schleifen + Gettern
+    /// hunderte Male neu re-sortiert → 100% CPU-Hang (HomeView.swift:2022).
+    private struct Layout {
+        let sorted: [TMetricTimelineEntry]
+        let start: Date
+        let end: Date
+        let range: Double
+        let marks: [Date]
 
-    private func frac(_ d: Date) -> Double {
-        max(0, min(1, d.timeIntervalSince(timelineStart) / totalRange))
+        func frac(_ d: Date) -> Double {
+            max(0, min(1, d.timeIntervalSince(start) / range))
+        }
     }
+
+    private func makeLayout() -> Layout {
+        let sorted = entries.sorted { $0.start < $1.start }
+        let start  = sorted.first?.start ?? now
+        // End defensiv klammern: nie mehr als maxHourMarks Stunden nach start.
+        let rawEnd = max(now, sorted.compactMap(\.end).max() ?? now)
+        let cap    = start.addingTimeInterval(Double(Self.maxHourMarks) * 3600)
+        let end    = min(rawEnd, cap)
+        let range  = max(1.0, end.timeIntervalSince(start))
+
+        // Stunden-Marken einmal berechnen; `end` ist lokal (kein Re-Sort pro Iteration).
+        var marks: [Date] = []
+        let cal = Calendar.current
+        var comps = cal.dateComponents([.year, .month, .day, .hour], from: start)
+        comps.hour = (comps.hour ?? 0) + 1
+        comps.minute = 0; comps.second = 0
+        if var d = cal.date(from: comps) {
+            while d <= end && marks.count < Self.maxHourMarks {
+                marks.append(d)
+                d = d.addingTimeInterval(3600)
+            }
+        }
+        return Layout(sorted: sorted, start: start, end: end, range: range, marks: marks)
+    }
+
     private func colorFor(_ entry: TMetricTimelineEntry) -> Color {
         let idx = summaries.firstIndex(where: { $0.id == entry.projectId }) ?? 0
         return chartColors[idx % chartColors.count]
     }
 
-    private var hourMarks: [Date] {
-        let cal = Calendar.current
-        var comps = cal.dateComponents([.year, .month, .day, .hour], from: timelineStart)
-        comps.hour = (comps.hour ?? 0) + 1
-        comps.minute = 0; comps.second = 0
-        guard var d = cal.date(from: comps) else { return [] }
-        var marks: [Date] = []
-        while d <= timelineEnd {
-            marks.append(d)
-            d = d.addingTimeInterval(3600)
-        }
-        return marks
-    }
-
     var body: some View {
+        let layout = makeLayout()
+        let sorted = layout.sorted
         if !sorted.isEmpty {
             VStack(spacing: 3) {
                 // ── Chips + Track ───────────────────────────────────────
@@ -2059,9 +2081,9 @@ private struct TMetricDotTimeline: View {
 
                         ForEach(sorted) { entry in
                             let color   = colorFor(entry)
-                            let x       = CGFloat(frac(entry.start)) * w
+                            let x       = CGFloat(layout.frac(entry.start)) * w
                             let endDate = entry.end ?? now
-                            let segW    = max(4, CGFloat(frac(endDate)) * w - x)
+                            let segW    = max(4, CGFloat(layout.frac(endDate)) * w - x)
                             let isRunning = entry.end == nil
                             let dur     = max(0, Int(endDate.timeIntervalSince(entry.start)))
                             let h = dur / 3600; let m = (dur % 3600) / 60
@@ -2105,13 +2127,13 @@ private struct TMetricDotTimeline: View {
                 GeometryReader { geo in
                     let w = geo.size.width
                     ZStack(alignment: .topLeading) {
-                        ForEach(hourMarks.indices, id: \.self) { i in
-                            let x = CGFloat(frac(hourMarks[i])) * w
+                        ForEach(layout.marks.indices, id: \.self) { i in
+                            let x = CGFloat(layout.frac(layout.marks[i])) * w
                             Rectangle()
                                 .fill(Color.white.opacity(0.15))
                                 .frame(width: 1, height: 4)
                                 .offset(x: x)
-                            Text(Self.hourFmt.string(from: hourMarks[i]))
+                            Text(Self.hourFmt.string(from: layout.marks[i]))
                                 .font(.system(size: 9).monospacedDigit())
                                 .foregroundStyle(theme.tertiaryText)
                                 .offset(x: max(0, x - 13), y: 5)
