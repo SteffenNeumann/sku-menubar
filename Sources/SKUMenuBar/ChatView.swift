@@ -5637,7 +5637,11 @@ struct SingleChatSessionView: View {
         if messages.indices.contains(assistantIndex),
            !messages[assistantIndex].toolCalls.isEmpty,
            let cwd = workingDirectory {
-            if let diff = await fetchGitDiff(in: cwd), !diff.isEmpty {
+            // Re-Check nach await: finishCompact() kann messages während der
+            // fetchGitDiff-Suspendierung durch ein Ein-Element-Array ersetzen
+            // (isStreaming=false → onChange → finishCompact) → assistantIndex veraltet.
+            if let diff = await fetchGitDiff(in: cwd), !diff.isEmpty,
+               messages.indices.contains(assistantIndex) {
                 messages[assistantIndex].gitDiff = diff
             }
         }
