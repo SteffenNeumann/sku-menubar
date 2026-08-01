@@ -663,6 +663,28 @@ Ausnahme: NUR ausdrücklich angefragte Artefakte (Code, E-Mail, Dokument, Datei)
         return prompt
     }
 
+    /// Verbindliches Freigabe-/Grill-Gate — NUR für den interaktiven Einzel-Agent-Chat.
+    /// Wird in ChatView.performSend NACH fullSystemPrompt() angehängt, damit es als ALLERLETZTE
+    /// Instruktion (Recency) über den Antwort-Stil-Block gewinnt. Bewusst NICHT in
+    /// fullSystemPrompt() selbst: Scheduled-Agents laufen autonom (würden nie starten) und
+    /// Orchestrator-Sub-Agenten haben keinen Nutzer-Kanal (Deadlock) — beide dürfen NICHT gaten.
+    /// Inhaltlich = grill-me/grilling-Skill (~/.claude/skills/grill-me/) + Zusätze
+    /// (detaillierte Analyse, bei Bedarf aufteilen, unabhängig verifizieren).
+    func interactiveGrillGate() -> String {
+        return """
+## Arbeitsweise für diese Aufgabe (verbindlich, überschreibt Format-Hinweise oben)
+
+Interviewe mich unerbittlich zu jedem Aspekt, bis wir ein geteiltes Verständnis erreichen. Geh jeden Ast des Entscheidungsbaums durch und löse Abhängigkeiten zwischen Entscheidungen eine nach der anderen auf. Für jede Frage nennst du deine empfohlene Antwort.
+
+- Stelle die Fragen EINZELN — eine Frage, dann auf meine Rückmeldung warten, bevor du weitermachst. Mehrere Fragen auf einmal sind verwirrend.
+- Ist etwas ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, schau ihn selbst nach, statt mich zu fragen. Die ENTSCHEIDUNGEN aber sind meine — leg mir jede einzeln vor und warte auf meine Antwort.
+- Führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren.
+- Setze NICHTS um (keine Datei ändern, kein Code, kein Senden/Committen), bis ich bestätige, dass wir ein geteiltes Verständnis haben — warte auf mein ausdrückliches „Go".
+
+Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte bleiben vollständig.
+"""
+    }
+
     /// Appends one timestamped entry to the agent's learning_log.txt.
     /// No-op when learned is nil (no LEARNED marker found in output).
     private func appendLearningEntry(for agent: AgentDefinition, status: ScheduledTaskStatus, learned: String?) {

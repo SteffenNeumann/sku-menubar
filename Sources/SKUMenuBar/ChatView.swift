@@ -5138,10 +5138,13 @@ struct SingleChatSessionView: View {
 
         // Inject agent system prompt (memory + write instruction + promptBody) on the first message of a session.
         // On resume (currentSessionId != nil) the session already carries the context — skip.
+        // Freigabe-/Grill-Gate NUR hier im interaktiven Einzel-Agent-Pfad und nur beim ersten
+        // Turn (currentSessionId == nil): als allerletzter Block angehängt gewinnt er die Recency
+        // über den Antwort-Stil. Scheduled-/Orchestrator-Pfade nutzen fullSystemPrompt() ohne Gate.
         let agentSystemPrompt: String? = (currentSessionId == nil)
             ? effectiveAgent.flatMap { agentId in
                 state.agentService.agents.first { $0.id == agentId }
-              }.map { state.agentService.fullSystemPrompt(for: $0) }
+              }.map { state.agentService.fullSystemPrompt(for: $0) + "\n\n---\n\n" + state.agentService.interactiveGrillGate() }
             : nil
 
         let stream: AsyncThrowingStream<StreamEvent, Error>
