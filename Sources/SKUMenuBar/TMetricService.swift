@@ -194,7 +194,8 @@ enum TMetricService {
     // MARK: Fetch current user ID
 
     static func fetchUserId(token: String) async -> Int? {
-        let me: TMetricMe? = await get("users/me", token: token)
+        // TMetric v3: correct path is "user" ("users/me" now returns 404)
+        let me: TMetricMe? = await get("user", token: token)
         NSLog("[TMetric] userId=\(String(describing: me?.id))")
         return me?.id
     }
