@@ -398,9 +398,17 @@ final class AgentService: ObservableObject {
         return try? String(contentsOf: memPath, encoding: .utf8)
     }
 
+    /// Basis aller Agent-Memory-Dateien. Enthält je Agent ein name- bzw. id-benanntes
+    /// Verzeichnis sowie `shared/` für agentenübergreifende Dateien (zugang.md, MEMORY.md).
+    private var memoryBaseDir: URL {
+        URL(fileURLWithPath: "\(home)/.claude/agent-memory")
+    }
+
     /// Directories for an agent's memory files (name-based first, id-based second).
+    /// Hinweis: name-basiert — ein Agent namens „shared" würde mit dem geteilten Verzeichnis
+    /// kollidieren; der Name ist damit für Agents gesperrt.
     private func memoryDirs(for agent: AgentDefinition) -> (primary: URL, secondary: URL) {
-        let base = URL(fileURLWithPath: "\(home)/.claude/agent-memory")
+        let base = memoryBaseDir
         return (base.appendingPathComponent(agent.name),
                 base.appendingPathComponent(agent.id))
     }
@@ -410,6 +418,27 @@ final class AgentService: ObservableObject {
         let dir = memoryDirs(for: agent).primary
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// Liest `shared/MEMORY.md` größenbeschränkt. Die Datei schreibt ein LLM; eine entgleiste
+    /// Append-Schleife würde bei einem naiven `String(contentsOf:)` synchron auf dem MainActor
+    /// komplett eingelesen (UI-Hang, RSS-Sprung). Bei Übergröße wird deshalb nur der Kopf
+    /// gelesen — bewusst kein Überspringen: sonst verschwände das Feature stillschweigend
+    /// genau dann, wenn die Datei am meisten enthält.
+    private func readSharedMemory(at url: URL) -> String? {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size > 0 else { return nil }
+        // Byte-Budget großzügig über dem Zeichen-Cap: UTF-8 braucht für Umlaute/│ mehrere Bytes.
+        let byteBudget = OrchestratorLimits.sharedMemoryCap * 4
+        if size <= byteBudget {
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: byteBudget), !head.isEmpty else { return nil }
+        // `String(decoding:as:)` statt `String(data:encoding:)`: ein an der Byte-Grenze
+        // abgeschnittenes Multibyte-Zeichen ergäbe sonst nil statt eines Ersatzzeichens.
+        return String(decoding: head, as: UTF8.self)
     }
 
     /// Reads a named file from the first existing memory directory.
@@ -542,6 +571,19 @@ Consolidate memory for "\(agent.name)".
                 ? String(trimmed.prefix(OrchestratorLimits.memoryCapOrchestrator)) + "\n…[gekürzt]"
                 : trimmed
             parts.append("## Your Persistent Memory\n\(memText)")
+        }
+
+        // Geteiltes Agent-übergreifendes Gedächtnis (D) — vom Researcher gepflegt, gilt für ALLE
+        // Agents. Verhindert, dass jeder Agent dieselbe Werkzeug-/Umgebungs-Lektion einzeln lernt.
+        // Gekappt in beiden Modi: die Datei geht in jeden Preamble, im Orchestrator N× pro Lauf.
+        let sharedMemURL = memoryBaseDir.appendingPathComponent("shared/MEMORY.md")
+        if let sharedRaw = readSharedMemory(at: sharedMemURL),
+           let sharedBlock = OrchestratorLogic.sharedMemoryBlock(
+               from: sharedRaw,
+               cap: OrchestratorLimits.sharedMemoryCap,
+               isMaintainer: agent.name.lowercased() == "researcher"
+           ) {
+            parts.append(sharedBlock)
         }
 
         // Learning log — last 20 entries, CHAT entries excluded
