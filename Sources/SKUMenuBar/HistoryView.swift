@@ -400,10 +400,21 @@ struct HistoryView: View {
                     }
                     .padding(8).background(theme.statusOrange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 } else if !msg.content.isEmpty {
-                    Text(msg.content)
+                    // Hang-Fix (Scroll im Verlauf): ein SwiftUI-Text OHNE Breiten-Grenze in
+                    // HStack{ Spacer(minLength:40); … } zwingt StackLayout in die allgemeine
+                    // flexible Breiten-Aushandlung (sizeChildrenGenerallyWithConcreteMajorProposal),
+                    // die den – u. U. zehntausende Zeichen langen – String kombinatorisch immer
+                    // wieder neu vermisst → 100 % CPU beim Scrollen.
+                    //  • fixedSize(vertical) + feste maxWidth ⇒ genau EINE Messung pro Layout-Pass
+                    //  • prefix(8000) deckelt pathologisch lange Verlaufs-Nachrichten (Code-Dumps)
+                    Text(msg.content.count > 8000
+                         ? String(msg.content.prefix(8000)) + "\n… (gekürzt)"
+                         : msg.content)
                         .font(.system(size: 14))
                         .foregroundStyle(msg.role == .user ? .white : theme.primaryText)
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 520, alignment: msg.role == .user ? .trailing : .leading)
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
