@@ -144,12 +144,16 @@ struct ChatMessage: Identifiable, Equatable {
     var currentTodos: [TodoItem]? = nil   // latest TodoWrite state
     var finishedCleanly: Bool = false     // result-Event ohne Fehler empfangen
     var resultSubtype: String? = nil     // "max_turns" | "interrupted" | "error" | nil
+    var condensedContent: String? = nil   // A: Haiku-Verdichtung der Agent-Ausgabe (nil = keine)
+    var isCondensing: Bool = false        // Verdichtungs-Pass läuft gerade
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming
             && lhs.gitDiff == rhs.gitDiff && lhs.toolCalls.count == rhs.toolCalls.count
             && lhs.currentTodos?.count == rhs.currentTodos?.count
             && lhs.finishedCleanly == rhs.finishedCleanly
+            && lhs.condensedContent == rhs.condensedContent
+            && lhs.isCondensing == rhs.isCondensing
     }
 }
 

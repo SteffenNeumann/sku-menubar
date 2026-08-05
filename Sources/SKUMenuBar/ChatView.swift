@@ -5636,6 +5636,31 @@ struct SingleChatSessionView: View {
             state.agentService.recordChatSession(agentId: agentId, output: output)
         }
 
+        // A: Verdichtungs-Pass — lange, sauber beendete Agent-Ausgaben nach dem Lauf auf eine
+        // kurze Anzeigefassung eindampfen (Haiku). Nur echte Worker-Läufe (effectiveAgent),
+        // nur bei aktivem Toggle und wirklich langer Ausgabe. Fire-and-forget: blockiert den
+        // restlichen Abschluss (git diff / History-Sync) nicht; der Volltext bleibt im Bubble
+        // aufklappbar. Personas (validateWithPersona) und Basis-Chat (effectiveAgent==nil)
+        // bleiben unberührt.
+        if state.settings.conciseAgentOutput,
+           effectiveAgent != nil,
+           !isCompacting,
+           messages.indices.contains(assistantIndex),
+           messages[assistantIndex].finishedCleanly {
+            let full = messages[assistantIndex].content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if full.count >= 700 {
+                let msgId = messages[assistantIndex].id
+                messages[assistantIndex].isCondensing = true
+                Task { @MainActor in
+                    let condensed = await state.agentService.condenseAgentOutput(full)
+                    if let idx = messages.firstIndex(where: { $0.id == msgId }) {
+                        messages[idx].condensedContent = condensed
+                        messages[idx].isCondensing = false
+                    }
+                }
+            }
+        }
+
         // If tool calls were made, fetch git diff to show changed files
         if messages.indices.contains(assistantIndex),
            !messages[assistantIndex].toolCalls.isEmpty,
@@ -7321,6 +7346,7 @@ struct MessageBubbleView: View, Equatable {
     @State private var dot2Up: Bool = false
     @State private var taskStartTime: Date? = nil
     @State private var completedDuration: TimeInterval? = nil
+    @State private var showFullOutput: Bool = false   // A: Volltext statt Verdichtung zeigen
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -7456,12 +7482,49 @@ struct MessageBubbleView: View, Equatable {
                 && message.toolCalls.allSatisfy { $0.result != nil }
             let isResearching = message.isStreaming && !message.toolCalls.isEmpty && !allToolsDone
             if !message.content.isEmpty && !isResearching {
+                // A: Liegt eine Haiku-Verdichtung vor, wird sie per Default gezeigt; der
+                // ungekürzte Volltext ist über den Toggle darunter aufklappbar.
+                let hasCondensed = (message.condensedContent?.isEmpty == false)
+                let displayText = (hasCondensed && !showFullOutput)
+                    ? (message.condensedContent ?? message.content)
+                    : message.content
+
                 // FIX A: StreamingMarkdownText throttelt den Markdown-Parse während des
                 // Streamings (~7×/s statt pro Token) → behebt O(n²)-Re-Parse der wachsenden
                 // Nachricht. Bei Stream-Ende volle Fidelity. (.equatable() steckt im Wrapper.)
-                StreamingMarkdownText(text: message.content, isStreaming: message.isStreaming)
+                StreamingMarkdownText(text: displayText, isStreaming: message.isStreaming)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(allToolsDone && message.isStreaming ? 0.65 : 1.0)
+
+                if hasCondensed {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { showFullOutput.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: showFullOutput ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(showFullOutput ? "Verdichtung zeigen" : "Vollständige Ausgabe")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.top, 2)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showFullOutput
+                          ? "Kompakte Fassung anzeigen"
+                          : "Die vollständige, ungekürzte Agent-Ausgabe anzeigen")
+                }
+            }
+
+            // A: Während der Verdichtungs-Pass läuft, dezenten Hinweis unter dem Volltext zeigen.
+            if message.isCondensing {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.small).scaleEffect(0.7)
+                    Text("verdichte…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                .padding(.top, 2)
             }
 
             if message.isStreaming && message.content.isEmpty && message.toolCalls.isEmpty {
