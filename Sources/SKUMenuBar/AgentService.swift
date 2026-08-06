@@ -1097,7 +1097,7 @@ Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte 
                 model: agent.model.isEmpty ? nil : agent.model,
                 workingDirectory: agent.projectDirectory,
                 skipPermissions: true,
-                maxTurns: 50
+                maxTurns: 30
             )
             for try await event in stream {
                 if Date() > deadline { return .timedOut(partialOutput: outputText) }
@@ -1414,64 +1414,6 @@ Antworte NUR als valides JSON in diesem exakten Format:
         } catch {
             return .failure(error)
         }
-    }
-
-    // MARK: - Agent-Ausgabe verdichten (A: struktureller Kürze-Cap)
-
-    /// Verdichtet die Abschluss-Ausgabe eines Arbeits-Agenten auf eine kurze Anzeigefassung
-    /// (Haiku, One-Shot, ohne Tools). Struktureller Cap gegen zu lange Agent-Prosa in langen
-    /// agentischen Läufen: greift NACH dem Lauf, unabhängig davon, was das große Modell im
-    /// Lauf produziert hat — eine Stil-Instruktion am Prompt-Anfang verliert dort die Recency.
-    /// Der Volltext bleibt erhalten und im Chat aufklappbar. Gibt `nil` zurück, wenn die
-    /// Verdichtung fehlschlägt, leer ist oder nicht spürbar kürzer ausfällt (dann zeigt die
-    /// UI weiter den Volltext).
-    func condenseAgentOutput(_ fullOutput: String) async -> String? {
-        let trimmed = fullOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 700 else { return nil }
-        guard let cli = cliService else { return nil }
-
-        let system = """
-        Du verdichtest die Abschluss-Ausgabe eines Arbeits-Agenten für die Chat-Anzeige. Gib NUR die verdichtete Fassung zurück — keine Einleitung, kein Kommentar, keine Anrede, keine Rückfrage.
-
-        Regeln:
-        - Höchstens ~5 Sätze ODER eine kurze Stichpunktliste für das inhaltliche Ergebnis.
-        - Streiche jede Prozess-Nacherzählung („Ich lese zuerst…", „Dann prüfe ich…", „Jetzt setze ich um…") und jede Wiederholung des Auftrags/Kontexts.
-        - Behalte konkrete, überprüfbare Fakten: was wurde geändert oder entschieden, welche Dateien/Pfade, offene Punkte, benötigte Freigaben.
-        - Gibt es eine Liste geänderter Dateien oder Deliverables, hänge sie als knappe Bulletliste an (Pfad + 3–6 Wörter).
-        - Sprache, Ton und Fachbegriffe des Originals beibehalten. Erfinde nichts, was nicht im Original steht.
-        """
-
-        let prompt = """
-        Verdichte die folgende Agent-Ausgabe streng nach den Regeln:
-
-        ---
-        \(trimmed.prefix(12000))
-        ---
-        """
-
-        var raw = ""
-        do {
-            let stream = cli.send(
-                message: prompt,
-                systemPrompt: system,
-                model: "haiku",
-                maxTurns: 1,
-                disableTools: true
-            )
-            for try await event in stream {
-                if event.type == "assistant", let contents = event.message?.content {
-                    for c in contents where c.type == "text" { raw += c.text ?? "" }
-                }
-            }
-        } catch {
-            return nil
-        }
-
-        let result = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !result.isEmpty else { return nil }
-        // Nur übernehmen, wenn spürbar kürzer — sonst bringt die Verdichtung nichts.
-        guard result.count < Int(Double(trimmed.count) * 0.75) else { return nil }
-        return result
     }
 
     // MARK: - Persona File Review
