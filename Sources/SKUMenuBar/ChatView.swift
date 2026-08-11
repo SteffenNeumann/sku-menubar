@@ -2002,8 +2002,12 @@ struct SingleChatSessionView: View {
     private func startSystemDictation() {
         guard dictationAvailable else { return }
         // Diktat schreibt in die FOKUSSIERTE Text-View — der Fokus muss vorher sitzen.
-        inputFocused = true
-        DispatchQueue.main.async {
+        // @FocusState wird erst im nächsten Update-Zyklus committet; startet man das
+        // Diktat davor, landet der Text im Nichts. Der kleine Versatz greift deshalb nur,
+        // wenn der Fokus überhaupt wechseln muss (Normalfall: Feld ist bereits fokussiert).
+        let needsFocus = !inputFocused
+        if needsFocus { inputFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (needsFocus ? 0.08 : 0)) {
             NSApp.perform(Selector(("startDictation:")), with: nil)
         }
     }
