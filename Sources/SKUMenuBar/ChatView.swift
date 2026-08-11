@@ -1937,6 +1937,17 @@ struct SingleChatSessionView: View {
                     .help("Chat leeren")
 
                     Button {
+                        startSystemDictation()
+                    } label: {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(dictationAvailable ? theme.secondaryText.opacity(0.75) : theme.tertiaryText.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!dictationAvailable)
+                    .help("Diktat starten — alternativ Fn zweimal drücken")
+
+                    Button {
                         isStreaming ? stopStreaming() : sendMessage()
                     } label: {
                         Image(systemName: isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
@@ -1966,6 +1977,35 @@ struct SingleChatSessionView: View {
         .overlay(isDragOver ? RoundedRectangle(cornerRadius: 0).strokeBorder(accentColor.opacity(0.6), lineWidth: 1.5) : nil)
         .overlay(Rectangle().fill(theme.cardBorder).frame(height: 0.5), alignment: .top)
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
+    }
+
+    // MARK: - Spracheingabe (macOS-System-Diktat)
+
+    /// `startDictation:` ist die Standard-Action des „Bearbeiten"-Menüs und liegt auf
+    /// NSApplication (nicht auf NSResponder/NSTextView). Sie ist nicht öffentlich
+    /// dokumentiert — deshalb der responds(to:)-Guard statt eines harten Aufrufs.
+    private var dictationAvailable: Bool {
+        NSApp.responds(to: Selector(("startDictation:")))
+    }
+
+    /// Startet das macOS-System-Diktat in das Eingabefeld.
+    ///
+    /// Die Aufnahme macht der System-Prozess `DictationIM.app` (hat
+    /// `com.apple.private.tcc.allow = kTCCServiceMicrophone`) und schreibt den Text über
+    /// NSTextInputClient in die fokussierte NSTextView. myClaude selbst braucht dafür
+    /// KEINEN Mikrofon-Zugriff, keine Info.plist-Usage-Keys und keine Entitlements —
+    /// genau wie TextEdit, das ebenfalls kein NSMicrophoneUsageDescription deklariert.
+    ///
+    /// Bewusst zustandslos: Ob der Nutzer das Diktat per Esc, Return oder Sprechpause
+    /// beendet, ist von außen nicht beobachtbar. Ein Start/Stop-Toggle würde deshalb
+    /// regelmäßig „Aufnahme läuft" anzeigen, obwohl sie längst beendet ist.
+    private func startSystemDictation() {
+        guard dictationAvailable else { return }
+        // Diktat schreibt in die FOKUSSIERTE Text-View — der Fokus muss vorher sitzen.
+        inputFocused = true
+        DispatchQueue.main.async {
+            NSApp.perform(Selector(("startDictation:")), with: nil)
+        }
     }
 
     // MARK: - Agent-Bestätigungs-Banner
