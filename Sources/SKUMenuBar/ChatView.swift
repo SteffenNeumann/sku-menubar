@@ -2366,7 +2366,7 @@ struct SingleChatSessionView: View {
                             fg: theme.primaryText,
                             secondary: theme.tertiaryText
                         ) {
-                            inputText = snippet.text; showSnippetPicker = false; inputFocused = true
+                            appendSnippet(snippet); showSnippetPicker = false; inputFocused = true
                         } onDelete: {
                             state.snippets.removeAll { $0.id == snippet.id }
                         }
@@ -3045,7 +3045,7 @@ struct SingleChatSessionView: View {
                             fg: theme.primaryText,
                             secondary: theme.tertiaryText
                         ) {
-                            inputText = snippet.text
+                            appendSnippet(snippet)
                             showSnippetPicker = false
                             inputFocused = true
                         } onDelete: {
@@ -8370,6 +8370,14 @@ private struct OrchRowView: View {
 // MARK: - Snippet Sheet (in SingleChatSessionView)
 
 extension SingleChatSessionView {
+    /// Snippet an den bestehenden Eingabe-Text anhängen statt ihn zu ersetzen.
+    func appendSnippet(_ snippet: CommandSnippet) {
+        let existing = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let addition = snippet.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !addition.isEmpty else { return }
+        inputText = existing.isEmpty ? addition : existing + "\n" + addition
+    }
+
     var snippetSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Snippet hinzufügen")
