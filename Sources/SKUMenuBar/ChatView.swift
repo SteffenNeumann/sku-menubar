@@ -4618,12 +4618,60 @@ struct SingleChatSessionView: View {
         }
     }
 
-    /// Pre-converts all MarkItDown-target files in parallel and returns a [URL: Markdown] cache.
+    /// Extracts PDF text via `pdftotext -layout` (poppler) on a background thread.
+    /// `-layout` keeps table columns and label/value pairs on one line — costs ~6 % more
+    /// characters than plain mode but preserves the structure that makes tables readable.
+    /// Returns nil if poppler is missing or the PDF has no text layer; callers fall back to PDFKit.
+    private func pdfTextConvert(url: URL) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let toolPath = "/opt/homebrew/bin/pdftotext"
+                guard FileManager.default.isExecutableFile(atPath: toolPath) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: toolPath)
+                process.arguments = ["-layout", url.path, "-"]
+                let outPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError = Pipe()
+                do {
+                    try process.run()
+                    // Read before waitUntilExit — a full pipe buffer would deadlock otherwise.
+                    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    process.waitUntilExit()
+                    let text = String(data: data, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(returning: text.flatMap { $0.isEmpty ? nil : $0 })
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// Extracts PDF text with PDFKit — fallback for when pdftotext is unavailable.
+    private func pdfKitText(url: URL) -> String? {
+        guard let pdf = PDFDocument(url: url) else { return nil }
+        var text = ""
+        for i in 0..<pdf.pageCount {
+            if let pageText = pdf.page(at: i)?.string, !pageText.isEmpty { text += pageText + "\n" }
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Pre-converts all binary attachments in parallel and returns a [URL: text] cache.
+    /// MarkItDown handles Office/EPUB formats, pdftotext handles PDFs.
     private func buildMarkItDownCache(from files: [AttachedFile]) async -> [URL: String] {
         var cache: [URL: String] = [:]
         await withTaskGroup(of: (URL, String?).self) { group in
             for file in files where file.isMarkItDownTarget {
                 group.addTask { (file.url, await self.markItDownConvert(url: file.url)) }
+            }
+            for file in files where file.isPDF {
+                group.addTask { (file.url, await self.pdfTextConvert(url: file.url)) }
             }
             for await (url, markdown) in group {
                 if let md = markdown { cache[url] = md }
@@ -4655,21 +4703,23 @@ struct SingleChatSessionView: View {
                     // Large text file — pass by path so Claude CLI reads it via tools
                     parts.append("**\(file.name)** (Textdatei, \(content.count) Zeichen, Pfad: `\(file.url.path)`)\nBitte lies diese Datei über den Pfad ein.")
                 }
-            } else if file.url.pathExtension.lowercased() == "pdf",
-                      let pdf = PDFDocument(url: file.url) {
-                var pdfText = ""
-                for i in 0..<pdf.pageCount {
-                    if let page = pdf.page(at: i),
-                       let pageText = page.string, !pageText.isEmpty { pdfText += pageText + "\n" }
-                }
-                let pdfTrimmed = pdfText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !pdfTrimmed.isEmpty, pdfTrimmed.utf8.count <= inlineLimit {
-                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten)\n```\n\(pdfTrimmed)\n```")
-                } else if !pdfTrimmed.isEmpty {
-                    // Large PDF — pass by path reference
-                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten, Pfad: `\(file.url.path)`)\nBitte lies diese Datei über den Pfad ein.")
+            } else if file.isPDF {
+                // Text comes from the cache (pdftotext -layout); PDFKit only if poppler is missing.
+                let pageCount = PDFDocument(url: file.url)?.pageCount ?? 0
+                let pages = pageCount > 0 ? "\(pageCount) Seiten" : "Seitenzahl unbekannt"
+                if let pdfText = markdownCache[file.url] ?? pdfKitText(url: file.url) {
+                    // PDF text is text — same 50 KB budget as MarkItDown output, not the 10 KB
+                    // text-file limit. A 16-page PDF (~14 KB) now fits inline instead of
+                    // degrading to a path reference the agent has to re-read at 10× the cost.
+                    if pdfText.utf8.count <= markdownLimit {
+                        parts.append("**\(file.name)** (PDF, \(pages))\n```\n\(pdfText)\n```")
+                    } else {
+                        let truncated = String(pdfText.prefix(markdownLimit))
+                        parts.append("**\(file.name)** (PDF, \(pages), gekürzt auf \(markdownLimit/1000) KB)\n```\n\(truncated)\n```\n\n[… vollständiger Text unter: `\(file.url.path)`]")
+                    }
                 } else {
-                    parts.append("**\(file.name)** (PDF, \(pdf.pageCount) Seiten — kein extrahierbarer Text, Pfad: `\(file.url.path)`)")
+                    // Scanned PDF without a text layer — nothing to extract, hand over the path.
+                    parts.append("**\(file.name)** (PDF, \(pages) — kein extrahierbarer Text, Pfad: `\(file.url.path)`)")
                 }
             } else if file.isImage {
                 if forGitHub {

@@ -72,12 +72,15 @@ struct AttachedFile: Identifiable {
                         "bas", "cls", "frm", "vba", "vbs"]
         return textExts.contains(ext) || url.pathExtension.isEmpty
     }
-    /// Binary formats that MarkItDown can convert to Markdown (not images, not PDF handled by PDFKit)
+    /// Binary formats that MarkItDown can convert to Markdown (not images, not PDF — see isPDF)
     var isMarkItDownTarget: Bool {
         let ext = url.pathExtension.lowercased()
         return ["docx", "doc", "pptx", "ppt", "xlsx", "xls",
                 "epub", "ipynb", "rtf", "odt"].contains(ext)
     }
+    /// PDFs get their own converter (`pdftotext -layout`, PDFKit as fallback) instead of MarkItDown,
+    /// whose PDF path needs the optional `markitdown[pdf]` extra.
+    var isPDF: Bool { url.pathExtension.lowercased() == "pdf" }
 }
 
 // MARK: - Notes & Tasks
