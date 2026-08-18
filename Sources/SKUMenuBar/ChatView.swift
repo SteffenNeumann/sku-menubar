@@ -308,6 +308,13 @@ struct SingleChatSessionView: View {
     // sonst kippt effectiveAgent auf nil sobald die Rückfrage kein Trigger-Keyword enthält
     // und der Agent verliert zugang.md + Min-Turns mitten im Chat.
     @State private var lastSessionAgentId: String? = nil
+    /// Agent, dessen Definition die laufende CLI-Session tatsächlich trägt.
+    /// Nötig, weil --resume den System-Prompt nicht mehr ändern kann: wird ein Agent erst
+    /// MITTEN in der Session gewählt, zeigt das Badge ihn an, das Modell hat seine Definition
+    /// aber nie gesehen. Dann wird sie einmalig der Nachricht vorangestellt.
+    @State private var injectedAgentId: String = ""
+    /// Skills, auf die in DIESER Session bereits hingewiesen wurde — kein Wiederholen.
+    @State private var hintedSkills: Set<String> = []
     // Agent-Bestätigungs-Banner (Auto-Orchestrierung pausiert bis Nutzer bestätigt/ändert)
     @State private var pendingAutoAgents: [AgentDefinition] = []
     @State private var pendingAutoConfirmText: String = ""
@@ -932,6 +939,13 @@ struct SingleChatSessionView: View {
             selectedModel = tab.model
             selectedAgent = tab.agentId
             selectedPersonaId = tab.personaId
+        }
+        // Auto-Erkennung nachziehen: oben überschreibt `selectedAgent = tab.agentId` das Ergebnis
+        // von detectAgentForProject() bedingungslos, und für wiederhergestellte Tabs lief die
+        // Erkennung nie. Nur FÜLLEN, nie überschreiben — eine bewusste Abwahl bleibt bestehen.
+        if selectedAgent.isEmpty, let dir = workingDirectory, !dir.isEmpty,
+           let detected = detectAgentForProject(dir) {
+            selectedAgent = detected
         }
         if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
         applyFallbackModelIfNeeded()
@@ -5254,6 +5268,8 @@ struct SingleChatSessionView: View {
                 state.agentService.agents.first { $0.id == agentId }
               }.map { state.agentService.fullSystemPrompt(for: $0) + "\n\n---\n\n" + state.agentService.interactiveGrillGate() }
             : nil
+        // Frische Session: sie trägt ab jetzt genau den Prompt dieses Agenten (oder keinen).
+        if currentSessionId == nil { injectedAgentId = effectiveAgent ?? "" }
 
         let stream: AsyncThrowingStream<StreamEvent, Error>
 
@@ -5338,6 +5354,18 @@ struct SingleChatSessionView: View {
                     }
                 }
             }
+            // Agent MITTEN in der Session gewählt oder gewechselt: --resume kann den System-Prompt
+            // nicht mehr ändern, deshalb die Agent-Definition EINMALIG der Nachricht voranstellen.
+            // Ohne das zeigt das Badge einen Agenten an, dessen Definition (inkl. Active Skills)
+            // das Modell nie gesehen hat — der Wechsel wäre reine Kosmetik.
+            if currentSessionId != nil, let ea = effectiveAgent, ea != injectedAgentId,
+               let agentDef = state.agentService.agents.first(where: { $0.id == ea }) {
+                let body = agentDef.promptBody.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !body.isEmpty {
+                    finalMessage = "━━ Ab jetzt arbeitest du als Agent \(agentDef.name) ━━\n\(body)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + finalMessage
+                }
+                injectedAgentId = ea
+            }
             // Folge-Nachfrage nach einer Orchestrierung: Ziel + voller Master-Plan + Synthese
             // voranstellen, damit der Agent in seiner frischen Session den Bezug zum Plan behält.
             // Nur auf der ersten Nachricht der Session (currentSessionId == nil) — danach trägt
@@ -5352,6 +5380,14 @@ struct SingleChatSessionView: View {
             if currentSessionId == nil, let cs = compactedSummary,
                !cs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 finalMessage = "━━ Zusammenfassung der bisherigen Konversation ━━\n\(cs)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n" + finalMessage
+            }
+            // Passenden Skill per Stichwort anstoßen. Die Anweisung MUSS in der Nachricht stehen:
+            // im System-Prompt bleibt sie messbar wirkungslos (0/17 Läufe), in der Nachricht wirkt
+            // sie (3/3). Ans ENDE gehängt (Recency), einmal pro Session und Skill.
+            if let skill = SkillKeywords.match(in: message, availableSkills: SkillKeywords.installedSkills()),
+               !hintedSkills.contains(skill) {
+                finalMessage += "\n\n" + SkillKeywords.hint(for: skill)
+                hintedSkills.insert(skill)
             }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 12 wenn ein Agent aktiv ist.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
