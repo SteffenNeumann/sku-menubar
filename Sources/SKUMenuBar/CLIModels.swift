@@ -129,6 +129,13 @@ struct NoteItem: Identifiable, Codable {
 
 // MARK: - Chat Messages
 
+/// Ein tatsächlich eingesetzter Skill. `agent` ist gesetzt, wenn der Skill nicht vom
+/// Haupt-Agenten kam, sondern von einem Sub-Agenten (Orchestrator-Phase 2 oder Agent-Tool).
+struct SkillUse: Equatable, Hashable {
+    let name: String
+    var agent: String? = nil
+}
+
 struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     var role: MessageRole
@@ -147,12 +154,24 @@ struct ChatMessage: Identifiable, Equatable {
     var currentTodos: [TodoItem]? = nil   // latest TodoWrite state
     var finishedCleanly: Bool = false     // result-Event ohne Fehler empfangen
     var resultSubtype: String? = nil     // "max_turns" | "interrupted" | "error" | nil
+    /// Skills, die während dieser Antwort tatsächlich eingesetzt wurden
+    /// (aus tool_use name=="Skill"). Reihenfolge = Aufrufreihenfolge, ohne Duplikate.
+    var usedSkills: [SkillUse] = []
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming
             && lhs.gitDiff == rhs.gitDiff && lhs.toolCalls.count == rhs.toolCalls.count
             && lhs.currentTodos?.count == rhs.currentTodos?.count
             && lhs.finishedCleanly == rhs.finishedCleanly
+            && lhs.usedSkills == rhs.usedSkills
+    }
+
+    /// Fügt einen Skill-Einsatz hinzu; Duplikate (gleicher Skill, gleicher Agent) werden ignoriert.
+    mutating func noteSkillUse(_ name: String, agent: String? = nil) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        guard !usedSkills.contains(where: { $0.name == clean && $0.agent == agent }) else { return }
+        usedSkills.append(SkillUse(name: clean, agent: agent))
     }
 }
 
@@ -227,13 +246,21 @@ struct StreamEvent: Decodable {
     let errors: [String]?  // detailed errors in error result events
                            // (z.B. ["No conversation found with session ID: …"])
 
+    // Sub-Agenten (Agent-Tool): die CLI setzt diese Felder top-level auf JEDEM Event,
+    // das aus einem Sub-Agenten stammt. Damit lassen sich dessen Tool-/Skill-Calls
+    // dem Sub-Agenten zuordnen, statt sie dem Haupt-Agenten anzuhängen.
+    let parentToolUseId: String?
+    let subagentType: String?
+
     enum CodingKeys: String, CodingKey {
         case type, subtype, message, result, error, errors
-        case sessionId    = "session_id"
-        case costUsd      = "cost_usd"
-        case inputTokens  = "input_tokens"
-        case outputTokens = "output_tokens"
-        case isError      = "is_error"
+        case sessionId         = "session_id"
+        case costUsd           = "cost_usd"
+        case inputTokens       = "input_tokens"
+        case outputTokens      = "output_tokens"
+        case isError           = "is_error"
+        case parentToolUseId   = "parent_tool_use_id"
+        case subagentType      = "subagent_type"
     }
 
     // Expliziter Initializer mit Defaults (errors am Ende), damit bestehende
@@ -247,6 +274,7 @@ struct StreamEvent: Decodable {
         self.inputTokens = inputTokens; self.outputTokens = outputTokens
         self.isError = isError; self.result = result; self.error = error
         self.errors = errors
+        self.parentToolUseId = nil; self.subagentType = nil
     }
 }
 
@@ -265,6 +293,9 @@ struct StreamToolInput: Decodable {
     let path: String?         // LS
     let description: String?  // misc
     let todos: [TodoItem]?    // TodoWrite
+    let skill: String?        // Skill — Name des aufgerufenen Skills
+    let args: String?         // Skill — optionale Argumente
+    let subagentType: String? // Agent — Typ des gestarteten Sub-Agenten
 
     enum CodingKeys: String, CodingKey {
         case command
@@ -273,21 +304,29 @@ struct StreamToolInput: Decodable {
         case path
         case description
         case todos
+        case skill
+        case args
+        case subagentType = "subagent_type"
     }
 
     /// Human-readable single-line summary for UI display
     var displayText: String? {
-        command ?? filePath ?? pattern ?? path ?? description
+        // skill/subagentType zuerst: bei Skill- und Agent-Calls ist das die
+        // aussagekräftigste Information (description ist dort nur eine Kurzfassung).
+        skill ?? subagentType ?? command ?? filePath ?? pattern ?? path ?? description
     }
 
     /// Convenience init for programmatic creation (e.g. GitHub tool_calls)
     init(description: String) {
-        self.command     = nil
-        self.filePath    = nil
-        self.pattern     = nil
-        self.path        = nil
-        self.description = description
-        self.todos       = nil
+        self.command      = nil
+        self.filePath     = nil
+        self.pattern      = nil
+        self.path         = nil
+        self.description  = description
+        self.todos        = nil
+        self.skill        = nil
+        self.args         = nil
+        self.subagentType = nil
     }
 }
 

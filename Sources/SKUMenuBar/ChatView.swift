@@ -3678,10 +3678,15 @@ struct SingleChatSessionView: View {
                         currentSessionId = sid
                     }
                     if case "assistant" = event.type, let content = event.message?.content {
-                        for block in content where block.type == "text" {
-                            if let t = block.text, !t.isEmpty {
+                        for block in content {
+                            if block.type == "text", let t = block.text, !t.isEmpty {
                                 response += t
                                 messages[rIdx].content += t
+                            } else if block.type == "tool_use",
+                                      block.name == "Skill",
+                                      let skillName = block.toolInput?.skill,
+                                      messages.indices.contains(rIdx) {
+                                messages[rIdx].noteSkillUse(skillName, agent: event.subagentType)
                             }
                         }
                     }
@@ -4317,8 +4322,17 @@ struct SingleChatSessionView: View {
                             switch event.type {
                             case "assistant":
                                 guard let content = event.message?.content else { break }
-                                for block in content where block.type == "text" {
-                                    if let t = block.text, !t.isEmpty { agentOutput += t }
+                                for block in content {
+                                    if block.type == "text", let t = block.text, !t.isEmpty {
+                                        agentOutput += t
+                                    } else if block.type == "tool_use",
+                                              block.name == "Skill",
+                                              let skillName = block.toolInput?.skill,
+                                              messages.indices.contains(progressIdx) {
+                                        // Skill-Einsatz dem laufenden Spezialisten zuordnen.
+                                        // (Der übrige tool_use-Inhalt bleibt wie bisher ungenutzt.)
+                                        messages[progressIdx].noteSkillUse(skillName, agent: agent.name)
+                                    }
                                 }
                             case "result":
                                 if event.isError == true { resultIsError = true }
@@ -5403,6 +5417,12 @@ struct SingleChatSessionView: View {
                                 // TodoWrite: Todo-Liste sofort in Message speichern
                                 if name == "TodoWrite", let todos = block.toolInput?.todos {
                                     messages[assistantIndex].currentTodos = todos
+                                }
+                                // Skill: tatsächlich eingesetzten Skill vermerken.
+                                // Stammt das Event aus einem Sub-Agenten (Agent-Tool), liefert die CLI
+                                // subagent_type top-level mit — dann wird der Skill diesem zugeordnet.
+                                if name == "Skill", let skillName = block.toolInput?.skill {
+                                    messages[assistantIndex].noteSkillUse(skillName, agent: event.subagentType)
                                 }
                                 // ── Datei-Badge direkt beim Empfang setzen ────────────
                                 // Nicht auf syncMessagesOnChange warten (onChange-Timing
@@ -7521,6 +7541,9 @@ struct MessageBubbleView: View, Equatable {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.secondaryText)
                     }
+                    if !message.usedSkills.isEmpty {
+                        usedSkillsBadges(message.usedSkills)
+                    }
                 }
                 Spacer()
                 if message.isStreaming {
@@ -7586,11 +7609,43 @@ struct MessageBubbleView: View, Equatable {
         }
     }
 
+    /// SF-Symbol je Tool. Skill/Agent bekommen ein eigenes Icon, damit sie sich
+    /// in der Tool-Liste vom generischen Werkzeug-Symbol abheben.
+    static func toolIconName(_ name: String) -> String {
+        switch name {
+        case "Bash":  return "terminal.fill"
+        case "Skill": return "sparkles"
+        case "Agent": return "person.2.fill"
+        default:      return "wrench.and.screwdriver.fill"
+        }
+    }
+
+    /// Chips für die in dieser Antwort tatsächlich eingesetzten Skills.
+    /// Bei Sub-Agenten/Orchestrator-Spezialisten wird der Agent mit angezeigt.
+    @ViewBuilder
+    private func usedSkillsBadges(_ skills: [SkillUse]) -> some View {
+        ForEach(skills, id: \.self) { use in
+            HStack(spacing: 3) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(use.agent.map { "\(use.name) · \($0)" } ?? use.name)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(theme.statusGreen)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(theme.statusGreen.opacity(0.10), in: Capsule())
+            .help(use.agent.map { "Skill \(use.name) — eingesetzt von \($0)" }
+                  ?? "Skill \(use.name) — in dieser Antwort eingesetzt")
+        }
+    }
+
     private func toolCallView(_ tool: ToolCall) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             // Header row: icon + tool name + command summary
             HStack(spacing: 5) {
-                Image(systemName: tool.name == "Bash" ? "terminal.fill" : "wrench.and.screwdriver.fill")
+                Image(systemName: Self.toolIconName(tool.name))
                     .font(.system(size: 11)).foregroundStyle(theme.statusOrange)
                 Text(tool.name)
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
