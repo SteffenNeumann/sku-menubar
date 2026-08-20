@@ -17,16 +17,57 @@ enum SkillKeywords {
         ("web-design-guidelines", ["barrierefrei", "barrierefreiheit", "accessibility", "wcag"]),
         ("excel-vba",             ["excel", "vba", "makro", "arbeitsmappe", "xlsm"]),
         ("shadcn",                ["shadcn"]),
+        ("docuseal:docuseal-code", ["docuseal"]),
     ]
 
-    /// Tatsächlich installierte Skills (~/.claude/skills/<name>/SKILL.md).
+    /// Alle vom Modell aufrufbaren Skills aus drei Quellen. Gemessen am CLI-Inventar
+    /// (20.08.2026: 25 Skills, dreimal identisch) — ein reiner Scan von ~/.claude/skills
+    /// kennt davon nur 9 und filtert alles andere stumm weg.
     static func installedSkills(fileManager: FileManager = .default) -> Set<String> {
+        localSkills(fileManager: fileManager)
+            .union(pluginSkills(fileManager: fileManager))
+            .union(builtInSkills)
+    }
+
+    /// `~/.claude/skills/<name>/SKILL.md`
+    static func localSkills(fileManager: FileManager = .default) -> Set<String> {
         let dir = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".claude/skills")
         guard let entries = try? fileManager.contentsOfDirectory(atPath: dir.path) else { return [] }
         return Set(entries.filter { name in
             fileManager.fileExists(atPath: dir.appendingPathComponent("\(name)/SKILL.md").path)
         })
     }
+
+    /// Skills aktivierter Plugins. `settings.json` listet sie als `"plugin@marketplace": true`,
+    /// die Dateien liegen unter `~/.claude/plugins/marketplaces/<marketplace>/skills/<name>/`.
+    /// Aufrufbar sind sie als `plugin:name` — genau so müssen sie auch in `map` stehen.
+    static func pluginSkills(fileManager: FileManager = .default) -> Set<String> {
+        let home = fileManager.homeDirectoryForCurrentUser
+        guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let enabled = root["enabledPlugins"] as? [String: Any] else { return [] }
+
+        var result: Set<String> = []
+        for (key, value) in enabled where (value as? Bool) == true {
+            let parts = key.split(separator: "@", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let dir = home.appendingPathComponent(
+                ".claude/plugins/marketplaces/\(parts[1])/skills")
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: dir.path) else { continue }
+            for name in entries
+            where fileManager.fileExists(atPath: dir.appendingPathComponent("\(name)/SKILL.md").path) {
+                result.insert("\(parts[0]):\(name)")
+            }
+        }
+        return result
+    }
+
+    /// Von der Claude-CLI mitgelieferte Skills. Sie liegen nicht auf der Platte, sind also nicht
+    /// scannbar, sondern nur messbar. Hier stehen ausschließlich die fachlich nutzbaren, deren
+    /// Aufruf bestätigt ist. `debug` fehlt bewusst: gelistet, aber `disable-model-invocation`.
+    static let builtInSkills: Set<String> = [
+        "code-review", "simplify", "verify", "deep-research", "claude-api",
+    ]
 
     /// Erster Treffer in Reihenfolge von `map`, oder nil.
     /// Matcht nur an Wortgrenzen — „excel" darf nicht in „excellent" anschlagen.

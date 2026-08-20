@@ -29,3 +29,42 @@ final class SkillKeywordsTests: XCTestCase {
         XCTAssertTrue(h.contains("shadcn") && h.contains("Skill-Tool"))
     }
 }
+
+// MARK: - Skill-Quellen (Plugin + eingebaut), ergänzt 20.08.2026
+
+extension SkillKeywordsTests {
+
+    /// Der Kern des Fehlers: ein Scan von ~/.claude/skills kennt nur 9 der 25 Skills.
+    func testInstalledSkillsUmfasstPluginUndEingebauteSkills() {
+        let all = SkillKeywords.installedSkills()
+        XCTAssertTrue(all.contains("code-review"), "eingebauter Skill fehlt")
+        XCTAssertTrue(all.contains("deep-research"), "eingebauter Skill fehlt")
+        XCTAssertTrue(all.isSuperset(of: SkillKeywords.localSkills()),
+                      "lokale Skills müssen enthalten bleiben")
+        XCTAssertFalse(all.contains("debug"),
+                       "debug ist disable-model-invocation und darf nicht angeboten werden")
+    }
+
+    /// Plugin-Skills heißen `plugin:name` — sonst greift der Filter in `match` nicht.
+    func testPluginSkillsTragenDasPluginPräfix() {
+        for skill in SkillKeywords.pluginSkills() {
+            XCTAssertTrue(skill.contains(":"), "Plugin-Skill ohne Präfix: \(skill)")
+        }
+    }
+
+    /// Vorher wurde „docuseal" stumm weggefiltert, weil der Skill nicht auf der Platte lag.
+    func testDocusealStichwortTrifftPluginSkill() {
+        let treffer = SkillKeywords.match(in: "Bau die DocuSeal-Anbindung",
+                                          availableSkills: SkillKeywords.installedSkills())
+        XCTAssertEqual(treffer, "docuseal:docuseal-code")
+    }
+
+    /// Jeder Skill in der Tabelle muss auch wirklich aufrufbar sein.
+    func testAlleGemapptenSkillsSindVerfügbar() {
+        let verfügbar = SkillKeywords.installedSkills()
+        for eintrag in SkillKeywords.map {
+            XCTAssertTrue(verfügbar.contains(eintrag.skill),
+                          "Stichwort zeigt auf nicht verfügbaren Skill: \(eintrag.skill)")
+        }
+    }
+}
