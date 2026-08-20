@@ -598,9 +598,11 @@ Consolidate memory for "\(agent.name)".
             }
         }
 
-        // Skills — extract 🛠 Skill Recommendations and surface prominently in preamble
+        // 🛠-Abschnitt (MCPs & Tools) prominent in die Preamble heben.
+        // Alter Titel „Skill Recommendations" wird weiter gelesen.
         let bodyForSkills = agent.promptBody
-        if let range = bodyForSkills.range(of: "## 🛠 Skill Recommendations") {
+        if let range = bodyForSkills.range(of: "## 🛠 MCP & Tool Recommendations")
+            ?? bodyForSkills.range(of: "## 🛠 Skill Recommendations") {
             let fromSection = String(bodyForSkills[range.lowerBound...])
             let trimmedSkills: String
             if let nextHeader = fromSection.range(of: "\n## ", options: [], range: fromSection.index(after: fromSection.startIndex)..<fromSection.endIndex) {

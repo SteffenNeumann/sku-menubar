@@ -902,11 +902,14 @@ private struct SkillsPopover: View {
     let isResearcher: Bool
     let theme: AppTheme
 
-    /// For regular agents: extract ## 🛠 Skill Recommendations from promptBody.
+    /// For regular agents: extract the 🛠 recommendations section from promptBody.
+    /// Der alte Titel „Skill Recommendations" wird weiter gelesen — er stand dort trotz
+    /// MCP-Inhalt und kann in älteren Agent-Dateien noch vorkommen.
     private var agentSkills: String {
         let body = agent.promptBody
-        guard let range = body.range(of: "## 🛠 Skill Recommendations") else {
-            return "Keine Skills gefunden."
+        guard let range = body.range(of: "## 🛠 MCP & Tool Recommendations")
+            ?? body.range(of: "## 🛠 Skill Recommendations") else {
+            return "Keine Empfehlungen gefunden."
         }
         let fromSection = String(body[range.lowerBound...])
         if let nextHeader = fromSection.range(of: "\n## ", options: [],
@@ -974,7 +977,7 @@ private struct SkillsPopover: View {
                 Image(systemName: "wrench.and.screwdriver.fill")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.teal)
-                Text(isResearcher ? "Researcher — Skills-Status" : "Skill Recommendations")
+                Text(isResearcher ? "Researcher — Skills-Status" : "MCP & Tool Recommendations")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(theme.primaryText)
             }

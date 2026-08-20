@@ -536,7 +536,7 @@ struct AgentDefinition: Identifiable, Hashable {
     let timeoutMinutes: Int     // max run time in minutes (default 30)
     // Research
     let researchUpdatedAt: String?  // date string from "🔬 Research Updates" section
-    let skillsUpdatedAt: String?    // date string from "🛠 Skill Recommendations" section
+    let skillsUpdatedAt: String?    // date string from the "🛠" recommendations section
     let dreamSchedule: String?      // "daily", "weekly", "every:N" — independent of task schedule
     // Category
     let category: String?       // nil = worker, "persona" = customer persona
@@ -559,7 +559,7 @@ struct AgentDefinition: Identifiable, Hashable {
     var isPersona: Bool { category == "persona" }
 
     /// MCP server names the Researcher recommended for auto-activation, parsed from
-    /// an `Enable-MCPs: name1, name2` line inside the `## 🛠 Skill Recommendations`
+    /// an `Enable-MCPs: name1, name2` line inside the `## 🛠 MCP & Tool Recommendations`
     /// section. The caller matches these against actually-installed servers, so
     /// unknown/uninstalled names here are harmless no-ops (no false activation).
     var recommendedMCPNames: [String] {
