@@ -7577,13 +7577,19 @@ struct MessageBubbleView: View, Equatable {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.secondaryText)
                     }
-                    if !message.usedSkills.isEmpty {
-                        usedSkillsBadges(message.usedSkills)
-                    }
                 }
                 Spacer()
                 if message.isStreaming {
                     ProgressView().scaleEffect(0.5)
+                }
+            }
+
+            // Skill-Chips in eigener Zeile: seit die Agents ihre Hauptskills bei jeder Aufgabe
+            // laden, sind es bis zu 4 pro Antwort — inline in der Kopfzeile würden sie mit
+            // Quell-, Agent- und Modell-Badge um dieselbe Zeile konkurrieren und abgeschnitten.
+            if !message.usedSkills.isEmpty {
+                FlowLayout(spacing: 4) {
+                    usedSkillsBadges(message.usedSkills)
                 }
             }
 
