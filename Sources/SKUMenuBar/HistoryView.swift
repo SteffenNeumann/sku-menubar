@@ -388,6 +388,29 @@ struct HistoryView: View {
                         .font(.system(size: 12)).foregroundStyle(theme.tertiaryText.opacity(0.7))
                 }
 
+                // Eingesetzte Skills — wie im Live-Chat, aber aus dem Transcript rekonstruiert.
+                // Eigene umbrechende Zeile: seit die Agents ihre Hauptskills bei jeder Aufgabe
+                // laden, sind es bis zu vier pro Antwort.
+                if !msg.usedSkills.isEmpty {
+                    FlowLayout(spacing: 4) {
+                        ForEach(msg.usedSkills, id: \.self) { use in
+                            HStack(spacing: 3) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 9, weight: .semibold))
+                                Text(use.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(theme.statusGreen)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(theme.statusGreen.opacity(0.10), in: Capsule())
+                            .help("Skill \(use.name) — in dieser Antwort eingesetzt")
+                        }
+                    }
+                    .frame(maxWidth: 520, alignment: .leading)
+                }
+
                 // Content
                 if msg.content.isEmpty && !msg.toolCalls.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {

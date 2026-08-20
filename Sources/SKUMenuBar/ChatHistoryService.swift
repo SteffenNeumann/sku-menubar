@@ -392,6 +392,7 @@ final class ChatHistoryService: ObservableObject {
 
             // Extract tool calls from assistant messages
             var toolCalls: [ToolCall] = []
+            var usedSkills: [SkillUse] = []
             if role == .assistant,
                case .blocks(let blocks) = raw.message?.content {
                 for block in blocks where block.type == "tool_use" {
@@ -399,6 +400,13 @@ final class ChatHistoryService: ObservableObject {
                         name: block.name ?? "unknown",
                         input: "…"
                     ))
+                    // Skill-Einsatz für die Chips im Verlauf — gleiche Quelle wie im Live-Chat
+                    if block.name == "Skill", let skill = block.toolInput?.skill {
+                        let clean = skill.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !clean.isEmpty, !usedSkills.contains(where: { $0.name == clean }) {
+                            usedSkills.append(SkillUse(name: clean, agent: nil))
+                        }
+                    }
                 }
             }
 
@@ -411,6 +419,10 @@ final class ChatHistoryService: ObservableObject {
                let lastIdx = messages.indices.last,
                messages[lastIdx].role == .assistant {
                 messages[lastIdx].toolCalls.append(contentsOf: toolCalls)
+                for use in usedSkills
+                where !messages[lastIdx].usedSkills.contains(where: { $0.name == use.name }) {
+                    messages[lastIdx].usedSkills.append(use)
+                }
                 messages[lastIdx].inputTokens += inputT
                 messages[lastIdx].outputTokens += outputT
                 messages[lastIdx].cacheTokens += cacheT
@@ -427,7 +439,8 @@ final class ChatHistoryService: ObservableObject {
                 model: model,
                 inputTokens: inputT,
                 outputTokens: outputT,
-                cacheTokens: cacheT
+                cacheTokens: cacheT,
+                usedSkills: usedSkills
             ))
         }
         return messages

@@ -424,6 +424,10 @@ struct HistoryMessage: Identifiable {
     var inputTokens: Int
     var outputTokens: Int
     var cacheTokens: Int
+    /// Skills, die in dieser Antwort eingesetzt wurden — aus `tool_use name=="Skill"` im
+    /// Transcript rekonstruiert. Sub-Agent-Skills fehlen hier prinzipbedingt: die stehen
+    /// nicht im Parent-.jsonl, sondern in den Sidechains unter `subagents/`.
+    var usedSkills: [SkillUse] = []
 }
 
 // MARK: - History JSONL parsing helpers
@@ -491,6 +495,24 @@ struct RawContentBlock: Decodable {
     let name: String?
     let content: RawContent?
     let thinking: String?
+    let toolInput: StreamToolInput?   // decoded from tool_use.input
+
+    enum CodingKeys: String, CodingKey {
+        case type, text, id, name, content, thinking, input
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type     = try c.decode(String.self, forKey: .type)
+        text     = try? c.decodeIfPresent(String.self, forKey: .text)
+        id       = try? c.decodeIfPresent(String.self, forKey: .id)
+        name     = try? c.decodeIfPresent(String.self, forKey: .name)
+        content  = try? c.decodeIfPresent(RawContent.self, forKey: .content)
+        thinking = try? c.decodeIfPresent(String.self, forKey: .thinking)
+        // `input` ist je nach Tool beliebig geformt. `try?` verhindert, dass ein unerwartetes
+        // Schema den ganzen Block — und damit die ganze Verlaufs-Nachricht — scheitern lässt.
+        toolInput = try? c.decodeIfPresent(StreamToolInput.self, forKey: .input)
+    }
 }
 
 struct RawUsage: Decodable {
