@@ -2685,8 +2685,9 @@ struct SingleChatSessionView: View {
     private func autoSelectMCPsForProject(_ path: String? = nil) {
         guard !availableMCPs.isEmpty else { return }
 
-        // Immer aktive Basis-Server
-        let alwaysOn: Set<String> = ["memory", "sequential-thinking"]
+        // Immer aktive Basis-Server. `linear` ist dabei, weil Linear für geplante Arbeit führend
+        // ist und nicht erst per Stichwort oder Picker geholt werden soll.
+        let alwaysOn: Set<String> = ["memory", "sequential-thinking", "linear"]
 
         // Agent-spezifische MCPs wenn ein Agent erkannt wurde
         var agentMCPs: Set<String> = []
