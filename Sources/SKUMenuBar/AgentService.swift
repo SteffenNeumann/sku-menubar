@@ -707,9 +707,9 @@ Ausnahme: NUR ausdrücklich angefragte Artefakte (Code, E-Mail, Dokument, Datei)
         return prompt
     }
 
-    /// Verbindliches Freigabe-/Grill-Gate — NUR für den interaktiven Einzel-Agent-Chat.
-    /// Wird in ChatView.performSend NACH fullSystemPrompt() angehängt, damit es als ALLERLETZTE
-    /// Instruktion (Recency) über den Antwort-Stil-Block gewinnt. Bewusst NICHT in
+    /// Verbindliches Freigabe-/Grill-Gate — für JEDE erste Nachricht einer interaktiven
+    /// Unterhaltung, mit oder ohne gewählten Agenten. Wird in ChatView.performSend als letzter
+    /// Block angehängt, damit es die Recency über den Antwort-Stil-Block gewinnt. Bewusst NICHT in
     /// fullSystemPrompt() selbst: Scheduled-Agents laufen autonom (würden nie starten) und
     /// Orchestrator-Sub-Agenten haben keinen Nutzer-Kanal (Deadlock) — beide dürfen NICHT gaten.
     /// Inhaltlich = grill-me/grilling-Skill (~/.claude/skills/grill-me/) + Zusätze
@@ -720,6 +720,7 @@ Ausnahme: NUR ausdrücklich angefragte Artefakte (Code, E-Mail, Dokument, Datei)
 
 Interviewe mich unerbittlich zu jedem Aspekt, bis wir ein geteiltes Verständnis erreichen. Geh jeden Ast des Entscheidungsbaums durch und löse Abhängigkeiten zwischen Entscheidungen eine nach der anderen auf. Für jede Frage nennst du deine empfohlene Antwort.
 
+- Ist die Aufgabe klein und eindeutig — eine Datei lesen, eine Wissensfrage, ein klar umrissener Einzelschritt, eine Rückfrage zu etwas, das gerade lief — dann mach sie einfach und lass das Interview weg. Das Interview gilt für alles, was gebaut, geplant, umgebaut oder entschieden wird.
 - Stelle die Fragen EINZELN — eine Frage, dann auf meine Rückmeldung warten, bevor du weitermachst. Mehrere Fragen auf einmal sind verwirrend.
 - Ist etwas ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, schau ihn selbst nach, statt mich zu fragen. Die ENTSCHEIDUNGEN aber sind meine — leg mir jede einzeln vor und warte auf meine Antwort.
 - Führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren.

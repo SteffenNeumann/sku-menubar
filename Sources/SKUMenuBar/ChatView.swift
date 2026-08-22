@@ -5260,14 +5260,23 @@ struct SingleChatSessionView: View {
 
         // Inject agent system prompt (memory + write instruction + promptBody) on the first message of a session.
         // On resume (currentSessionId != nil) the session already carries the context — skip.
-        // Freigabe-/Grill-Gate NUR hier im interaktiven Einzel-Agent-Pfad und nur beim ersten
-        // Turn (currentSessionId == nil): als allerletzter Block angehängt gewinnt er die Recency
+        // Freigabe-/Grill-Gate hängt an JEDER ersten Nachricht des interaktiven Pfads — auch ohne
+        // gewählten Agenten. Vorher hing es an `effectiveAgent != nil`; da selectedAgent im Alltag
+        // meist leer ist, griff es praktisch nie. Als allerletzter Block gewinnt es die Recency
         // über den Antwort-Stil. Scheduled-/Orchestrator-Pfade nutzen fullSystemPrompt() ohne Gate.
-        let agentSystemPrompt: String? = (currentSessionId == nil)
-            ? effectiveAgent.flatMap { agentId in
+        let agentSystemPrompt: String?
+        if currentSessionId == nil {
+            let gate = state.agentService.interactiveGrillGate()
+            if let agentDef = effectiveAgent.flatMap({ agentId in
                 state.agentService.agents.first { $0.id == agentId }
-              }.map { state.agentService.fullSystemPrompt(for: $0) + "\n\n---\n\n" + state.agentService.interactiveGrillGate() }
-            : nil
+            }) {
+                agentSystemPrompt = state.agentService.fullSystemPrompt(for: agentDef) + "\n\n---\n\n" + gate
+            } else {
+                agentSystemPrompt = gate
+            }
+        } else {
+            agentSystemPrompt = nil
+        }
         // Frische Session: sie trägt ab jetzt genau den Prompt dieses Agenten (oder keinen).
         if currentSessionId == nil { injectedAgentId = effectiveAgent ?? "" }
 
