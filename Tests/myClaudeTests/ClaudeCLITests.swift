@@ -214,3 +214,35 @@ final class StreamToolInputFallbackTests: XCTestCase {
         }
     }
 }
+
+final class AgentTriggeringTests: XCTestCase {
+
+    func testTriggersWhenNothingChosen() {
+        XCTAssertTrue(AgentTriggering.mayAutoTrigger(
+            selectedAgent: "", suppressed: false,
+            text: "Bau mir ein Design", orchestratorActive: false))
+    }
+
+    func testRespectsExplicitNoAgent() {
+        // Der gemeldete Fehler: "Kein Agent" setzte nur selectedAgent = "" — genau den
+        // Zustand, in dem der Trigger greift. Beim nächsten Tastendruck war er wieder da.
+        XCTAssertFalse(AgentTriggering.mayAutoTrigger(
+            selectedAgent: "", suppressed: true,
+            text: "Bau mir ein Design", orchestratorActive: false))
+    }
+
+    func testNeverOverridesAManualChoice() {
+        XCTAssertFalse(AgentTriggering.mayAutoTrigger(
+            selectedAgent: "qa-test-engineer", suppressed: false,
+            text: "Bau mir ein Design", orchestratorActive: false))
+    }
+
+    func testStaysQuietDuringOrchestrationAndOnEmptyInput() {
+        XCTAssertFalse(AgentTriggering.mayAutoTrigger(
+            selectedAgent: "", suppressed: false,
+            text: "Status", orchestratorActive: true))
+        XCTAssertFalse(AgentTriggering.mayAutoTrigger(
+            selectedAgent: "", suppressed: false,
+            text: "", orchestratorActive: false))
+    }
+}

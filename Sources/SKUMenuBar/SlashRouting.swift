@@ -38,3 +38,26 @@ enum SlashRouting {
         return locallyHandled.contains(word)
     }
 }
+
+// Wann ein Agent automatisch per Trigger-Wort einspringen darf.
+//
+// „Kein Agent" setzte bisher nur `selectedAgent = ""` — genau den Zustand, in dem der
+// Auto-Trigger greift. Beim nächsten Tastendruck war der Agent wieder da, und der Haken
+// im Menü sprang zurück. Es fehlte ein Zustand für „ausdrücklich keinen".
+enum AgentTriggering {
+
+    /// - Parameters:
+    ///   - selectedAgent: manuell gewählter Agent ("" = keiner)
+    ///   - suppressed: Nutzer hat „Kein Agent" gewählt
+    ///   - text: aktuelle Eingabe
+    ///   - orchestratorActive: läuft eine Orchestrierung? Dann würde ein Folge-Stichwort
+    ///     („Status") einen zufälligen Agent einspringen lassen.
+    static func mayAutoTrigger(selectedAgent: String,
+                               suppressed: Bool,
+                               text: String,
+                               orchestratorActive: Bool) -> Bool {
+        guard !suppressed else { return false }
+        guard selectedAgent.isEmpty, !text.isEmpty, !orchestratorActive else { return false }
+        return true
+    }
+}

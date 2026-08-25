@@ -296,6 +296,10 @@ struct SingleChatSessionView: View {
     @State private var rightPanelShowsPlan: Bool = true // true = Plan-Tab aktiv
     @State private var diffPanelDismissed: Bool = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
+    /// Nutzer hat „Kein Agent" gewählt. Ohne diesen Merker greift der Trigger beim nächsten
+    /// Tastendruck sofort wieder — die Abwahl wirkte dadurch wie „wird nicht übernommen".
+    /// Gilt, bis wieder ein Agent gewählt wird.
+    @State private var agentAutoTriggerSuppressed: Bool = false
     @State private var pendingTriggerAgentName: String? = nil // live-Badge beim Tippen (onChange-driven)
     @State private var pendingMCPKeywordNames: [String] = []  // inaktive MCPs, deren Stichwort im Text erkannt wurde
     // Solo-Orchestrator-Agent Session — für nahtlose Follow-Up-Continuity
@@ -379,9 +383,11 @@ struct SingleChatSessionView: View {
 
     /// Returns the first agent whose effectiveTriggers match `text`.
     private func autoTriggerAgent(for text: String) -> AgentDefinition? {
-        // Im laufenden Orchestrator-Kontext niemals feuern — ein Follow-Up-Keyword
-        // (z.B. "Status") würde sonst zufällig einen falschen Agent einspringen lassen.
-        guard selectedAgent.isEmpty, !text.isEmpty, orchestratorHistory.isEmpty else { return nil }
+        guard AgentTriggering.mayAutoTrigger(selectedAgent: selectedAgent,
+                                             suppressed: agentAutoTriggerSuppressed,
+                                             text: text,
+                                             orchestratorActive: !orchestratorHistory.isEmpty)
+        else { return nil }
         return state.agentService.agents.first { agent in
             agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
         }
@@ -929,7 +935,7 @@ struct SingleChatSessionView: View {
         if isActive, let dir = state.pendingChatSetDirectory {
             state.pendingChatSetDirectory = nil
             workingDirectory = dir
-            if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+            if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
             autoSelectMCPsForProject(dir)
         }
         if let wd = tab.workingDirectory { workingDirectory = wd }
@@ -950,8 +956,10 @@ struct SingleChatSessionView: View {
         }
         // Auto-Erkennung nachziehen: oben überschreibt `selectedAgent = tab.agentId` das Ergebnis
         // von detectAgentForProject() bedingungslos, und für wiederhergestellte Tabs lief die
-        // Erkennung nie. Nur FÜLLEN, nie überschreiben — eine bewusste Abwahl bleibt bestehen.
-        if selectedAgent.isEmpty, let dir = workingDirectory, !dir.isEmpty,
+        // Erkennung nie. Nur FÜLLEN, nie überschreiben — und eine bewusste Abwahl respektieren:
+        // `selectedAgent.isEmpty` allein IST der Abwahl-Zustand und reichte dafür nicht.
+        if !agentAutoTriggerSuppressed,
+           selectedAgent.isEmpty, let dir = workingDirectory, !dir.isEmpty,
            let detected = detectAgentForProject(dir) {
             selectedAgent = detected
         }
@@ -1073,7 +1081,7 @@ struct SingleChatSessionView: View {
         workingDirectory = path
         tab.title = URL(fileURLWithPath: path).lastPathComponent
         withAnimation(.spring(response: 0.3)) { showFilePanel = true }
-        if let agentId = detectAgentForProject(path) { selectedAgent = agentId }
+        if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(path) { selectedAgent = agentId }
         autoSelectMCPsForProject(path)
     }
 
@@ -1093,7 +1101,7 @@ struct SingleChatSessionView: View {
             if let dir = state.pendingChatSetDirectory {
                 state.pendingChatSetDirectory = nil
                 workingDirectory = dir
-                if let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
+                if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
                 autoSelectMCPsForProject(dir)
             }
             // Sync badge sets to AppState so FileExplorerView can display them
@@ -2329,11 +2337,14 @@ struct SingleChatSessionView: View {
                     state.agentService.agents.first { $0.name == n }?.id
                 }
                 pickerRow(label: "Kein Agent", selected: selectedAgent.isEmpty && autoTrigId == nil) {
-                    selectedAgent = ""; lastSessionAgentId = nil; lastOrchestratorSoloAgentId = nil; showAgentPicker = false
+                    selectedAgent = ""; lastSessionAgentId = nil; lastOrchestratorSoloAgentId = nil
+                    autoTriggeredAgentName = nil; pendingTriggerAgentName = nil
+                    agentAutoTriggerSuppressed = true
+                    showAgentPicker = false
                 }
                 ForEach(state.agentService.agents) { a in
                     pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
-                        selectedAgent = a.id; showAgentPicker = false
+                        selectedAgent = a.id; agentAutoTriggerSuppressed = false; showAgentPicker = false
                     }
                 }
             }
@@ -2975,11 +2986,15 @@ struct SingleChatSessionView: View {
                         selectedAgent = ""
                         lastSessionAgentId = nil
                         lastOrchestratorSoloAgentId = nil
+                        autoTriggeredAgentName = nil
+                        pendingTriggerAgentName = nil
+                        agentAutoTriggerSuppressed = true
                         showAgentPicker = false
                     }
                     ForEach(state.agentService.agents) { a in
                         pickerRow(label: a.name, selected: selectedAgent == a.id || (selectedAgent.isEmpty && a.id == autoTrigId)) {
                             selectedAgent = a.id
+                            agentAutoTriggerSuppressed = false
                             showAgentPicker = false
                         }
                     }
@@ -4819,9 +4834,10 @@ struct SingleChatSessionView: View {
             let name = String(lower.dropFirst("/agent ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
             if name == "–" || name == "-" || name == "none" {
                 selectedAgent = ""; autoTriggeredAgentName = nil
+                pendingTriggerAgentName = nil; agentAutoTriggerSuppressed = true
                 messages.append(ChatMessage(role: .assistant, content: "Agent zurückgesetzt."))
             } else if let agent = state.agentService.agents.first(where: { $0.name.lowercased() == name || $0.id.lowercased() == name }) {
-                selectedAgent = agent.id; autoTriggeredAgentName = nil
+                selectedAgent = agent.id; autoTriggeredAgentName = nil; agentAutoTriggerSuppressed = false
                 messages.append(ChatMessage(role: .assistant, content: "Agent gewechselt zu **\(agent.name)**."))
             } else {
                 let names = state.agentService.agents.map { "• \($0.name)" }.joined(separator: "\n")
@@ -5208,7 +5224,8 @@ struct SingleChatSessionView: View {
             ? selectedOrchestrators.first
             : (!selectedAgent.isEmpty
                ? selectedAgent
-               : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId))
+               : (agentAutoTriggerSuppressed ? nil
+                  : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId)))
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
