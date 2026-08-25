@@ -164,6 +164,17 @@ final class AppState: ObservableObject {
 
     // MARK: - CLI Services
     let cliService     = ClaudeCLIService()
+
+    /// Version der Claude CLI, die diese App fährt — beim Start ermittelt.
+    /// nil = noch nicht geprüft oder Binary antwortet nicht.
+    @Published private(set) var cliVersion: ClaudeCLIVersion?
+
+    /// Ob die installierte CLI ein Feature beherrscht. Unbekannte Version → false,
+    /// damit die UI einen Hinweis zeigt statt still zu scheitern.
+    func cliSupports(_ feature: ClaudeFeature) -> Bool {
+        guard let cliVersion else { return false }
+        return cliVersion >= feature.minVersion
+    }
     let ghModelsService = GitHubModelsService()
     let historyService = ChatHistoryService()
     lazy var agentService: AgentService = AgentService(cliService: cliService, appState: self)
@@ -284,6 +295,8 @@ final class AppState: ObservableObject {
             activeSessions = loadedSessions
             agentService.startScheduler()
             historyService.startWatching()
+            // CLI-Version einmal ermitteln — Grundlage für die Feature-Gates (ClaudeFeature).
+            cliVersion = await cliService.detectVersion()
             await refreshGitStatuses()
             // Email automation: configure Linear + start polling
             let logPath = NSHomeDirectory() + "/.claude/inquiry_debug.log"

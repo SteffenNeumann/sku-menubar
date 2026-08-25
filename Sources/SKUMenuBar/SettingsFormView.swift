@@ -32,6 +32,13 @@ struct SettingsFormView: View {
     @State private var draft = GitHubSettings()
     @State private var hasDocumentsAccess: Bool? = nil
 
+    @AppStorage(ClaudeCLI.overridePathKey) private var cliPathOverride: String = ""
+
+    /// Features, die die installierte CLI (noch) nicht kann — Grundlage für Ampel und Hinweis.
+    private var cliOutdatedFeatures: [ClaudeFeature] {
+        ClaudeFeature.allCases.filter { !state.cliSupports($0) }
+    }
+
     @AppStorage(FontKey.chatText)  private var chatFontRaw:  String = AppFontChoice.system.rawValue
     @AppStorage(FontKey.codeBlock) private var codeFontRaw:  String = AppFontChoice.system.rawValue
 
@@ -490,6 +497,34 @@ struct SettingsFormView: View {
                                         }
                                         .buttonStyle(.plain)
                                     }
+                                }
+                            }
+                            rowDivider()
+                            configRow(title: "Claude CLI",
+                                      icon: "terminal",
+                                      hint: "Binary, mit dem myClaude spricht. Leer = automatisch suchen.") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 10) {
+                                        Circle()
+                                            .fill(cliOutdatedFeatures.isEmpty ? theme.statusGreen : theme.statusOrange)
+                                            .frame(width: 8, height: 8)
+                                        Text(state.cliVersion.map { "Version \($0)" } ?? "Version unbekannt")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(theme.primaryText)
+                                        Spacer()
+                                    }
+                                    ForEach(cliOutdatedFeatures, id: \.rawValue) { feature in
+                                        Text(feature.upgradeHint)
+                                            .font(.system(size: 12))
+                                            .foregroundStyle(theme.statusOrange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    TextField(ClaudeCLI.resolvedPath(), text: $cliPathOverride)
+                                        .textFieldStyle(.plain)
+                                        .styledInput(theme: theme)
+                                    Text("Änderung wirkt nach einem Neustart von myClaude.")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(theme.tertiaryText)
                                 }
                             }
                         }

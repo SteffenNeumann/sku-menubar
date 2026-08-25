@@ -619,10 +619,30 @@ struct SidebarView: View {
                 Text(BuildInfo.commitHash)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(theme.secondaryText.opacity(0.4))
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText.opacity(0.3))
+                cliVersionLabel
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
         }
+    }
+
+    /// Version der Claude CLI neben BuildInfo — macht sichtbar, womit die App gerade
+    /// spricht. Orange, sobald ein Feature an einer zu alten CLI scheitern würde.
+    private var cliVersionLabel: some View {
+        let outdated = ClaudeFeature.allCases.filter { !state.cliSupports($0) }
+        let text = state.cliVersion.map { "cli \($0)" } ?? "cli ?"
+        let help = outdated.isEmpty
+            ? "Claude CLI \(state.cliVersion?.description ?? "unbekannt") — \(state.cliService.claudePath)"
+            : outdated.map(\.upgradeHint).joined(separator: "\n")
+        return Text(text)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(outdated.isEmpty
+                             ? theme.secondaryText.opacity(0.4)
+                             : theme.statusOrange.opacity(0.8))
+            .help(help)
     }
 }

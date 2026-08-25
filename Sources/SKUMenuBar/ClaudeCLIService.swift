@@ -4,11 +4,19 @@ import SwiftUI
 @MainActor
 final class ClaudeCLIService: ObservableObject {
 
-    // MARK: - Computed path
+    // MARK: - Binary path & version
 
-    var claudePath: String {
-        let home = NSHomeDirectory()
-        return "\(home)/.local/bin/claude"
+    /// Aufgelöster Binary-Pfad (siehe ClaudeCLI.candidatePaths). Einmal ermittelt und
+    /// gehalten, damit nicht jeder Aufruf das Dateisystem abklopft.
+    private lazy var resolvedPath: String = ClaudeCLI.resolvedPath()
+
+    var claudePath: String { resolvedPath }
+
+    /// Fragt `claude --version` ab. Der Wert landet in `AppState.cliVersion` — dort
+    /// steht er einmal und wird von den Views beobachtet.
+    func detectVersion() async -> ClaudeCLIVersion? {
+        let output = (try? await runCommand(["--version"])) ?? ""
+        return ClaudeCLIVersion(parsing: output)
     }
 
     // MARK: - Send message (streaming)

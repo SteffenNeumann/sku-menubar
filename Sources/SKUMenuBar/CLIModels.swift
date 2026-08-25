@@ -158,12 +158,21 @@ struct ChatMessage: Identifiable, Equatable {
     /// (aus tool_use name=="Skill"). Reihenfolge = Aufrufreihenfolge, ohne Duplikate.
     var usedSkills: [SkillUse] = []
 
+    /// Auf claude.ai veröffentlichte Artifacts dieser Antwort — abgeleitet aus den
+    /// Artifact-Tool-Calls, damit die URL nicht im Fließtext untergeht.
+    var artifacts: [ArtifactRef] {
+        toolCalls.compactMap(ArtifactRef.init(toolCall:))
+    }
+
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id && lhs.content == rhs.content && lhs.isStreaming == rhs.isStreaming
             && lhs.gitDiff == rhs.gitDiff && lhs.toolCalls.count == rhs.toolCalls.count
             && lhs.currentTodos?.count == rhs.currentTodos?.count
             && lhs.finishedCleanly == rhs.finishedCleanly
             && lhs.usedSkills == rhs.usedSkills
+            // artifacts entstehen erst mit dem tool_result — toolCalls.count allein
+            // ändert sich dabei nicht, die Karte bliebe sonst unsichtbar.
+            && lhs.artifacts == rhs.artifacts
     }
 
     /// Fügt einen Skill-Einsatz hinzu; Duplikate (gleicher Skill, gleicher Agent) werden ignoriert.
@@ -208,6 +217,39 @@ struct TodoItem: Decodable, Equatable, Identifiable {
 
     var isCompleted: Bool { status == "completed" }
     var isActive: Bool    { status == "in_progress" }
+}
+
+// MARK: - Artifacts (Artifact-Tool → claude.ai-Seite)
+
+/// Ein veröffentlichtes Artifact: Link plus der Name, unter dem es publiziert wurde.
+/// Wird aus einem abgeschlossenen Artifact-Tool-Call gelesen, nicht separat mitgeführt.
+struct ArtifactRef: Identifiable, Equatable {
+    var id: String { url }
+    let url: String
+    let title: String?
+
+    init?(toolCall: ToolCall) {
+        guard toolCall.name == "Artifact",
+              let result = toolCall.result,
+              let url = ArtifactRef.firstArtifactURL(in: result)
+        else { return nil }
+        self.url = url
+        // input ist StreamToolInput.displayText — bei Artifact der Dateipfad.
+        let name = (toolCall.input as NSString).lastPathComponent
+        self.title = name.isEmpty ? nil : name
+    }
+
+    /// Erste claude.ai-URL im Tool-Ergebnis. Das Artifact-Tool antwortet als Fließtext,
+    /// deshalb wird die URL herausgelesen statt ein Feld erwartet.
+    static func firstArtifactURL(in text: String) -> String? {
+        guard let range = text.range(of: "https://claude.ai/") else { return nil }
+        let tail = text[range.lowerBound...]
+        // An Whitespace und typischen Satz-/Markdown-Zeichen abschneiden.
+        let stop = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'<>)]},;"))
+        let url = tail.unicodeScalars.prefix { !stop.contains($0) }
+        let cleaned = String(String.UnicodeScalarView(url))
+        return cleaned.count > "https://claude.ai/".count ? cleaned : nil
+    }
 }
 
 struct ToolCall: Identifiable, Equatable {
@@ -296,8 +338,11 @@ struct StreamToolInput: Decodable {
     let skill: String?        // Skill — Name des aufgerufenen Skills
     let args: String?         // Skill — optionale Argumente
     let subagentType: String? // Agent — Typ des gestarteten Sub-Agenten
+    /// Kurzfassung der Felder, die keinem der obigen entsprechen. Ohne das zeigt
+    /// jedes Tool, das die App noch nicht kennt, einen Chip mit leerem Text.
+    let rawSummary: String?
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case command
         case filePath    = "file_path"
         case pattern
@@ -309,11 +354,50 @@ struct StreamToolInput: Decodable {
         case subagentType = "subagent_type"
     }
 
+    /// Beliebiger JSON-Key — nur für den rawSummary-Fallback.
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        command      = try? c.decodeIfPresent(String.self, forKey: .command)
+        filePath     = try? c.decodeIfPresent(String.self, forKey: .filePath)
+        pattern      = try? c.decodeIfPresent(String.self, forKey: .pattern)
+        path         = try? c.decodeIfPresent(String.self, forKey: .path)
+        description  = try? c.decodeIfPresent(String.self, forKey: .description)
+        todos        = try? c.decodeIfPresent([TodoItem].self, forKey: .todos)
+        skill        = try? c.decodeIfPresent(String.self, forKey: .skill)
+        args         = try? c.decodeIfPresent(String.self, forKey: .args)
+        subagentType = try? c.decodeIfPresent(String.self, forKey: .subagentType)
+
+        // Unbekannte Keys einsammeln — nur skalare Werte, gekappt, höchstens drei.
+        let known = Set(CodingKeys.allCases.map(\.stringValue))
+        var parts: [String] = []
+        if let raw = try? decoder.container(keyedBy: AnyKey.self) {
+            for key in raw.allKeys.sorted(by: { $0.stringValue < $1.stringValue })
+            where !known.contains(key.stringValue) && parts.count < 3 {
+                let value: String?
+                if let s = try? raw.decode(String.self, forKey: key) { value = s }
+                else if let i = try? raw.decode(Int.self, forKey: key) { value = String(i) }
+                else if let b = try? raw.decode(Bool.self, forKey: key) { value = String(b) }
+                else { value = nil }
+                if let value, !value.isEmpty {
+                    parts.append("\(key.stringValue): \(value.prefix(80))")
+                }
+            }
+        }
+        rawSummary = parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// Human-readable single-line summary for UI display
     var displayText: String? {
         // skill/subagentType zuerst: bei Skill- und Agent-Calls ist das die
         // aussagekräftigste Information (description ist dort nur eine Kurzfassung).
-        skill ?? subagentType ?? command ?? filePath ?? pattern ?? path ?? description
+        skill ?? subagentType ?? command ?? filePath ?? pattern ?? path ?? description ?? rawSummary
     }
 
     /// Convenience init for programmatic creation (e.g. GitHub tool_calls)
@@ -327,6 +411,7 @@ struct StreamToolInput: Decodable {
         self.skill        = nil
         self.args         = nil
         self.subagentType = nil
+        self.rawSummary   = nil
     }
 }
 

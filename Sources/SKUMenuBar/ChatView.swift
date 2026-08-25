@@ -583,15 +583,20 @@ struct SingleChatSessionView: View {
         let description: String
     }
 
-    private let slashCommands: [SlashCommand] = [
-        .init(name: "/clear",   description: "Chat-Verlauf löschen"),
-        .init(name: "/new",     description: "Neue Session starten"),
-        .init(name: "/compact", description: "Konversation komprimieren"),
-        .init(name: "/files",   description: "Dateien in Kontext laden — z.B. /files *.swift"),
-        .init(name: "/agent",   description: "Agent wählen — z.B. /agent code-reviewer"),
-        .init(name: "/model",   description: "Modell wechseln"),
-        .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
-    ]
+    private var slashCommands: [SlashCommand] {
+        [
+            .init(name: "/clear",   description: "Chat-Verlauf löschen"),
+            .init(name: "/new",     description: "Neue Session starten"),
+            .init(name: "/compact", description: "Konversation komprimieren"),
+            .init(name: "/files",   description: "Dateien in Kontext laden — z.B. /files *.swift"),
+            .init(name: "/agent",   description: "Agent wählen — z.B. /agent code-reviewer"),
+            .init(name: "/model",   description: "Modell wechseln"),
+            .init(name: "/design",  description: state.cliSupports(.designCanvas)
+                   ? "Design-Canvas erstellen — z.B. /design Login-Screen"
+                   : "⚠︎ braucht Claude CLI ≥ \(ClaudeFeature.designCanvas.minVersion) — claude update"),
+            .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
+        ]
+    }
 
     private var filteredSlashCommands: [SlashCommand] {
         let q = inputText.lowercased()
@@ -4830,6 +4835,19 @@ struct SingleChatSessionView: View {
                 .joined(separator: "\n")
             messages.append(ChatMessage(role: .assistant, content: "**Verfügbare Slash-Befehle:**\n\n\(helpText)"))
             return true
+        case _ where lower == "/design" || lower.hasPrefix("/design "):
+            // /design wird von der CLI selbst bearbeitet (Skill) — hier nur das
+            // Versions-Gate, damit ein zu altes Binary nicht still nichts tut.
+            guard state.cliSupports(.designCanvas) else {
+                messages.append(ChatMessage(role: .assistant, content:
+                    "**\(ClaudeFeature.designCanvas.label) nicht verfügbar**\n\n"
+                    + "Installiert: `\(state.cliVersion?.description ?? "unbekannt")` — "
+                    + "gebraucht: `\(ClaudeFeature.designCanvas.minVersion)`\n\n"
+                    + "```bash\nclaude update\n```\n"
+                    + "Danach myClaude neu starten."))
+                return true
+            }
+            return false   // an die CLI durchreichen
         default:
             // unknown commands pass through to Claude
             return false
@@ -5068,7 +5086,8 @@ struct SingleChatSessionView: View {
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         if routingText.hasPrefix("/"),
            !routingText.contains(" ") || routingText == "/compact"
-               || routingText.hasPrefix("/files") || routingText.hasPrefix("/agent") {
+               || routingText.hasPrefix("/files") || routingText.hasPrefix("/agent")
+               || routingText.lowercased().hasPrefix("/design ") {
             if handleSlashCommand(routingText) { return }
         }
 
@@ -7603,6 +7622,12 @@ struct MessageBubbleView: View, Equatable {
                 }
             }
 
+            // Veröffentlichte Artifacts (z.B. eine Design-Canvas aus /design) als Karte —
+            // im Fließtext geht der Link sonst unter.
+            ForEach(message.artifacts) { artifact in
+                artifactCard(artifact)
+            }
+
             // Todo-Panel (TodoWrite-basiert) — Vorrang vor LivePlanView
             if let todos = message.currentTodos {
                 TodoPanel(todos: todos, isStreaming: message.isStreaming,
@@ -7665,10 +7690,11 @@ struct MessageBubbleView: View, Equatable {
     /// in der Tool-Liste vom generischen Werkzeug-Symbol abheben.
     static func toolIconName(_ name: String) -> String {
         switch name {
-        case "Bash":  return "terminal.fill"
-        case "Skill": return "sparkles"
-        case "Agent": return "person.2.fill"
-        default:      return "wrench.and.screwdriver.fill"
+        case "Bash":     return "terminal.fill"
+        case "Skill":    return "sparkles"
+        case "Agent":    return "person.2.fill"
+        case "Artifact": return "square.on.square.dashed"
+        default:         return "wrench.and.screwdriver.fill"
         }
     }
 
@@ -7691,6 +7717,40 @@ struct MessageBubbleView: View, Equatable {
             .help(use.agent.map { "Skill \(use.name) — eingesetzt von \($0)" }
                   ?? "Skill \(use.name) — in dieser Antwort eingesetzt")
         }
+    }
+
+    /// Karte für ein veröffentlichtes Artifact. Öffnet im Systembrowser — das
+    /// eingebaute WKWebView hat keine claude.ai-Anmeldung.
+    private func artifactCard(_ artifact: ArtifactRef) -> some View {
+        Button {
+            if let url = URL(string: artifact.url) { NSWorkspace.shared.open(url) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "square.on.square.dashed")
+                    .font(.system(size: 14))
+                    .foregroundStyle(accentColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(artifact.title ?? "Artifact")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                    Text("Auf claude.ai veröffentlicht")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondaryText.opacity(0.6))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.cardBorder, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Im Browser öffnen — \(artifact.url)")
     }
 
     private func toolCallView(_ tool: ToolCall) -> some View {
