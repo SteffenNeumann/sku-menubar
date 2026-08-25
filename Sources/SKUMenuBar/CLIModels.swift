@@ -158,10 +158,23 @@ struct ChatMessage: Identifiable, Equatable {
     /// (aus tool_use name=="Skill"). Reihenfolge = Aufrufreihenfolge, ohne Duplikate.
     var usedSkills: [SkillUse] = []
 
-    /// Auf claude.ai veröffentlichte Artifacts dieser Antwort — abgeleitet aus den
-    /// Artifact-Tool-Calls, damit die URL nicht im Fließtext untergeht.
-    var artifacts: [ArtifactRef] {
-        toolCalls.compactMap(ArtifactRef.init(toolCall:))
+    /// Auf claude.ai veröffentlichte Artifacts dieser Antwort — damit die URL nicht im
+    /// Fließtext untergeht.
+    ///
+    /// Gespeichert, NICHT berechnet: `==` läuft bei jedem SwiftUI-Diff für jede sichtbare
+    /// Nachricht, beim Streaming also mehrmals pro Sekunde. Als computed property mit
+    /// Substring-Suche über die Tool-Ergebnisse waren das ~10 ms pro Render-Pass auf dem
+    /// MainActor — genau das Kostenmuster der früheren Hänger.
+    private(set) var artifacts: [ArtifactRef] = []
+
+    /// Nach einem eingetroffenen Artifact-tool_result aufrufen.
+    /// Dedupliziert per URL: ein Redeploy publiziert auf dieselbe Adresse, und
+    /// `ForEach` über `Identifiable` verträgt keine doppelten IDs.
+    mutating func refreshArtifacts() {
+        var seen = Set<String>()
+        artifacts = toolCalls
+            .compactMap(ArtifactRef.init(toolCall:))
+            .filter { seen.insert($0.url).inserted }
     }
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
@@ -229,26 +242,42 @@ struct ArtifactRef: Identifiable, Equatable {
     let title: String?
 
     init?(toolCall: ToolCall) {
+        // `input` ist StreamToolInput.displayText — beim Publish der Dateipfad.
+        // Andere Artifact-Aktionen (list, comments, upload_asset) liefern dort den
+        // rawSummary-Rest ("action: list · limit: 25") und enthalten im Ergebnis
+        // ebenfalls claude.ai-URLs; ohne diese Prüfung entstünde eine Karte
+        // "veröffentlicht" für einen reinen Lesevorgang.
         guard toolCall.name == "Artifact",
+              ArtifactRef.looksLikePublishedFile(toolCall.input),
               let result = toolCall.result,
               let url = ArtifactRef.firstArtifactURL(in: result)
         else { return nil }
         self.url = url
-        // input ist StreamToolInput.displayText — bei Artifact der Dateipfad.
         let name = (toolCall.input as NSString).lastPathComponent
         self.title = name.isEmpty ? nil : name
     }
 
+    /// Ob der Tool-Input ein Dateipfad ist (Publish) und nicht die Feld-Zusammenfassung
+    /// einer anderen Aktion.
+    static func looksLikePublishedFile(_ input: String) -> Bool {
+        input.contains("/") && !input.contains(": ")
+    }
+
+    /// Zeichen, an denen eine URL im Fließtext endet. Statisch, weil die Funktion
+    /// je Nachricht mehrfach läuft.
+    private static let urlStop = CharacterSet.whitespacesAndNewlines
+        .union(CharacterSet(charactersIn: "\"'<>()[]{},;`*"))
+
     /// Erste claude.ai-URL im Tool-Ergebnis. Das Artifact-Tool antwortet als Fließtext,
     /// deshalb wird die URL herausgelesen statt ein Feld erwartet.
     static func firstArtifactURL(in text: String) -> String? {
-        guard let range = text.range(of: "https://claude.ai/") else { return nil }
-        let tail = text[range.lowerBound...]
-        // An Whitespace und typischen Satz-/Markdown-Zeichen abschneiden.
-        let stop = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'<>)]},;"))
-        let url = tail.unicodeScalars.prefix { !stop.contains($0) }
-        let cleaned = String(String.UnicodeScalarView(url))
-        return cleaned.count > "https://claude.ai/".count ? cleaned : nil
+        guard let range = text.range(of: "https://claude.ai/", options: [.caseInsensitive])
+        else { return nil }
+        var url = String(String.UnicodeScalarView(
+            text[range.lowerBound...].unicodeScalars.prefix { !urlStop.contains($0) }))
+        // Satzzeichen am Ende gehören nie zur URL — mittendrin schon (Pfadsegmente).
+        while let last = url.last, ".!?:,".contains(last) { url.removeLast() }
+        return url.count > "https://claude.ai/".count ? url : nil
     }
 }
 
@@ -338,6 +367,7 @@ struct StreamToolInput: Decodable {
     let skill: String?        // Skill — Name des aufgerufenen Skills
     let args: String?         // Skill — optionale Argumente
     let subagentType: String? // Agent — Typ des gestarteten Sub-Agenten
+    let notebookPath: String? // NotebookEdit — heißt notebook_path, nicht file_path
     /// Kurzfassung der Felder, die keinem der obigen entsprechen. Ohne das zeigt
     /// jedes Tool, das die App noch nicht kennt, einen Chip mit leerem Text.
     let rawSummary: String?
@@ -352,7 +382,12 @@ struct StreamToolInput: Decodable {
         case skill
         case args
         case subagentType = "subagent_type"
+        case notebookPath = "notebook_path"
     }
+
+    /// Key-Bestandteile, deren Werte nie in die UI gehören. Ohne die Sperre schreibt
+    /// ein MCP-Tool mit `api-key`/`token`-Parameter seinen Schlüssel sichtbar in den Chat.
+    private static let secretish = ["key", "token", "secret", "password", "auth", "credential"]
 
     /// Beliebiger JSON-Key — nur für den rawSummary-Fallback.
     private struct AnyKey: CodingKey {
@@ -373,13 +408,18 @@ struct StreamToolInput: Decodable {
         skill        = try? c.decodeIfPresent(String.self, forKey: .skill)
         args         = try? c.decodeIfPresent(String.self, forKey: .args)
         subagentType = try? c.decodeIfPresent(String.self, forKey: .subagentType)
+        notebookPath = try? c.decodeIfPresent(String.self, forKey: .notebookPath)
 
         // Unbekannte Keys einsammeln — nur skalare Werte, gekappt, höchstens drei.
         let known = Set(CodingKeys.allCases.map(\.stringValue))
         var parts: [String] = []
         if let raw = try? decoder.container(keyedBy: AnyKey.self) {
-            for key in raw.allKeys.sorted(by: { $0.stringValue < $1.stringValue })
-            where !known.contains(key.stringValue) && parts.count < 3 {
+            for key in raw.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
+                if parts.count >= 3 { break }
+                let name = key.stringValue.lowercased()
+                guard !known.contains(key.stringValue),
+                      !StreamToolInput.secretish.contains(where: { name.contains($0) })
+                else { continue }
                 let value: String?
                 if let s = try? raw.decode(String.self, forKey: key) { value = s }
                 else if let i = try? raw.decode(Int.self, forKey: key) { value = String(i) }
@@ -393,11 +433,16 @@ struct StreamToolInput: Decodable {
         rawSummary = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// Pfad-artige Felder — für Datei-Badges. rawSummary gehört bewusst NICHT dazu:
+    /// daraus würde ein erfundener Pfad im Datei-Panel.
+    var pathLikeValue: String? { filePath ?? notebookPath }
+
     /// Human-readable single-line summary for UI display
     var displayText: String? {
         // skill/subagentType zuerst: bei Skill- und Agent-Calls ist das die
         // aussagekräftigste Information (description ist dort nur eine Kurzfassung).
-        skill ?? subagentType ?? command ?? filePath ?? pattern ?? path ?? description ?? rawSummary
+        skill ?? subagentType ?? command ?? filePath ?? notebookPath
+            ?? pattern ?? path ?? description ?? rawSummary
     }
 
     /// Convenience init for programmatic creation (e.g. GitHub tool_calls)
@@ -411,6 +456,7 @@ struct StreamToolInput: Decodable {
         self.skill        = nil
         self.args         = nil
         self.subagentType = nil
+        self.notebookPath = nil
         self.rawSummary   = nil
     }
 }

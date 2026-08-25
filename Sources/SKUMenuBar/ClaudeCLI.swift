@@ -21,27 +21,22 @@ struct ClaudeCLIVersion: Comparable, CustomStringConvertible, Equatable {
         self.patch = patch
     }
 
-    /// Parst `2.1.243`, `2.1.243 (Claude Code)`, `v2.1.243` — nil wenn keine Version drin steht.
+    /// Parst `2.1.243`, `2.1.243 (Claude Code)`, `v2.1.243`, `Claude Code v2 build 2.1.243`
+    /// — nil, wenn keine vollständige a.b.c-Gruppe drin steht.
+    ///
+    /// Bewusst per Regex auf ASCII-Ziffern und mit Längenbegrenzung: ein handgeschriebener
+    /// Scanner brach bei einer einzelnen Zahl vor der Version ab, nahm arabisch-indische
+    /// Ziffern als `isNumber` an (die `Int()` nicht parst) und machte aus einem
+    /// Integer-Overflow still eine 0 — also eine plausible, falsche Version statt nil.
     init?(parsing text: String) {
-        // Erste Zahlenfolge der Form a.b.c herausziehen; alles davor/danach ignorieren.
-        var digits: [Int] = []
-        var current = ""
-        for ch in text {
-            if ch.isNumber {
-                current.append(ch)
-            } else if ch == "." && !current.isEmpty {
-                digits.append(Int(current) ?? 0)
-                current = ""
-            } else if !current.isEmpty {
-                digits.append(Int(current) ?? 0)
-                break
-            } else if !digits.isEmpty {
-                break
-            }
-        }
-        if !current.isEmpty { digits.append(Int(current) ?? 0) }
-        guard digits.count >= 3 else { return nil }
-        self.init(digits[0], digits[1], digits[2])
+        // Nicht `\b`: zwischen "v" und "1" in "v10.0.7" gibt es keine Wortgrenze.
+        // Stattdessen: davor und danach darf weder Ziffer noch Punkt stehen — das
+        // schließt zugleich abgeschnittene Teilstücke einer längeren Zahlenfolge aus.
+        guard let match = text.range(of: #"(?<![\d.])\d{1,9}\.\d{1,9}\.\d{1,9}(?![\d.])"#,
+                                     options: .regularExpression) else { return nil }
+        let parts = text[match].split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        self.init(parts[0], parts[1], parts[2])
     }
 
     var description: String { "\(major).\(minor).\(patch)" }
@@ -79,6 +74,14 @@ enum ClaudeFeature: String, CaseIterable {
     }
 }
 
+/// Ergebnis einer Feature-Prüfung. `unknown` ist kein „nein" — die Version steht beim
+/// Start kurz nicht fest, und ein nicht gefundenes Binary meldet sie nie.
+enum CLIFeatureSupport: Equatable {
+    case yes
+    case tooOld(ClaudeCLIVersion)
+    case unknown
+}
+
 // MARK: - Auflösung
 
 enum ClaudeCLI {
@@ -86,7 +89,18 @@ enum ClaudeCLI {
     /// UserDefaults-Schlüssel für einen manuell gesetzten Binary-Pfad (Einstellungen).
     static let overridePathKey = "claudeCLIPath"
 
-    /// Kandidaten in Prioritätsreihenfolge: Override → Standard-Installation → PATH-Orte.
+    /// Manuell gesetzter Pfad aus den Einstellungen — getrimmt und mit aufgelöstem `~`.
+    /// Ohne beides scheitert ein aus dem Terminal kopierter Pfad still an der
+    /// Ausführbarkeitsprüfung und die App fällt wortlos auf die Standardorte zurück.
+    static func overridePath() -> String? {
+        let raw = (UserDefaults.standard.string(forKey: overridePathKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        return (raw as NSString).expandingTildeInPath
+    }
+
+    /// Kandidaten in Prioritätsreihenfolge: Override → Standardinstallation → gängige
+    /// Präfixe → jedes Verzeichnis aus `$PATH` (deckt nvm/fnm/bun/mise/asdf ab).
     ///
     /// Bewusst NICHT dabei: die CLI, die Claude Desktop unter
     /// `~/Library/Application Support/Claude/claude-code/<version>/` mitbringt. Das ist ein
@@ -94,15 +108,16 @@ enum ClaudeCLI {
     static func candidatePaths() -> [String] {
         let home = NSHomeDirectory()
         var paths: [String] = []
-        let override = UserDefaults.standard.string(forKey: overridePathKey) ?? ""
-        if !override.trimmingCharacters(in: .whitespaces).isEmpty {
-            paths.append(override)
-        }
+        if let override = overridePath() { paths.append(override) }
         paths += [
             "\(home)/.local/bin/claude",
             "/opt/homebrew/bin/claude",
             "/usr/local/bin/claude",
         ]
+        let envPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        paths += envPath.split(separator: ":")
+            .map { "\($0)/claude" }
+            .filter { !paths.contains($0) }
         return paths
     }
 
@@ -114,5 +129,12 @@ enum ClaudeCLI {
             return path
         }
         return "\(NSHomeDirectory())/.local/bin/claude"
+    }
+
+    /// Ob ein vom Nutzer eingetragener Pfad tatsächlich benutzbar ist — für den
+    /// Hinweis in den Einstellungen. nil = kein Override gesetzt.
+    static func overrideIsUsable() -> Bool? {
+        guard let path = overridePath() else { return nil }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 }

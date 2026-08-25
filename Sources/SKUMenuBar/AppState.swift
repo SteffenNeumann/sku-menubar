@@ -169,11 +169,22 @@ final class AppState: ObservableObject {
     /// nil = noch nicht geprüft oder Binary antwortet nicht.
     @Published private(set) var cliVersion: ClaudeCLIVersion?
 
-    /// Ob die installierte CLI ein Feature beherrscht. Unbekannte Version → false,
-    /// damit die UI einen Hinweis zeigt statt still zu scheitern.
-    func cliSupports(_ feature: ClaudeFeature) -> Bool {
-        guard let cliVersion else { return false }
-        return cliVersion >= feature.minVersion
+    /// Ob die installierte CLI ein Feature beherrscht.
+    ///
+    /// `.unknown` ist bewusst von `.tooOld` getrennt: Beim Start steht die Version für
+    /// ein bis zwei Sekunden nicht fest, und findet die Pfadauflösung das Binary nie
+    /// (nvm/bun/mise), bliebe sie dauerhaft nil. Beides als „zu alt" zu behandeln würde
+    /// das Feature mit einer falschen Begründung sperren.
+    func cliSupport(for feature: ClaudeFeature) -> CLIFeatureSupport {
+        guard let cliVersion else { return .unknown }
+        return cliVersion >= feature.minVersion ? .yes : .tooOld(cliVersion)
+    }
+
+    /// Nur für Anzeigezwecke (Ampel, Hinweistext) — `.unknown` zählt hier NICHT als
+    /// unterstützt, blockiert aber auch nichts.
+    func cliDefinitelySupports(_ feature: ClaudeFeature) -> Bool {
+        if case .yes = cliSupport(for: feature) { return true }
+        return false
     }
     let ghModelsService = GitHubModelsService()
     let historyService = ChatHistoryService()
@@ -296,7 +307,9 @@ final class AppState: ObservableObject {
             agentService.startScheduler()
             historyService.startWatching()
             // CLI-Version einmal ermitteln — Grundlage für die Feature-Gates (ClaudeFeature).
-            cliVersion = await cliService.detectVersion()
+            // Nebenläufig: runCommand hat keinen Timeout; ein hängendes `claude --version`
+            // würde sonst Git-Status, Linear-MCP und E-Mail-Polling mit blockieren.
+            Task { self.cliVersion = await self.cliService.detectVersion() }
             await refreshGitStatuses()
             // Email automation: configure Linear + start polling
             let logPath = NSHomeDirectory() + "/.claude/inquiry_debug.log"

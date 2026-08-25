@@ -633,10 +633,15 @@ struct SidebarView: View {
     /// Version der Claude CLI neben BuildInfo — macht sichtbar, womit die App gerade
     /// spricht. Orange, sobald ein Feature an einer zu alten CLI scheitern würde.
     private var cliVersionLabel: some View {
-        let outdated = ClaudeFeature.allCases.filter { !state.cliSupports($0) }
+        // Nur eine tatsächlich zu alte CLI färbt orange. Solange die Version beim Start
+        // noch nicht feststeht, ist nichts zu warnen — geblockt wird dann auch nichts.
+        let outdated = ClaudeFeature.allCases.filter {
+            if case .tooOld = state.cliSupport(for: $0) { return true }
+            return false
+        }
         let text = state.cliVersion.map { "cli \($0)" } ?? "cli ?"
         let help = outdated.isEmpty
-            ? "Claude CLI \(state.cliVersion?.description ?? "unbekannt") — \(state.cliService.claudePath)"
+            ? "Claude CLI \(state.cliVersion?.description ?? "wird geprüft…") — \(state.cliService.claudePath)"
             : outdated.map(\.upgradeHint).joined(separator: "\n")
         return Text(text)
             .font(.system(size: 10, design: .monospaced))

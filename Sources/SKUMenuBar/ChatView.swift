@@ -591,9 +591,12 @@ struct SingleChatSessionView: View {
             .init(name: "/files",   description: "Dateien in Kontext laden — z.B. /files *.swift"),
             .init(name: "/agent",   description: "Agent wählen — z.B. /agent code-reviewer"),
             .init(name: "/model",   description: "Modell wechseln"),
-            .init(name: "/design",  description: state.cliSupports(.designCanvas)
-                   ? "Design-Canvas erstellen — z.B. /design Login-Screen"
-                   : "⚠︎ braucht Claude CLI ≥ \(ClaudeFeature.designCanvas.minVersion) — claude update"),
+            .init(name: "/design",  description: {
+                if case .tooOld = state.cliSupport(for: .designCanvas) {
+                    return "⚠︎ braucht Claude CLI ≥ \(ClaudeFeature.designCanvas.minVersion) — claude update"
+                }
+                return "Design-Canvas erstellen — z.B. /design Login-Screen"
+            }()),
             .init(name: "/help",    description: "Verfügbare Befehle anzeigen"),
         ]
     }
@@ -4797,18 +4800,21 @@ struct SingleChatSessionView: View {
     @discardableResult
     private func handleSlashCommand(_ cmd: String) -> Bool {
         let lower = cmd.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        inputText = ""
         showSlashMenu = false
+        // inputText NUR leeren, wenn der Befehl auch übernommen wird. Sonst verlieren
+        // die Orchestrator-Pfade den Text: sie lesen inputText neu (sendAutoOrchestration,
+        // sendOrchestrator, sendOrchestratorDirectAnswer) und brechen bei leer still ab.
+        func consume() -> Bool { inputText = ""; return true }
         switch lower {
         case "/clear", "/new":
             newSession()
-            return true
+            return consume()
         case "/model":
             showModelPicker = true
-            return true
+            return consume()
         case "/agent":
             showAgentPicker = true
-            return true
+            return consume()
         case _ where lower.hasPrefix("/agent "):
             let name = String(lower.dropFirst("/agent ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
             if name == "–" || name == "-" || name == "none" {
@@ -4821,33 +4827,34 @@ struct SingleChatSessionView: View {
                 let names = state.agentService.agents.map { "• \($0.name)" }.joined(separator: "\n")
                 messages.append(ChatMessage(role: .assistant, content: "Agent **\(name)** nicht gefunden.\n\nVerfügbare Agents:\n\(names)"))
             }
-            return true
+            return consume()
         case "/compact":
             compactSession()
-            return true
+            return consume()
         case _ where lower.hasPrefix("/files"):
             let glob = String(lower.dropFirst("/files".count)).trimmingCharacters(in: .whitespacesAndNewlines)
             loadFilesIntoContext(glob: glob.isEmpty ? "*" : glob)
-            return true
+            return consume()
         case "/help":
             let helpText = slashCommands
                 .map { "**\($0.name)** — \($0.description)" }
                 .joined(separator: "\n")
             messages.append(ChatMessage(role: .assistant, content: "**Verfügbare Slash-Befehle:**\n\n\(helpText)"))
-            return true
-        case _ where lower == "/design" || lower.hasPrefix("/design "):
-            // /design wird von der CLI selbst bearbeitet (Skill) — hier nur das
-            // Versions-Gate, damit ein zu altes Binary nicht still nichts tut.
-            guard state.cliSupports(.designCanvas) else {
+            return consume()
+        case _ where SlashRouting.commandWord(of: lower) == "/design":
+            // /design bearbeitet die CLI selbst (Skill) — hier nur das Versions-Gate,
+            // damit ein zu altes Binary nicht still nichts tut.
+            switch state.cliSupport(for: .designCanvas) {
+            case .yes, .unknown:
+                return false   // an die CLI durchreichen, Text bleibt stehen
+            case .tooOld(let installed):
                 messages.append(ChatMessage(role: .assistant, content:
                     "**\(ClaudeFeature.designCanvas.label) nicht verfügbar**\n\n"
-                    + "Installiert: `\(state.cliVersion?.description ?? "unbekannt")` — "
-                    + "gebraucht: `\(ClaudeFeature.designCanvas.minVersion)`\n\n"
+                    + "Installiert: `\(installed)` — gebraucht: `\(ClaudeFeature.designCanvas.minVersion)`\n\n"
                     + "```bash\nclaude update\n```\n"
                     + "Danach myClaude neu starten."))
-                return true
+                return consume()
             }
-            return false   // an die CLI durchreichen
         default:
             // unknown commands pass through to Claude
             return false
@@ -5082,12 +5089,10 @@ struct SingleChatSessionView: View {
         // ── Slash-Commands ZUERST ─────────────────────────────────────────────
         // Muss vor dem Smart-Routing stehen, sonst werden /clear, /new, /compact, /model
         // im orchestratorMode als Aufgabentext an die Pipeline geschickt.
-        // Gleiche Gate-Bedingung wie unten: Dateipfade (/Users/...) gehen als Text durch.
+        // SlashRouting entscheidet, was lokal behandelt wird — Dateipfade (/Users/...)
+        // und unbekannte Befehle gehen unangetastet als Text an die CLI.
         let routingText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if routingText.hasPrefix("/"),
-           !routingText.contains(" ") || routingText == "/compact"
-               || routingText.hasPrefix("/files") || routingText.hasPrefix("/agent")
-               || routingText.lowercased().hasPrefix("/design ") {
+        if SlashRouting.needsLocalHandling(routingText) {
             if handleSlashCommand(routingText) { return }
         }
 
@@ -5492,18 +5497,21 @@ struct SingleChatSessionView: View {
                                 // ── Datei-Badge direkt beim Empfang setzen ────────────
                                 // Nicht auf syncMessagesOnChange warten (onChange-Timing
                                 // unzuverlässig). Hier live beim Streaming updaten.
-                                if !toolInput.isEmpty, let cwd = workingDirectory {
+                                // pathLikeValue statt toolInput: displayText fällt inzwischen
+                                // auf rawSummary zurück, und "cell_id: c1 · …" ist kein Pfad.
+                                if let rawPath = block.toolInput?.pathLikeValue,
+                                   !rawPath.isEmpty, let cwd = workingDirectory {
                                     func resolveBadgePath(_ raw: String) -> String {
                                         raw.hasPrefix("/") ? raw : cwd + (cwd.hasSuffix("/") ? "" : "/") + raw
                                     }
                                     switch name {
                                     case "Write":
-                                        let p = resolveBadgePath(toolInput)
+                                        let p = resolveBadgePath(rawPath)
                                         dismissedChangedPaths.remove(p)
                                         changedFilePaths.insert(p)
                                         newFilePaths.insert(p)
                                     case "Edit", "MultiEdit", "NotebookEdit":
-                                        let p = resolveBadgePath(toolInput)
+                                        let p = resolveBadgePath(rawPath)
                                         dismissedChangedPaths.remove(p)
                                         changedFilePaths.insert(p)
                                     default: break
@@ -5536,6 +5544,11 @@ struct SingleChatSessionView: View {
                             if let idx = messages[assistantIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
                                 // Cap output to 4000 chars to avoid blowing up the UI
                                 messages[assistantIndex].toolCalls[idx].result = String(resultText.prefix(4000))
+                                // Artifact-Karte einmal hier berechnen — nicht in ChatMessage.==,
+                                // das bei jedem SwiftUI-Diff läuft.
+                                if messages[assistantIndex].toolCalls[idx].name == "Artifact" {
+                                    messages[assistantIndex].refreshArtifacts()
+                                }
                                 // Notify LinearView to refresh when a Linear MCP tool completes
                                 if messages[assistantIndex].toolCalls[idx].name.hasPrefix("mcp__linear__") {
                                     NotificationCenter.default.post(name: .linearMCPDidChange, object: nil)

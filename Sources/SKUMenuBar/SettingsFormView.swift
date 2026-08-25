@@ -34,9 +34,17 @@ struct SettingsFormView: View {
 
     @AppStorage(ClaudeCLI.overridePathKey) private var cliPathOverride: String = ""
 
-    /// Features, die die installierte CLI (noch) nicht kann — Grundlage für Ampel und Hinweis.
+    /// Aufgelöster CLI-Pfad als Platzhalter. Einmal beim Erscheinen ermittelt —
+    /// als computed property liefe die Dateisystemprüfung bei jedem Tastendruck.
+    @State private var resolvedCLIPath: String = ""
+
+    /// Features, die die installierte CLI nachweislich nicht kann. Eine noch unbekannte
+    /// Version zählt nicht dazu — sie blockiert auch nichts.
     private var cliOutdatedFeatures: [ClaudeFeature] {
-        ClaudeFeature.allCases.filter { !state.cliSupports($0) }
+        ClaudeFeature.allCases.filter {
+            if case .tooOld = state.cliSupport(for: $0) { return true }
+            return false
+        }
     }
 
     @AppStorage(FontKey.chatText)  private var chatFontRaw:  String = AppFontChoice.system.rawValue
@@ -519,9 +527,15 @@ struct SettingsFormView: View {
                                             .foregroundStyle(theme.statusOrange)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
-                                    TextField(ClaudeCLI.resolvedPath(), text: $cliPathOverride)
+                                    TextField(resolvedCLIPath, text: $cliPathOverride)
                                         .textFieldStyle(.plain)
                                         .styledInput(theme: theme)
+                                    if ClaudeCLI.overrideIsUsable() == false {
+                                        Text("Dieser Pfad ist nicht ausführbar — myClaude benutzt weiter \(resolvedCLIPath).")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(theme.statusOrange)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
                                     Text("Änderung wirkt nach einem Neustart von myClaude.")
                                         .font(.system(size: 11))
                                         .foregroundStyle(theme.tertiaryText)
@@ -633,6 +647,7 @@ struct SettingsFormView: View {
         .onAppear {
             draft = state.settings
             checkDocumentsAccess()
+            resolvedCLIPath = ClaudeCLI.resolvedPath()
         }
         .onChange(of: draft.claudeSessionTokenLimit)  { state.settings.claudeSessionTokenLimit  = $0 }
         .onChange(of: draft.claudeMonthlySpendLimit)  { state.settings.claudeMonthlySpendLimit  = $0 }
