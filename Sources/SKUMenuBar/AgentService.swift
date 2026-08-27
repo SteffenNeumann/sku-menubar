@@ -1393,8 +1393,9 @@ Antworte NUR als valides JSON in diesem exakten Format:
             }
             // Extract JSON block
             let jsonStr: String
-            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
-                jsonStr = String(raw[start.lowerBound...end.upperBound])
+            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards),
+               start.lowerBound < end.upperBound {
+                jsonStr = String(raw[start.lowerBound..<end.upperBound])
             } else {
                 jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -1509,7 +1510,8 @@ Wichtig:
                 }
             }
             let jsonStr: String
-            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards) {
+            if let start = raw.range(of: "{"), let end = raw.range(of: "}", options: .backwards),
+               start.lowerBound < end.upperBound {
                 jsonStr = String(raw[start.lowerBound..<end.upperBound])
             } else {
                 jsonStr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
