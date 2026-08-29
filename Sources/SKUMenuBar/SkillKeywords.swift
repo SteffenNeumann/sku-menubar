@@ -86,6 +86,81 @@ enum SkillKeywords {
         "Nutze für diese Aufgabe zuerst den Skill \"\(skill)\" (Skill-Tool)."
     }
 
+    // MARK: - Pflicht-Skills (⭐ Hauptskills des Agenten)
+
+    /// Präfix, mit dem eine Nachricht die Pflicht-Skills für genau diesen einen Aufruf abwählt.
+    /// Bewusst als Ausstieg statt als Einstieg: vergisst man ihn, lädt der Agent die Skills —
+    /// der sichere Zustand ist der Default.
+    static let skipPrefix = "kurz:"
+
+    static func hasSkipPrefix(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix(skipPrefix)
+    }
+
+    /// Entfernt den Präfix samt folgendem Leerraum. Ohne Treffer unverändert.
+    static func stripSkipPrefix(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.lowercased().hasPrefix(skipPrefix) else { return text }
+        return String(trimmed.dropFirst(skipPrefix.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let mainSkillMarker = "⭐ Hauptskills"
+    /// Nur vom Main-Thread benutzt (performSend + Banner-Render). Spart das Zerlegen des
+    /// Blocks bei jedem Render-Pass — Hangs in dieser App sind kosten-, nicht frequenzgetrieben.
+    private static var mainSkillCache: [Int: [String]] = [:]
+
+    /// Die mit ⭐ markierten Pflicht-Skills aus der Agent-Definition, in Reihenfolge der Datei.
+    ///
+    /// Gelesen wird der Block `### ⭐ Hauptskills …` bis zur nächsten Überschrift; je
+    /// Aufzählungszeile zählt der erste Backtick-Name. Bewusst aus der Datei gelesen statt im
+    /// Code gepflegt: ändert sich die Liste im Agenten, zieht die App ohne Build nach.
+    static func mainSkills(inAgentBody body: String) -> [String] {
+        guard let marker = body.range(of: mainSkillMarker) else { return [] }
+        let key = body.hashValue
+        if let cached = mainSkillCache[key] { return cached }
+
+        let rest = body[marker.upperBound...]
+        // Nächste Überschrift beendet den Block — egal welcher Ebene.
+        let block = rest.range(of: "\n#").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
+
+        var found: [String] = []
+        for line in block.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("-") else { continue }
+            guard let open = trimmed.range(of: "`"),
+                  let close = trimmed.range(of: "`", range: open.upperBound..<trimmed.endIndex)
+            else { continue }
+            let name = String(trimmed[open.upperBound..<close.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty, !found.contains(name) { found.append(name) }
+        }
+        mainSkillCache[key] = found
+        return found
+    }
+
+    /// Der Pflicht-Block ans Nachrichten-ENDE. Steht bewusst in der NACHRICHT: dieselbe
+    /// Anweisung im System-Prompt blieb messbar wirkungslos (0/17 Läufe), in der Nachricht wirkt
+    /// sie (3/3). Ohne Ausnahme-Halbsatz — wer aussetzen will, nutzt `kurz:` oder den Knopf.
+    static func mainSkillsHint(for skills: [String]) -> String {
+        let list = skills.map { "`\($0)`" }.joined(separator: ", ")
+        return "Pflicht für diese Aufgabe: Rufe ZUERST das Skill-Tool auf — je ein eigener "
+            + "Aufruf für \(list). Vor jeder Analyse, vor jedem Read, vor dem ersten Satz "
+            + "Antwort. Ein Read der SKILL.md lädt einen Skill NICHT."
+    }
+
+    private static var installedCache: Set<String>?
+
+    /// Wie `installedSkills()`, aber gecacht — für Aufrufe, die pro Render-Pass laufen.
+    /// Der Bestand ändert sich während eines Chats nicht; neu installierte Skills sieht die
+    /// App nach einem Neustart.
+    static func installedSkillsCached() -> Set<String> {
+        if let c = installedCache { return c }
+        let fresh = installedSkills()
+        installedCache = fresh
+        return fresh
+    }
+
     /// Wortgrenzen-Prüfung ohne Regex: Nachbarzeichen dürfen nicht alphanumerisch sein.
     private static func containsWord(_ needle: String, in haystack: String) -> Bool {
         var searchStart = haystack.startIndex

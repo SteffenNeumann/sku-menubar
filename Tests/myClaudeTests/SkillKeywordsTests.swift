@@ -68,3 +68,48 @@ extension SkillKeywordsTests {
         }
     }
 }
+
+extension SkillKeywordsTests {
+
+    // MARK: - ⭐ Pflicht-Skills
+
+    private var agentBody: String { """
+    ## Active Skills
+
+    ### ⭐ Hauptskills — bei jeder Aufgabe laden
+
+    - **`10k-website-checklist`** — The $10K Checklist (`~/.claude/skills/10k-website-checklist/SKILL.md`) — Text.
+    - **`ui-ux-pro-max`** — UI/UX Pro Max (`~/.claude/skills/ui-ux-pro-max/SKILL.md`) — Text.
+    - **`shadcn`** — shadcn/ui — Text.
+
+    ### Situativ — laden, sobald das Thema auftaucht
+
+    - **`ponytail-lazy-code`** — Ponytail — Text.
+
+    You are an expert Frontend Developer.
+    """ }
+
+    func testMainSkillsReadsOnlyStarredBlock() {
+        XCTAssertEqual(SkillKeywords.mainSkills(inAgentBody: agentBody),
+                       ["10k-website-checklist", "ui-ux-pro-max", "shadcn"])
+    }
+
+    func testMainSkillsEmptyWithoutBlock() {
+        XCTAssertTrue(SkillKeywords.mainSkills(inAgentBody: "Ein Agent ganz ohne Skill-Block.").isEmpty)
+    }
+
+    func testSkipPrefix() {
+        XCTAssertTrue(SkillKeywords.hasSkipPrefix("kurz: ändere die Farbe"))
+        XCTAssertTrue(SkillKeywords.hasSkipPrefix("  KURZ: mach das"))
+        XCTAssertFalse(SkillKeywords.hasSkipPrefix("kurzfristig die Farbe ändern"))
+        XCTAssertEqual(SkillKeywords.stripSkipPrefix("kurz:  ändere die Farbe"), "ändere die Farbe")
+        XCTAssertEqual(SkillKeywords.stripSkipPrefix("ändere die Farbe"), "ändere die Farbe")
+    }
+
+    func testMainSkillsHintNamesEverySkill() {
+        let hint = SkillKeywords.mainSkillsHint(for: ["a", "b"])
+        XCTAssertTrue(hint.contains("`a`"))
+        XCTAssertTrue(hint.contains("`b`"))
+        XCTAssertTrue(hint.contains("Skill-Tool"))
+    }
+}

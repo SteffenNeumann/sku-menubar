@@ -319,6 +319,9 @@ struct SingleChatSessionView: View {
     @State private var injectedAgentId: String = ""
     /// Skills, auf die in DIESER Session bereits hingewiesen wurde — kein Wiederholen.
     @State private var hintedSkills: Set<String> = []
+    /// Setzt die ⭐ Pflicht-Skills für GENAU EINE Nachricht aus — per `kurz:`-Präfix oder
+    /// per Knopf im Streifen über der Eingabezeile. `performSend` setzt ihn danach zurück.
+    @State private var skipMainSkillsOnce: Bool = false
     // Agent-Bestätigungs-Banner (Auto-Orchestrierung pausiert bis Nutzer bestätigt/ändert)
     @State private var pendingAutoAgents: [AgentDefinition] = []
     @State private var pendingAutoConfirmText: String = ""
@@ -872,6 +875,13 @@ struct SingleChatSessionView: View {
 
                     // 📋 Plan-Modus-Hinweis — unübersehbar solange aktiv, damit der
                     // Modus nicht vergessen wird (Symptom „Verlauf bleibt im Plan-Modus").
+                    // ⭐ Pflicht-Skills des gewählten Agenten — sichtbar nur, solange sie
+                    // bei der nächsten Nachricht tatsächlich anstehen.
+                    let mainSkills = pendingMainSkills
+                    if !mainSkills.isEmpty {
+                        mainSkillsBanner(mainSkills)
+                    }
+
                     if planMode {
                         planModeBanner
                     }
@@ -1855,6 +1865,57 @@ struct SingleChatSessionView: View {
 
     // 📋 Plan-Modus aktiv — bleibt sichtbar, solange geplant statt ausgeführt wird.
     // „Beenden" schaltet sofort zurück auf Standard.
+    /// ⭐ Pflicht-Skills, die bei der NÄCHSTEN Nachricht geladen würden.
+    /// Leer ⇒ kein Streifen: entweder läuft die Session schon (Skills sind drin) oder der
+    /// gewählte Agent hat keine Hauptskills. Damit zeigt der Streifen zugleich an, ob diese
+    /// Nachricht die Skills bezahlt.
+    private var pendingMainSkills: [String] {
+        guard currentSessionId == nil, !selectedAgent.isEmpty,
+              let agentDef = state.agentService.agents.first(where: { $0.id == selectedAgent })
+        else { return [] }
+        let installed = SkillKeywords.installedSkillsCached()
+        return SkillKeywords.mainSkills(inAgentBody: agentDef.promptBody)
+            .filter { installed.contains($0) && !hintedSkills.contains($0) }
+    }
+
+    /// Streifen über der Eingabezeile — Erinnerung UND Ausstieg in einem, damit der
+    /// `kurz:`-Präfix nichts ist, an das man denken muss.
+    private func mainSkillsBanner(_ skills: [String]) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: skipMainSkillsOnce ? "star.slash" : "star.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(skipMainSkillsOnce ? theme.secondaryText : accentColor)
+            Text(skipMainSkillsOnce
+                 ? "Diesmal ohne Pflicht-Skills."
+                 : "\(skills.count) Pflicht-Skills werden geladen · \(skills.joined(separator: ", "))")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button {
+                skipMainSkillsOnce.toggle()
+            } label: {
+                Text(skipMainSkillsOnce ? "Doch laden" : "Diesmal ohne")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help(skipMainSkillsOnce
+                  ? "Pflicht-Skills doch mitschicken"
+                  : "Pflicht-Skills für die nächste Nachricht weglassen — entspricht dem Präfix kurz:")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(accentColor.opacity(skipMainSkillsOnce ? 0.04 : 0.10),
+                    in: RoundedRectangle(cornerRadius: 0))
+        .overlay(Rectangle().fill(accentColor.opacity(0.25)).frame(height: 0.5), alignment: .top)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
     private var planModeBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "list.clipboard.fill")
@@ -3324,6 +3385,10 @@ struct SingleChatSessionView: View {
         withAnimation(.spring(response: 0.3)) {
             messages = []
             currentSessionId = nil
+            // Ohne Reset gilt jeder Skill als „schon angestoßen" — ab dem zweiten Chat im
+            // selben Tab feuerte weder Stichwort- noch Pflicht-Block.
+            hintedSkills = []
+            skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
             attachedFiles = []
@@ -5019,6 +5084,8 @@ struct SingleChatSessionView: View {
         withAnimation(.spring(response: 0.3)) {
             messages = [summaryNote]
             currentSessionId = nil
+            hintedSkills = []          // frische CLI-Session → Skills müssen neu geladen werden
+            skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
             sessionTitle = ""
@@ -5102,6 +5169,18 @@ struct SingleChatSessionView: View {
     }
 
     private func sendMessage() {
+        // ── Ausstieg „kurz:" ──────────────────────────────────────────────────
+        // Der Präfix ist eine Anweisung an die App, kein Inhalt — deshalb raus aus `inputText`,
+        // BEVOR irgendein Pfad ihn liest (Orchestrator-Pfade lesen inputText erneut).
+        // Nur bei verbleibendem Text: „kurz:" allein soll den Schalter nicht stehen lassen.
+        if SkillKeywords.hasSkipPrefix(inputText) {
+            let rest = SkillKeywords.stripSkipPrefix(inputText)
+            if !rest.isEmpty {
+                skipMainSkillsOnce = true
+                inputText = rest
+            }
+        }
+
         // ── Slash-Commands ZUERST ─────────────────────────────────────────────
         // Muss vor dem Smart-Routing stehen, sonst werden /clear, /new, /compact, /model
         // im orchestratorMode als Aufgabentext an die Pipeline geschickt.
@@ -5435,11 +5514,25 @@ struct SingleChatSessionView: View {
             // Passenden Skill per Stichwort anstoßen. Die Anweisung MUSS in der Nachricht stehen:
             // im System-Prompt bleibt sie messbar wirkungslos (0/17 Läufe), in der Nachricht wirkt
             // sie (3/3). Ans ENDE gehängt (Recency), einmal pro Session und Skill.
-            if let skill = SkillKeywords.match(in: message, availableSkills: SkillKeywords.installedSkills()),
+            let availableSkills = SkillKeywords.installedSkillsCached()
+            if let skill = SkillKeywords.match(in: message, availableSkills: availableSkills),
                !hintedSkills.contains(skill) {
                 finalMessage += "\n\n" + SkillKeywords.hint(for: skill)
                 hintedSkills.insert(skill)
             }
+            // ⭐ Pflicht-Skills des Agenten. Anders als der Stichwort-Treffer darüber hängen sie
+            // nicht am Wortlaut, sondern an der Agent-Definition: wer den Agenten wählt, bekommt
+            // dessen Hauptskills. Einmal pro Session — danach trägt die CLI-Session sie weiter.
+            if !skipMainSkillsOnce, let agentId = effectiveAgent,
+               let agentDef = state.agentService.agents.first(where: { $0.id == agentId }) {
+                let pending = SkillKeywords.mainSkills(inAgentBody: agentDef.promptBody)
+                    .filter { availableSkills.contains($0) && !hintedSkills.contains($0) }
+                if !pending.isEmpty {
+                    finalMessage += "\n\n" + SkillKeywords.mainSkillsHint(for: pending)
+                    pending.forEach { hintedSkills.insert($0) }
+                }
+            }
+            skipMainSkillsOnce = false
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 12 wenn ein Agent aktiv ist.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
             let effectiveMaxTurns: Int? = (effectiveAgent != nil) ? rawMaxTurns.map { max($0, 12) } : rawMaxTurns
