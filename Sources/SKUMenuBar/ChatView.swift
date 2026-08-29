@@ -655,7 +655,12 @@ struct SingleChatSessionView: View {
             .onChange(of: state.pendingChatMessage) { handlePendingMessage() }
             .onChange(of: isActive) { syncOnActiveChange() }
             .onChange(of: inputText) { syncTriggerOnInputChange() }
-            .onChange(of: selectedAgent) { pendingTriggerAgentName = nil }
+            .onChange(of: selectedAgent) {
+                pendingTriggerAgentName = nil
+                // Der Ausstieg gilt pro Agent: nach einem Wechsel lädt der neue Agent seine
+                // Pflicht-Skills wieder, auch wenn für den vorigen „Diesmal ohne" geklickt war.
+                skipMainSkillsOnce = false
+            }
             .onChange(of: state.tmetricKnownProjects) { _ in tryAutoMatchTMetricProject() }
             .onDisappear { handleDisappear() }
     }
@@ -873,15 +878,16 @@ struct SingleChatSessionView: View {
                         .transition(.opacity)
                     }
 
-                    // 📋 Plan-Modus-Hinweis — unübersehbar solange aktiv, damit der
-                    // Modus nicht vergessen wird (Symptom „Verlauf bleibt im Plan-Modus").
-                    // ⭐ Pflicht-Skills des gewählten Agenten — sichtbar nur, solange sie
-                    // bei der nächsten Nachricht tatsächlich anstehen.
+                    // ⭐ Pflicht-Skills des Agenten, der als Nächstes läuft — sichtbar nur,
+                    // solange sie bei der nächsten Nachricht tatsächlich anstehen.
                     let mainSkills = pendingMainSkills
                     if !mainSkills.isEmpty {
                         mainSkillsBanner(mainSkills)
+                            .id(agentForNextMessage?.id ?? "")
                     }
 
+                    // 📋 Plan-Modus-Hinweis — unübersehbar solange aktiv, damit der
+                    // Modus nicht vergessen wird (Symptom „Verlauf bleibt im Plan-Modus").
                     if planMode {
                         planModeBanner
                     }
@@ -1869,10 +1875,22 @@ struct SingleChatSessionView: View {
     /// Leer ⇒ kein Streifen: entweder läuft die Session schon (Skills sind drin) oder der
     /// gewählte Agent hat keine Hauptskills. Damit zeigt der Streifen zugleich an, ob diese
     /// Nachricht die Skills bezahlt.
+    /// Der Agent, der bei der NÄCHSTEN Nachricht tatsächlich läuft. Gleiche Reihenfolge wie
+    /// `effectiveAgent` in `performSend` — inklusive Auto-Erkennung/Trigger, denn dort zeigt das
+    /// Chip einen Agenten an, während `selectedAgent` leer ist. Anzeige und Skill-Ladung dürfen
+    /// nicht auseinanderlaufen.
+    private var agentForNextMessage: AgentDefinition? {
+        if !selectedAgent.isEmpty {
+            return state.agentService.agents.first { $0.id == selectedAgent }
+        }
+        if let name = autoTriggeredAgentName ?? pendingTriggerAgentName {
+            return state.agentService.agents.first { $0.name == name }
+        }
+        return nil
+    }
+
     private var pendingMainSkills: [String] {
-        guard currentSessionId == nil, !selectedAgent.isEmpty,
-              let agentDef = state.agentService.agents.first(where: { $0.id == selectedAgent })
-        else { return [] }
+        guard let agentDef = agentForNextMessage else { return [] }
         let installed = SkillKeywords.installedSkillsCached()
         return SkillKeywords.mainSkills(inAgentBody: agentDef.promptBody)
             .filter { installed.contains($0) && !hintedSkills.contains($0) }
