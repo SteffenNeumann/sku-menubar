@@ -167,14 +167,22 @@ struct ChatMessage: Identifiable, Equatable {
     /// MainActor — genau das Kostenmuster der früheren Hänger.
     private(set) var artifacts: [ArtifactRef] = []
 
-    /// Nach einem eingetroffenen Artifact-tool_result aufrufen.
+    /// Nimmt eine vom `ArtifactCollector` gemeldete Veröffentlichung auf.
     /// Dedupliziert per URL: ein Redeploy publiziert auf dieselbe Adresse, und
-    /// `ForEach` über `Identifiable` verträgt keine doppelten IDs.
-    mutating func refreshArtifacts() {
+    /// `ForEach` über `Identifiable` verträgt keine doppelten IDs. Der spätere
+    /// Eintrag gewinnt — er kennt den aktuellen Stand von Titel und Datei.
+    mutating func appendArtifact(_ ref: ArtifactRef) {
+        if let idx = artifacts.firstIndex(where: { $0.url == ref.url }) {
+            artifacts[idx] = ref
+        } else {
+            artifacts.append(ref)
+        }
+    }
+
+    /// Beim Laden aus dem Verlauf: die rekonstruierten Referenzen setzen.
+    mutating func setArtifacts(_ refs: [ArtifactRef]) {
         var seen = Set<String>()
-        artifacts = toolCalls
-            .compactMap(ArtifactRef.init(toolCall:))
-            .filter { seen.insert($0.url).inserted }
+        artifacts = refs.filter { seen.insert($0.url).inserted }
     }
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
@@ -234,33 +242,22 @@ struct TodoItem: Decodable, Equatable, Identifiable {
 
 // MARK: - Artifacts (Artifact-Tool → claude.ai-Seite)
 
-/// Ein veröffentlichtes Artifact: Link plus der Name, unter dem es publiziert wurde.
-/// Wird aus einem abgeschlossenen Artifact-Tool-Call gelesen, nicht separat mitgeführt.
+/// Ein veröffentlichtes Artifact: Link, Name und — für die Vorschau — die lokale Quelldatei.
+/// Wird vom `ArtifactCollector` aus einem abgeschlossenen Artifact-Tool-Call gebaut.
 struct ArtifactRef: Identifiable, Equatable {
     var id: String { url }
     let url: String
     let title: String?
+    /// Absoluter Pfad der publizierten Datei. Grundlage der Inline-Vorschau: die
+    /// claude.ai-Seite ist privat und im eingebauten WebView (eigener Cookie-Speicher,
+    /// keine Anmeldung) nicht darstellbar — die Quelldatei dagegen schon.
+    /// nil, wenn der Pfad nicht auflösbar ist oder die Datei nicht mehr existiert.
+    let localPath: String?
 
-    init?(toolCall: ToolCall) {
-        // `input` ist StreamToolInput.displayText — beim Publish der Dateipfad.
-        // Andere Artifact-Aktionen (list, comments, upload_asset) liefern dort den
-        // rawSummary-Rest ("action: list · limit: 25") und enthalten im Ergebnis
-        // ebenfalls claude.ai-URLs; ohne diese Prüfung entstünde eine Karte
-        // "veröffentlicht" für einen reinen Lesevorgang.
-        guard toolCall.name == "Artifact",
-              ArtifactRef.looksLikePublishedFile(toolCall.input),
-              let result = toolCall.result,
-              let url = ArtifactRef.firstArtifactURL(in: result)
-        else { return nil }
+    init(url: String, title: String?, localPath: String?) {
         self.url = url
-        let name = (toolCall.input as NSString).lastPathComponent
-        self.title = name.isEmpty ? nil : name
-    }
-
-    /// Ob der Tool-Input ein Dateipfad ist (Publish) und nicht die Feld-Zusammenfassung
-    /// einer anderen Aktion.
-    static func looksLikePublishedFile(_ input: String) -> Bool {
-        input.contains("/") && !input.contains(": ")
+        self.title = title
+        self.localPath = localPath
     }
 
     /// Zeichen, an denen eine URL im Fließtext endet. Statisch, weil die Funktion
@@ -278,6 +275,52 @@ struct ArtifactRef: Identifiable, Equatable {
         // Satzzeichen am Ende gehören nie zur URL — mittendrin schon (Pfadsegmente).
         while let last = url.last, ".!?:,".contains(last) { url.removeLast() }
         return url.count > "https://claude.ai/".count ? url : nil
+    }
+}
+
+/// Sammelt Artifact-Veröffentlichungen aus einem CLI-Stream.
+///
+/// Das Artifact-Tool meldet den Pfad im `tool_use` und die URL erst im zugehörigen
+/// `tool_result`. Der Collector hält die offenen Aufrufe, bis das Ergebnis eintrifft —
+/// deshalb ein Collector je Stream. Er arbeitet direkt auf `StreamToolInput`, damit
+/// lesende Aktionen (`list`, `read`, `comments`) und `upload_asset` am `action`-Feld
+/// erkannt und ausgeschlossen werden können, statt am zusammengefassten Anzeigetext.
+struct ArtifactCollector {
+    /// toolUseId → Dateipfad (absolut, falls auflösbar)
+    private var pending: [String: String] = [:]
+
+    /// Merkt sich einen Publish-Aufruf. Alles andere wird ignoriert.
+    mutating func noteToolUse(id: String?, name: String, input: StreamToolInput?,
+                              workingDirectory: String?) {
+        guard name == "Artifact", let id, !id.isEmpty,
+              let path = input?.filePath, !path.isEmpty else { return }
+        // Ohne `action` ist "publish" der Vorgabewert des Tools.
+        if let action = input?.action, action != "publish" { return }
+        pending[id] = ArtifactCollector.absolutePath(path, workingDirectory: workingDirectory)
+    }
+
+    /// Liefert die fertige Referenz, sobald das Ergebnis zum gemerkten Aufruf eintrifft.
+    ///
+    /// `isError` schließt den wichtigsten Fehlschlag aus: bei einem Konflikt (jemand hat
+    /// zwischenzeitlich neuer veröffentlicht) nennt die Absage die bestehende Adresse —
+    /// ohne diese Prüfung entstünde eine Karte "veröffentlicht" für einen abgelehnten
+    /// Versuch. Fehlschläge ohne `is_error` bleiben ununterscheidbar.
+    mutating func noteToolResult(id: String?, text: String, isError: Bool) -> ArtifactRef? {
+        guard let id, let path = pending.removeValue(forKey: id), !isError,
+              let url = ArtifactRef.firstArtifactURL(in: text) else { return nil }
+        let name = (path as NSString).lastPathComponent
+        let exists = FileManager.default.fileExists(atPath: path)
+        return ArtifactRef(url: url,
+                           title: name.isEmpty ? nil : name,
+                           localPath: exists ? path : nil)
+    }
+
+    /// Relative Pfade beziehen sich auf das Arbeitsverzeichnis des Aufrufs.
+    static func absolutePath(_ path: String, workingDirectory: String?) -> String {
+        if path.hasPrefix("/") { return path }
+        if path.hasPrefix("~") { return (path as NSString).expandingTildeInPath }
+        guard let cwd = workingDirectory, !cwd.isEmpty else { return path }
+        return (cwd as NSString).appendingPathComponent(path)
     }
 }
 
@@ -371,10 +414,12 @@ struct StreamToolInput: Decodable {
     /// Kurzfassung der Felder, die keinem der obigen entsprechen. Ohne das zeigt
     /// jedes Tool, das die App noch nicht kennt, einen Chip mit leerem Text.
     let rawSummary: String?
+    let action: String?       // Artifact / MCP-Tools: publish, list, read, …
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case command
         case filePath    = "file_path"
+        case action
         case pattern
         case path
         case description
@@ -401,6 +446,7 @@ struct StreamToolInput: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         command      = try? c.decodeIfPresent(String.self, forKey: .command)
         filePath     = try? c.decodeIfPresent(String.self, forKey: .filePath)
+        action       = try? c.decodeIfPresent(String.self, forKey: .action)
         pattern      = try? c.decodeIfPresent(String.self, forKey: .pattern)
         path         = try? c.decodeIfPresent(String.self, forKey: .path)
         description  = try? c.decodeIfPresent(String.self, forKey: .description)
@@ -442,13 +488,23 @@ struct StreamToolInput: Decodable {
         // skill/subagentType zuerst: bei Skill- und Agent-Calls ist das die
         // aussagekräftigste Information (description ist dort nur eine Kurzfassung).
         skill ?? subagentType ?? command ?? filePath ?? notebookPath
-            ?? pattern ?? path ?? description ?? rawSummary
+            ?? pattern ?? path ?? description ?? actionSummary
+    }
+
+    /// Aktion plus übrige Felder. Beides zusammen, nicht eines statt des anderen:
+    /// bei `{"action":"screenshot"}` gibt es sonst gar keinen Text, bei
+    /// `{"action":"javascript_exec","text":"…"}` verdeckt die immer gleiche Aktion
+    /// den einzig interessanten Teil.
+    private var actionSummary: String? {
+        let parts = [action, rawSummary].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// Convenience init for programmatic creation (e.g. GitHub tool_calls)
     init(description: String) {
         self.command      = nil
         self.filePath     = nil
+        self.action       = nil
         self.pattern      = nil
         self.path         = nil
         self.description  = description
@@ -470,10 +526,12 @@ struct StreamContent: Decodable {
     let toolInput: StreamToolInput?   // decoded from tool_use.input
     let toolUseId: String?            // tool_result: references tool_use.id
     let toolResultText: String?       // tool_result: stdout/stderr text
+    let isError: Bool                 // tool_result: der Aufruf ist fehlgeschlagen
 
     enum CodingKeys: String, CodingKey {
         case type, text, thinking, id, name, input, content
         case toolUseId = "tool_use_id"
+        case isError   = "is_error"
     }
 
     init(from decoder: Decoder) throws {
@@ -485,13 +543,25 @@ struct StreamContent: Decodable {
         name           = try? c.decodeIfPresent(String.self, forKey: .name)
         toolInput      = try? c.decodeIfPresent(StreamToolInput.self, forKey: .input)
         toolUseId      = try? c.decodeIfPresent(String.self, forKey: .toolUseId)
-        toolResultText = try? c.decodeIfPresent(String.self, forKey: .content)
+        // `content` eines tool_result ist mal ein String, mal ein Block-Array —
+        // dasselbe Tool liefert beide Formen. Nur den String zu lesen hieß: jedes
+        // Array-Ergebnis kam leer an (und eine Artifact-URL darin ging verloren).
+        if let s = try? c.decodeIfPresent(String.self, forKey: .content) {
+            toolResultText = s
+        } else if let blocks = try? c.decodeIfPresent([StreamContent].self, forKey: .content) {
+            let joined = blocks.compactMap { $0.text }.joined(separator: "\n")
+            toolResultText = joined.isEmpty ? nil : joined
+        } else {
+            toolResultText = nil
+        }
+        isError = (try? c.decodeIfPresent(Bool.self, forKey: .isError)) ?? false
     }
 
     /// Convenience init for programmatic creation (e.g. in GitHubModelsService)
     init(type: String, text: String? = nil, thinking: String? = nil,
          id: String? = nil, name: String? = nil,
-         toolInput: StreamToolInput? = nil, toolUseId: String? = nil, toolResultText: String? = nil) {
+         toolInput: StreamToolInput? = nil, toolUseId: String? = nil, toolResultText: String? = nil,
+         isError: Bool = false) {
         self.type           = type
         self.text           = text
         self.thinking       = thinking
@@ -500,6 +570,7 @@ struct StreamContent: Decodable {
         self.toolInput      = toolInput
         self.toolUseId      = toolUseId
         self.toolResultText = toolResultText
+        self.isError        = isError
     }
 }
 
@@ -559,6 +630,10 @@ struct HistoryMessage: Identifiable {
     /// Transcript rekonstruiert. Sub-Agent-Skills fehlen hier prinzipbedingt: die stehen
     /// nicht im Parent-.jsonl, sondern in den Sidechains unter `subagents/`.
     var usedSkills: [SkillUse] = []
+    /// Auf claude.ai veröffentlichte Artifacts dieser Antwort — aus `tool_use name=="Artifact"`
+    /// plus dem zugehörigen `tool_result` im Transcript rekonstruiert. Ohne das wäre die
+    /// Karte nach einem Neustart weg, obwohl die Seite weiter existiert.
+    var artifacts: [ArtifactRef] = []
 }
 
 // MARK: - History JSONL parsing helpers
@@ -627,9 +702,13 @@ struct RawContentBlock: Decodable {
     let content: RawContent?
     let thinking: String?
     let toolInput: StreamToolInput?   // decoded from tool_use.input
+    let toolUseId: String?            // tool_result → zugehöriger tool_use
+    let isError: Bool                 // tool_result: der Aufruf ist fehlgeschlagen
 
     enum CodingKeys: String, CodingKey {
         case type, text, id, name, content, thinking, input
+        case toolUseId = "tool_use_id"
+        case isError   = "is_error"
     }
 
     init(from decoder: Decoder) throws {
@@ -643,6 +722,8 @@ struct RawContentBlock: Decodable {
         // `input` ist je nach Tool beliebig geformt. `try?` verhindert, dass ein unerwartetes
         // Schema den ganzen Block — und damit die ganze Verlaufs-Nachricht — scheitern lässt.
         toolInput = try? c.decodeIfPresent(StreamToolInput.self, forKey: .input)
+        toolUseId = try? c.decodeIfPresent(String.self, forKey: .toolUseId)
+        isError   = (try? c.decodeIfPresent(Bool.self, forKey: .isError)) ?? false
     }
 }
 

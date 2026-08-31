@@ -335,6 +335,16 @@ struct SettingsFormView: View {
                                     .help("An: Worker-Agents antworten knapp — keine Vorrede, keine Nacherzählung des Auftrags, Stichpunkte statt Prosa. Code, E-Mails und Reports bleiben vollständig. Gilt nicht für Kunden-Personas.")
                             }
                             rowDivider()
+                            configRow(title: "Artifacts veröffentlichen",
+                                      icon: "square.on.square.dashed",
+                                      hint: "Agent darf echte claude.ai-Artifacts anlegen") {
+                                Toggle("Artifact-Tool freigeben", isOn: $draft.artifactsEnabled)
+                                    .toggleStyle(AccentToggleStyle(accentColor: theme.accentIcon))
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(theme.primaryText)
+                                    .help("An: Der Agent kann im Chat und in Orchestrator-Phase 2 eine Seite auf claude.ai veröffentlichen; die Karte im Chat zeigt die Quelldatei als Vorschau. Veröffentlicht wird auf dem angemeldeten claude.ai-Konto. Aus: Das Tool steht nicht zur Verfügung.")
+                            }
+                            rowDivider()
                             configRow(title: "Token-Optimierung",
                                       icon: "slider.horizontal.3",
                                       hint: "History, Max-Turns, Auto-Compact") {

@@ -364,6 +364,8 @@ final class ChatHistoryService: ObservableObject {
 
         let decoder = JSONDecoder()
         var messages: [HistoryMessage] = []
+        // Pfad steht im tool_use, URL erst im tool_result der folgenden Zeile.
+        var artifactCollector = ArtifactCollector()
 
         for line in lines {
             guard let lineData = line.data(using: .utf8),
@@ -389,6 +391,32 @@ final class ChatHistoryService: ObservableObject {
             let inputT = usage?.inputTokens ?? 0
             let outputT = usage?.outputTokens ?? 0
             let cacheT = (usage?.cacheCreationInputTokens ?? 0) + (usage?.cacheReadInputTokens ?? 0)
+
+            // Veröffentlichte Artifacts rekonstruieren. Ohne das wäre die Karte nach
+            // einem Neustart weg, obwohl die claude.ai-Seite weiter existiert.
+            if case .blocks(let blocks) = raw.message?.content {
+                for block in blocks {
+                    switch block.type {
+                    case "tool_use":
+                        artifactCollector.noteToolUse(id: block.id, name: block.name ?? "",
+                                                      input: block.toolInput,
+                                                      workingDirectory: raw.cwd)
+                    case "tool_result":
+                        guard let text = block.content?.displayText,
+                              let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
+                                                                        isError: block.isError),
+                              // Die Antwort mit dem tool_use ist zu diesem Zeitpunkt die
+                              // letzte Assistenten-Nachricht — auch nach dem Zusammenfassen
+                              // reiner Tool-Nachrichten weiter unten.
+                              let idx = messages.lastIndex(where: { $0.role == .assistant })
+                        else { continue }
+                        if !messages[idx].artifacts.contains(where: { $0.url == ref.url }) {
+                            messages[idx].artifacts.append(ref)
+                        }
+                    default: break
+                    }
+                }
+            }
 
             // Extract tool calls from assistant messages
             var toolCalls: [ToolCall] = []

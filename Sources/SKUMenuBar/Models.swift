@@ -33,6 +33,11 @@ struct GitHubSettings: Codable {
     var autoOrchestrationEnabled: Bool = true  // false = lange Nachrichten lösen NIE automatisch eine Orchestrierung aus
     var autoActivateMCPByKeyword: Bool = true  // true = MCP-Stichwort im Chat (linear, make.com …) aktiviert den MCP automatisch
     var conciseAgentOutput: Bool = true  // true = Agents antworten knapp (Feedback/Prosa kurz; Deliverables bleiben vollständig)
+    // true = der Chat-Agent darf echte claude.ai-Artifacts veröffentlichen (Artifact-Tool).
+    // Kostet ~1 Tool-Beschreibung Input pro Anfrage und veröffentlicht auf dem angemeldeten
+    // Konto — deshalb abschaltbar. Gilt nur für Chat und Orchestrator-Phase 2, nie für
+    // Hintergrunddienste (E-Mail-Automation, Convergence).
+    var artifactsEnabled: Bool = true
     // TMetric time tracking
     var tmetricApiToken: String = ""
     // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
@@ -78,6 +83,7 @@ struct GitHubSettings: Codable {
         autoOrchestrationEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .autoOrchestrationEnabled)) ?? true
         autoActivateMCPByKeyword = (try? c.decodeIfPresent(Bool.self, forKey: .autoActivateMCPByKeyword)) ?? true
         conciseAgentOutput = (try? c.decodeIfPresent(Bool.self, forKey: .conciseAgentOutput)) ?? true
+        artifactsEnabled   = (try? c.decodeIfPresent(Bool.self, forKey: .artifactsEnabled)) ?? true
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
         ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
         ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"

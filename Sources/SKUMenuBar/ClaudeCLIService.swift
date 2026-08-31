@@ -36,11 +36,17 @@ final class ClaudeCLIService: ObservableObject {
         mcpStrictMode: Bool = true,     // wenn true zusätzlich --strict-mcp-config (disabled für OAuth-MCPs)
         imagePaths: [String] = [],      // optional image files to attach (for persona reviews)
         disableTools: Bool = false,     // wenn true: --tools "" (keine Built-in-Tools) — für reine Reasoning-Phasen
-        permissionMode: String? = nil   // wenn gesetzt: --permission-mode <mode> (z.B. "plan" → nur planen, nichts ausführen)
+        permissionMode: String? = nil,  // wenn gesetzt: --permission-mode <mode> (z.B. "plan" → nur planen, nichts ausführen)
+        enableArtifacts: Bool = false   // true = Artifact-Tool freischalten (veröffentlicht auf claude.ai!)
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
             Task.detached(priority: .userInitiated) {
+                // Reine Reasoning-Phasen laufen ohne Tools — dort wäre das Artifact-Tool
+                // sinnlos und würde nur den --tools ""-Zweck unterlaufen.
+                // Der Plan-Modus verspricht, nichts auszuführen — eine Veröffentlichung
+                // wäre die sichtbarste Ausnahme davon.
+                let artifactsActive = enableArtifacts && !disableTools && permissionMode != "plan"
                 var args: [String] = ["--print", "--output-format", "stream-json", "--verbose"]
                 if skipPermissions {
                     args.append("--dangerously-skip-permissions")
@@ -57,6 +63,22 @@ final class ClaudeCLIService: ObservableObject {
                 // (Read/Bash würde sonst error_max_turns → exit 1 auslösen).
                 if disableTools {
                     args += ["--tools", ""]
+                }
+
+                // Artifact-Tool: die CLI blendet es (samt Plugin-/Skill-Suchtools) nur ein,
+                // wenn sie sich als Desktop-Oberfläche sieht — siehe Umgebung weiter unten.
+                // Von den 8 so freigeschalteten Tools ist hier nur `Artifact` erwünscht;
+                // die übrigen 7 kosten Kontext, und `SendUserFile` will eine Desktop-UI
+                // bedienen, die es in einem --print-Prozess nicht gibt. Deshalb explizit ab.
+                // (Gemessen: --disallowedTools entfernt sie wirklich aus der Tool-Liste.)
+                if artifactsActive {
+                    args += ["--disallowedTools",
+                             "SendUserFile", "ListPlugins", "ListSkills",
+                             "SearchPlugins", "SearchSkills",
+                             "SuggestPluginInstall", "SuggestSkills"]
+                    // Freigabe ohne Rundum-Erlaubnis: --allowedTools wirkt additiv, nicht
+                    // als Whitelist (gemessen — Read/Bash bleiben unberührt).
+                    if !skipPermissions { args += ["--allowedTools", "Artifact"] }
                 }
 
                 if let sid = sessionId, !sid.isEmpty {
@@ -112,6 +134,10 @@ final class ClaudeCLIService: ObservableObject {
                 for k in env.keys where k.hasPrefix("ANTHROPIC_") || k.hasPrefix("CLAUDE_") || k.hasPrefix("__CF") {
                     env.removeValue(forKey: k)
                 }
+                // Nach der Hygiene gesetzt, damit die Bereinigung geerbter Variablen intakt
+                // bleibt: die CLI blendet das Artifact-Tool nur für die Desktop-Oberfläche ein.
+                // Gemessen an der Tool-Liste des init-Events: "cli" und "sdk-cli" liefern es nicht.
+                if artifactsActive { env["CLAUDE_CODE_ENTRYPOINT"] = "claude-desktop" }
                 process.environment = env
 
                 let stdoutPipe = Pipe()

@@ -1176,7 +1176,11 @@ struct SingleChatSessionView: View {
                     let histMsgs = await state.historyService.loadMessages(for: session)
                     let chatMsgs = histMsgs.compactMap { hm -> ChatMessage? in
                         guard hm.role == .user || hm.role == .assistant else { return nil }
-                        return ChatMessage(role: hm.role, content: hm.content)
+                        var msg = ChatMessage(role: hm.role, content: hm.content)
+                        // Karten aus dem Transcript wiederherstellen — die Seiten existieren
+                        // weiter, nur die Anzeige ging beim Neustart bisher verloren.
+                        if !hm.artifacts.isEmpty { msg.setArtifacts(hm.artifacts) }
+                        return msg
                     }
                     await MainActor.run {
                         withAnimation(.spring(response: 0.3)) {
@@ -3788,10 +3792,12 @@ struct SingleChatSessionView: View {
                 workingDirectory: workingDirectory,
                 skipPermissions: autoApprove,
                 mcpConfigJSON: mcpJson,
-                mcpStrictMode: mcpStrict
+                mcpStrictMode: mcpStrict,
+                enableArtifacts: state.settings.artifactsEnabled && !planMode
             )
 
             var response = ""
+            var artifactCollector = ArtifactCollector()
             do {
                 for try await event in stream {
                     guard !Task.isCancelled else { break }
@@ -3803,11 +3809,26 @@ struct SingleChatSessionView: View {
                             if block.type == "text", let t = block.text, !t.isEmpty {
                                 response += t
                                 messages[rIdx].content += t
-                            } else if block.type == "tool_use",
-                                      block.name == "Skill",
-                                      let skillName = block.toolInput?.skill,
-                                      messages.indices.contains(rIdx) {
-                                messages[rIdx].noteSkillUse(skillName, agent: event.subagentType)
+                            } else if block.type == "tool_use" {
+                                if block.name == "Skill", let skillName = block.toolInput?.skill,
+                                   messages.indices.contains(rIdx) {
+                                    messages[rIdx].noteSkillUse(skillName, agent: event.subagentType)
+                                }
+                                artifactCollector.noteToolUse(id: block.id, name: block.name ?? "",
+                                                              input: block.toolInput,
+                                                              workingDirectory: workingDirectory)
+                            }
+                        }
+                    }
+                    // Veröffentlichte Artifacts auch hier zeigen — sonst bliebe der Link
+                    // ausgerechnet im Orchestrator-Zweig unsichtbar.
+                    if event.type == "user", let content = event.message?.content {
+                        for block in content where block.type == "tool_result" {
+                            guard let text = block.toolResultText else { continue }
+                            if let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
+                                                                              isError: block.isError),
+                               messages.indices.contains(rIdx) {
+                                messages[rIdx].appendArtifact(ref)
                             }
                         }
                     }
@@ -4412,7 +4433,8 @@ struct SingleChatSessionView: View {
                     maxTurns: effectiveMaxTurns,
                     mcpConfigJSON: agentMCP?.json,
                     mcpStrictMode: agentMCP?.strict ?? true,
-                    imagePaths: imgPaths
+                    imagePaths: imgPaths,
+                    enableArtifacts: state.settings.artifactsEnabled && !planMode
                 )
 
                 // V5: Idle-Watchdog — bricht NUR DIESEN Agent ab, wenn über das Idle-Limit hinaus
@@ -4431,6 +4453,7 @@ struct SingleChatSessionView: View {
 
                 // Agent-Stream in eigenem (MainActor-)Task konsumieren, damit der Watchdog
                 // gezielt NUR diesen Task canceln kann — nicht die gesamte Orchestrierung.
+                var artifactCollector = ArtifactCollector()
                 let agentTask = Task { @MainActor in
                     do {
                         for try await event in stream {
@@ -4446,13 +4469,28 @@ struct SingleChatSessionView: View {
                                 for block in content {
                                     if block.type == "text", let t = block.text, !t.isEmpty {
                                         agentOutput += t
-                                    } else if block.type == "tool_use",
-                                              block.name == "Skill",
-                                              let skillName = block.toolInput?.skill,
-                                              messages.indices.contains(progressIdx) {
+                                    } else if block.type == "tool_use" {
                                         // Skill-Einsatz dem laufenden Spezialisten zuordnen.
-                                        // (Der übrige tool_use-Inhalt bleibt wie bisher ungenutzt.)
-                                        messages[progressIdx].noteSkillUse(skillName, agent: agent.name)
+                                        if block.name == "Skill", let skillName = block.toolInput?.skill,
+                                           messages.indices.contains(progressIdx) {
+                                            messages[progressIdx].noteSkillUse(skillName, agent: agent.name)
+                                        }
+                                        artifactCollector.noteToolUse(
+                                            id: block.id, name: block.name ?? "",
+                                            input: block.toolInput,
+                                            workingDirectory: agent.projectDirectory ?? workingDirectory)
+                                    }
+                                }
+                            case "user":
+                                // Ein Spezialist darf veröffentlichen — die Karte gehört
+                                // dann an den laufenden Fortschritts-Eintrag.
+                                guard let content = event.message?.content else { break }
+                                for block in content where block.type == "tool_result" {
+                                    guard let text = block.toolResultText else { continue }
+                                    if let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
+                                                                              isError: block.isError),
+                                       messages.indices.contains(progressIdx) {
+                                        messages[progressIdx].appendArtifact(ref)
                                     }
                                 }
                             case "result":
@@ -5568,12 +5606,15 @@ struct SingleChatSessionView: View {
                 mcpConfigJSON: mcpJson,
                 mcpStrictMode: mcpStrict,
                 imagePaths: cliImagePaths,
-                permissionMode: planMode ? "plan" : nil
+                permissionMode: planMode ? "plan" : nil,
+                enableArtifacts: state.settings.artifactsEnabled && !planMode
             )
         }
 
         var pendingContent = ""
         var pendingTokenCount = 0
+        // Artifact-Veröffentlichungen: Pfad steht im tool_use, URL erst im tool_result.
+        var artifactCollector = ArtifactCollector()
 
         do {
             for try await event in stream {
@@ -5622,6 +5663,9 @@ struct SingleChatSessionView: View {
                                 if name == "Skill", let skillName = block.toolInput?.skill {
                                     messages[assistantIndex].noteSkillUse(skillName, agent: event.subagentType)
                                 }
+                                artifactCollector.noteToolUse(id: block.id, name: name,
+                                                              input: block.toolInput,
+                                                              workingDirectory: workingDirectory)
                                 // ── Datei-Badge direkt beim Empfang setzen ────────────
                                 // Nicht auf syncMessagesOnChange warten (onChange-Timing
                                 // unzuverlässig). Hier live beim Streaming updaten.
@@ -5669,14 +5713,15 @@ struct SingleChatSessionView: View {
                             guard let toolId = block.toolUseId,
                                   let resultText = block.toolResultText,
                                   !resultText.isEmpty else { continue }
+                            // Vor der Kappung auswerten: die claude.ai-URL darf nicht an der
+                            // 4000-Zeichen-Grenze verloren gehen.
+                            if let ref = artifactCollector.noteToolResult(id: toolId, text: resultText,
+                                                                        isError: block.isError) {
+                                messages[assistantIndex].appendArtifact(ref)
+                            }
                             if let idx = messages[assistantIndex].toolCalls.firstIndex(where: { $0.toolUseId == toolId }) {
                                 // Cap output to 4000 chars to avoid blowing up the UI
                                 messages[assistantIndex].toolCalls[idx].result = String(resultText.prefix(4000))
-                                // Artifact-Karte einmal hier berechnen — nicht in ChatMessage.==,
-                                // das bei jedem SwiftUI-Diff läuft.
-                                if messages[assistantIndex].toolCalls[idx].name == "Artifact" {
-                                    messages[assistantIndex].refreshArtifacts()
-                                }
                                 // Notify LinearView to refresh when a Linear MCP tool completes
                                 if messages[assistantIndex].toolCalls[idx].name.hasPrefix("mcp__linear__") {
                                     NotificationCenter.default.post(name: .linearMCPDidChange, object: nil)
@@ -7641,6 +7686,8 @@ struct MessageBubbleView: View, Equatable {
     @State private var dot2Up: Bool = false
     @State private var taskStartTime: Date? = nil
     @State private var completedDuration: TimeInterval? = nil
+    /// URLs der Artifacts, deren lokale Vorschau gerade offen ist.
+    @State private var openArtifactPreviews: Set<String> = []
 
     private var accentColor: Color {
         Color(red: theme.acR/255, green: theme.acG/255, blue: theme.acB/255)
@@ -7860,12 +7907,27 @@ struct MessageBubbleView: View, Equatable {
         }
     }
 
-    /// Karte für ein veröffentlichtes Artifact. Öffnet im Systembrowser — das
-    /// eingebaute WKWebView hat keine claude.ai-Anmeldung.
+    /// Formate, die sich lokal im WebView sinnvoll darstellen lassen.
+    private static let previewableArtifactTypes: Set<String> = ["html", "htm", "svg"]
+
+    /// Die veröffentlichte Quelldatei, sofern sie sich anzeigen lässt.
+    /// Die claude.ai-Seite selbst ist privat: das eingebaute WKWebView hat einen
+    /// app-eigenen Cookie-Speicher ohne Anmeldung und bekäme nur die Login-Wand.
+    /// Die Vorschau zeigt deshalb die lokale Datei — inhaltlich dasselbe Dokument,
+    /// nur ohne das serverseitige Seitengerüst.
+    private func previewableFile(_ artifact: ArtifactRef) -> URL? {
+        guard let path = artifact.localPath else { return nil }
+        let ext = (path as NSString).pathExtension.lowercased()
+        guard Self.previewableArtifactTypes.contains(ext) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    /// Karte für ein veröffentlichtes Artifact: lokale Vorschau zum Prüfen,
+    /// Systembrowser zum Teilen (dort ist die claude.ai-Anmeldung).
     private func artifactCard(_ artifact: ArtifactRef) -> some View {
-        Button {
-            if let url = URL(string: artifact.url) { NSWorkspace.shared.open(url) }
-        } label: {
+        let file = previewableFile(artifact)
+        let isOpen = openArtifactPreviews.contains(artifact.url)
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "square.on.square.dashed")
                     .font(.system(size: 14))
@@ -7875,23 +7937,52 @@ struct MessageBubbleView: View, Equatable {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
-                    Text("Auf claude.ai veröffentlicht")
+                    Text(file == nil ? "Auf claude.ai veröffentlicht"
+                                     : "Auf claude.ai veröffentlicht · Vorschau aus der Quelldatei")
                         .font(.system(size: 10))
                         .foregroundStyle(theme.tertiaryText)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 11))
-                    .foregroundStyle(theme.secondaryText.opacity(0.6))
+                if file != nil {
+                    Button {
+                        if isOpen { openArtifactPreviews.remove(artifact.url) }
+                        else      { openArtifactPreviews.insert(artifact.url) }
+                    } label: {
+                        Image(systemName: isOpen ? "eye.slash" : "eye")
+                            .font(.system(size: 11))
+                            .foregroundStyle(isOpen ? accentColor : theme.secondaryText.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .help(isOpen ? "Vorschau schließen" : "Vorschau der Quelldatei anzeigen")
+                }
+                Button {
+                    if let url = URL(string: artifact.url) { NSWorkspace.shared.open(url) }
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondaryText.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help("Im Browser öffnen — \(artifact.url)")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.cardBorder, lineWidth: 1))
-            .contentShape(Rectangle())
+
+            if isOpen, let file {
+                Divider().overlay(theme.cardBorder)
+                ChatHTMLPreview(url: file)
+                    .frame(height: 420)
+                    // Ein WKWebView verschluckt Scroll-Ereignisse und gäbe sie nicht an den
+                    // Chat weiter — die Vorschau wäre eine Scroll-Falle. Zum Blättern und
+                    // Klicken ist der Browser-Knopf da.
+                    .allowsHitTesting(false)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(8)
+            }
         }
-        .buttonStyle(.plain)
-        .help("Im Browser öffnen — \(artifact.url)")
+        .background(accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(theme.cardBorder, lineWidth: 1))
     }
 
     private func toolCallView(_ tool: ToolCall) -> some View {
@@ -9174,6 +9265,13 @@ struct InlineSearchBar: View {
 private struct ChatHTMLPreview: NSViewRepresentable {
     let url: URL
 
+    /// Merkt sich Adresse UND Änderungsdatum der geladenen Datei. `updateNSView` läuft
+    /// bei jedem Body-Pass — beim Streaming mehrmals pro Sekunde; ohne Sperre würde die
+    /// Seite dabei immer wieder neu geladen. Das Datum gehört dazu, weil ein Redeploy
+    /// dieselbe Datei überschreibt: ohne es zeigte die Vorschau weiter den alten Stand.
+    final class Coordinator { var loaded: (url: URL, modified: Date?)? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -9182,6 +9280,9 @@ private struct ChatHTMLPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        if let loaded = context.coordinator.loaded, loaded.url == url, loaded.modified == modified { return }
+        context.coordinator.loaded = (url, modified)
         // Load directly from the original file so relative image/CSS/JS paths resolve correctly.
         // Grant read access to the entire home directory so resources in sibling folders load too.
         let accessRoot = URL(fileURLWithPath: NSHomeDirectory())
