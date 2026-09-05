@@ -362,6 +362,9 @@ final class OrchestratorLogicTests: XCTestCase {
         XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("schick den Fehlerreport", trigger: "Report"))
         // Kurze Trigger bleiben außen vor — sonst landet „CI" wieder in jedem Wort.
         XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("ein Grafiktool", trigger: "CI"))
+        // Kurze Vorsilbe = kein Kompositum: „Pro|test" und „At|test" meinen keinen Test.
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("ihr Protest kam spät", trigger: "Test"))
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("das ärztliche Attest", trigger: "Test"))
     }
 
     /// Umlaute sind Wortbestandteil, keine Wortgrenze. Sichtbar wird das bei kurzen Triggern,

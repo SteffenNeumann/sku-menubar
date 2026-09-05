@@ -143,9 +143,12 @@ deine eigene Prüfung im konkreten Fall.
         // 3. Deutsche Komposita: der Trigger steht am ENDE eines zusammengeschriebenen Wortes
         //    („Systemtest" → „Test", „Codereview" → „Review"). Ohne diese Stufe kostete die
         //    Wortgrenze aus Stufe 1/2 genau die Treffer, die deutsche Nutzer täglich tippen.
-        //    Erst ab 4 Zeichen, damit „CI"/„CD"/„QA" nicht wieder in jedem Wort landen.
+        //    Zwei Schranken: der Trigger selbst ≥ 4 Zeichen (sonst landet „CI" wieder in jedem
+        //    Wort) UND das Bestimmungswort davor ≥ 4 Zeichen. Letzteres trennt echte Komposita
+        //    („System|test", „Fehler|report") von Wörtern, die nur zufällig so enden
+        //    („Pro|test", „At|test") — deren Vorsilbe ist immer kurz.
         if triggerWords.contains(where: { tw in
-            tw.count >= 4 && inputWords.contains { $0.hasSuffix(tw) }
+            tw.count >= 4 && inputWords.contains { $0.count >= tw.count + 4 && $0.hasSuffix(tw) }
         }) { return true }
         // 4. Bidirectional prefix: "review" matches "reviewer", "reviewing".
         //    Mindestens 4 Zeichen auf der kürzeren Seite — bei 3 traf das deutsche „des"
@@ -159,12 +162,27 @@ deine eigene Prüfung im konkreten Fall.
 
     /// `word` als ganzes Wort in `text` (beide bereits kleingeschrieben). Als Wortbestandteil
     /// zählt jeder Buchstabe und jede Ziffer — auch Umlaute und Akzente: mit `[a-z0-9]` galt
-    /// das „ü" in „Statusübersicht" als Grenze und der Trigger „Status" traf mitten im Wort.
+    /// das „ü" in „qaübersicht" als Grenze und der Trigger „QA" traf mitten im Wort.
+    ///
+    /// Bewusst von Hand gesucht statt per Regex: die Funktion hängt über
+    /// `.onChange(of: inputText)` an JEDEM Tastendruck und läuft dort über alle Trigger aller
+    /// Agents (~150). Ein `NSRegularExpression` würde pro Tastendruck ~300× neu übersetzt.
     private static func containsWholeWord(_ text: String, _ word: String) -> Bool {
         guard !word.isEmpty else { return false }
-        let boundary = "[^\\p{L}\\p{N}]"
-        let pattern = "(^|\(boundary))" + NSRegularExpression.escapedPattern(for: word) + "(\(boundary)|$)"
-        return text.range(of: pattern, options: .regularExpression) != nil
+        var searchStart = text.startIndex
+        while let hit = text.range(of: word, range: searchStart..<text.endIndex) {
+            let openLeft  = hit.lowerBound == text.startIndex
+                || !isWordCharacter(text[text.index(before: hit.lowerBound)])
+            let openRight = hit.upperBound == text.endIndex
+                || !isWordCharacter(text[hit.upperBound])
+            if openLeft && openRight { return true }
+            searchStart = text.index(after: hit.lowerBound)
+        }
+        return false
+    }
+
+    private static func isWordCharacter(_ c: Character) -> Bool {
+        c.isLetter || c.isNumber
     }
 
     // MARK: Komplexitäts-Heuristik

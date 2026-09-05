@@ -74,15 +74,11 @@ struct OrchestratorView: View {
         return matched
     }
 
-    /// Matches if `text` contains the full trigger phrase, any word from it, or via prefix
-    /// ("review" matches trigger "Reviewer" because "reviewer".hasPrefix("review")).
+    /// Dieselbe Regel wie beim Auto-Trigger und beim Orchestrator-Routing. Vorher stand hier
+    /// eine dritte, eigene Teilstring-Kopie — die hob genau die Wörter hervor, die das Routing
+    /// gar nicht mehr auslösen („CI" in „specific"), und log damit über den echten Grund.
     private func matchesTrigger(_ trigger: String, in text: String) -> Bool {
-        let t = trigger.lowercased()
-        if text.contains(t) { return true }
-        let trigWords = t.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        if trigWords.contains(where: { text.contains($0) }) { return true }
-        let textWords = text.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        return textWords.contains { tw in trigWords.contains { trig in trig.hasPrefix(tw) || tw.hasPrefix(trig) } }
+        OrchestratorLogic.inputMatchesTrigger(text, trigger: trigger)
     }
 
     var body: some View {
