@@ -3519,7 +3519,10 @@ struct SingleChatSessionView: View {
         autoRoutingActive = true
         autoRoutingText = text
 
-        let workAgents = state.agentService.agents.filter { !$0.isPersona }
+        // Der Researcher ist ausgenommen wie beim Auto-Trigger: seine Trigger („Design",
+        // „Search") stammen aus extractKeywords und zogen ihn in fremde Orchestrierungen —
+        // wo Trigger-Agents laut Merge unten sogar nach vorne einsortiert werden.
+        let workAgents = state.agentService.agents.filter { !$0.isPersona && !$0.isMaintainer }
 
         streamingTask = Task { @MainActor in
             // LLM-basierte Agent-Auswahl: Haiku bestimmt WELCHE Agents relevant sind

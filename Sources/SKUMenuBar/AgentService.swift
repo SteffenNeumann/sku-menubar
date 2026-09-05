@@ -641,7 +641,7 @@ Consolidate memory for "\(agent.name)".
            let sharedBlock = OrchestratorLogic.sharedMemoryBlock(
                from: sharedRaw,
                cap: OrchestratorLimits.sharedMemoryCap,
-               isMaintainer: agent.name.lowercased() == "researcher"
+               isMaintainer: agent.isMaintainer
            ) {
             parts.append(sharedBlock)
         }

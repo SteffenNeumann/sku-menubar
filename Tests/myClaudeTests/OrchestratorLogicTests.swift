@@ -345,13 +345,32 @@ final class OrchestratorLogicTests: XCTestCase {
         XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("hallo welt", trigger: "code review"))
     }
 
-    /// Audit 04.09.2026: Trigger galten als Teilstring — „CI" traf jedes „Service".
+    /// Audit 04.09.2026: Trigger galten als Teilstring — „CI" traf jedes „specific".
     func testTriggerNeedsWordBoundary() {
-        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("der Service läuft", trigger: "CI"))
-        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("in Deutschland", trigger: "CD"))
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("this is a specific case", trigger: "CI"))
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("die decision steht", trigger: "CI"))
         // Echte Wortvorkommen müssen weiter greifen — auch mit Satzzeichen ringsum.
         XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("läuft die CI?", trigger: "CI"))
         XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("schreib Tests, bitte", trigger: "Tests"))
+    }
+
+    /// Deutsche Komposita: die Wortgrenze aus dem ersten Anlauf kostete genau die Treffer,
+    /// die im Alltag getippt werden. Ab 4 Zeichen zählt der Trigger auch am Wortende.
+    func testTriggerMatchesGermanCompounds() {
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("der Systemtest schlägt fehl", trigger: "Test"))
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("mach ein Codereview", trigger: "Review"))
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("schick den Fehlerreport", trigger: "Report"))
+        // Kurze Trigger bleiben außen vor — sonst landet „CI" wieder in jedem Wort.
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("ein Grafiktool", trigger: "CI"))
+    }
+
+    /// Umlaute sind Wortbestandteil, keine Wortgrenze. Sichtbar wird das bei kurzen Triggern,
+    /// die nur über Stufe 1 laufen: „QA" galt in „QA-Übersicht" wie in „qaübersicht" als
+    /// ganzes Wort, weil „ü" nicht in `[a-z0-9]` liegt.
+    func testTriggerTreatsUmlautAsWordCharacter() {
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("die qaübersicht zeigen", trigger: "QA"))
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("die QA-Übersicht zeigen", trigger: "QA"))
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("prüfe die Größe", trigger: "Größe"))
     }
 
     /// Die Präfix-Stufe stand bei 3 Zeichen — deutsche Füllwörter trafen echte Trigger.

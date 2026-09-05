@@ -124,9 +124,9 @@ deine eigene Prüfung im konkreten Fall.
     ///  3. Prefix: "review" matches trigger "Reviewer" (input is prefix of trigger word, or vice versa)
     ///
     /// Einzelwörter matchen nur an WORTGRENZEN. Als reiner Teilstring traf der Trigger „CI"
-    /// jedes „Service", „CD" jedes „Deutschland" — der halbe Alltagswortschatz löste damit
-    /// devops-engineer aus. Mehrwort-Phrasen bleiben Teilstring-Treffer: dort ist die Grenze
-    /// schon durch die Phrase gegeben.
+    /// jedes „specific" und jedes „decision" — Allerweltswörter lösten damit devops-engineer
+    /// aus. Mehrwort-Phrasen bleiben Teilstring-Treffer: dort ist die Grenze schon durch die
+    /// Phrase gegeben.
     static func inputMatchesTrigger(_ input: String, trigger: String) -> Bool {
         let inputL   = input.lowercased()
         let triggerL = trigger.lowercased()
@@ -140,7 +140,14 @@ deine eigene Prüfung im konkreten Fall.
         let triggerWords = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
         // 2. Any trigger word as a whole word in the input
         if triggerWords.contains(where: { containsWholeWord(inputL, $0) }) { return true }
-        // 3. Bidirectional prefix: "review" matches "reviewer", "reviewing".
+        // 3. Deutsche Komposita: der Trigger steht am ENDE eines zusammengeschriebenen Wortes
+        //    („Systemtest" → „Test", „Codereview" → „Review"). Ohne diese Stufe kostete die
+        //    Wortgrenze aus Stufe 1/2 genau die Treffer, die deutsche Nutzer täglich tippen.
+        //    Erst ab 4 Zeichen, damit „CI"/„CD"/„QA" nicht wieder in jedem Wort landen.
+        if triggerWords.contains(where: { tw in
+            tw.count >= 4 && inputWords.contains { $0.hasSuffix(tw) }
+        }) { return true }
+        // 4. Bidirectional prefix: "review" matches "reviewer", "reviewing".
         //    Mindestens 4 Zeichen auf der kürzeren Seite — bei 3 traf das deutsche „des"
         //    den Trigger „Design" und „ist" den Trigger „Issue"/„Issues".
         return inputWords.contains { iw in
@@ -150,12 +157,13 @@ deine eigene Prüfung im konkreten Fall.
         }
     }
 
-    /// `word` als ganzes Wort in `text` (beide bereits kleingeschrieben). Buchstaben und Ziffern
-    /// gelten als Wortbestandteil, alles andere als Grenze — dieselbe Regel wie beim
-    /// MCP-Stichwort-Matching in ChatView.
+    /// `word` als ganzes Wort in `text` (beide bereits kleingeschrieben). Als Wortbestandteil
+    /// zählt jeder Buchstabe und jede Ziffer — auch Umlaute und Akzente: mit `[a-z0-9]` galt
+    /// das „ü" in „Statusübersicht" als Grenze und der Trigger „Status" traf mitten im Wort.
     private static func containsWholeWord(_ text: String, _ word: String) -> Bool {
         guard !word.isEmpty else { return false }
-        let pattern = "(^|[^a-z0-9])" + NSRegularExpression.escapedPattern(for: word) + "([^a-z0-9]|$)"
+        let boundary = "[^\\p{L}\\p{N}]"
+        let pattern = "(^|\(boundary))" + NSRegularExpression.escapedPattern(for: word) + "(\(boundary)|$)"
         return text.range(of: pattern, options: .regularExpression) != nil
     }
 

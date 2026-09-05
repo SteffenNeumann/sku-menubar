@@ -116,12 +116,17 @@ enum SkillKeywords {
     /// Aufzählungszeile zählt der erste Backtick-Name. Bewusst aus der Datei gelesen statt im
     /// Code gepflegt: ändert sich die Liste im Agenten, zieht die App ohne Build nach.
     static func mainSkills(inAgentBody body: String) -> [String] {
+        // Cache vor allem anderen: der Banner ruft das im Render-Pfad auf, und auch das
+        // erfolglose Suchen nach der Überschrift kostet sonst bei jedem Durchlauf.
+        let key = body.hashValue
+        if let cached = mainSkillCache[key] { return cached }
         // Nur eine ÜBERSCHRIFT zählt als Blockanfang. Der Researcher erwähnt „⭐ Hauptskills"
         // in seinen Arbeitsanweisungen im Fließtext; ohne diese Prüfung begann der Block dort
         // und der Backtick-Parser las Bruchstücke wie `## Active Skills` als Skill-Namen.
-        guard let marker = headingRange(of: mainSkillMarker, in: body) else { return [] }
-        let key = body.hashValue
-        if let cached = mainSkillCache[key] { return cached }
+        guard let marker = headingRange(of: mainSkillMarker, in: body) else {
+            mainSkillCache[key] = []
+            return []
+        }
 
         let rest = body[marker.upperBound...]
         // Nächste Überschrift beendet den Block — egal welcher Ebene.
@@ -146,6 +151,7 @@ enum SkillKeywords {
     /// Zeile, die (nach optionalen Leerzeichen) mit `#` beginnt. Erwähnungen im Fließtext
     /// werden übersprungen.
     private static func headingRange(of marker: String, in body: String) -> Range<String.Index>? {
+        guard !marker.isEmpty else { return nil }   // sonst käme die Schleife nie voran
         var searchStart = body.startIndex
         while let found = body.range(of: marker, range: searchStart..<body.endIndex) {
             let lineStart = body[..<found.lowerBound].lastIndex(of: "\n")
