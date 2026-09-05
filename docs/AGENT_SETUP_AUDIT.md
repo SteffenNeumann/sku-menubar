@@ -293,12 +293,30 @@ for term in "<Begriff>"; do
 done
 ```
 
-Der Ausschluss der eigenen Läufe ist der Kern: ohne ihn zählt der Researcher seine eigene
-Liefermeldung als Nutzung — genau das passierte in der Audit-Stichprobe.
+Der Ausschluss automatischer Läufe ist der Kern: ohne ihn zählt der Researcher seine eigene
+Liefermeldung und die nächtlichen Dream-Läufe als Nutzung.
 
-An echten Daten geprüft: `CVE-2026-85046` → 0, `CSS Mixins` → 0, `DuckDB` → 0, `inert` → 47.
-Der letzte Fall ist die Warnung, die auch im Prompt steht: **kein Allerweltswort als
-Kernbegriff** — „inert" trifft 47 fremde Sessions, ohne dass eine davon die Lieferung meint.
+**Nach dem Review korrigiert.** Die erste Fassung schloss per `grep -rl "daily_report"` aus.
+Der Prüfer wies nach, dass das in beide Richtungen falsch liegt: Es erwischte 3 echte
+Sitzungen, die den Begriff nur im angezeigten Quelltext hatten, und übersah zugleich die
+330 Dream- und Scheduled-Läufe komplett. Jetzt wird strukturell an der ERSTEN Nachricht einer
+Session erkannt (`Begin your session now` = Scheduled-Lauf, `Consolidate memory for` = Dream)
+— 363 automatische Läufe statt 33.
+
+**Grenze der Methode, ebenfalls im Prompt festgehalten:** Eine Sitzung, die über den
+Researcher *spricht*, enthält seine Begriffe, ohne dass ein Agent damit gearbeitet hätte.
+Gemessen am 05.09.: `CVE-2026-85046`, `CSS Mixins`, `DuckDB v2.0` und `Document360` kamen auf
+je genau 1 Treffer — und jeder davon war diese Audit-Sitzung selbst. Deshalb druckt der Block
+bei 1–3 Treffern die Dateinamen mit aus, und der Prompt verlangt, hineinzusehen, bevor
+„used" geschrieben wird.
+
+### Nebenwirkung des neuen Takts: der HF-Pass
+
+Schritt 2.5 (Hugging Face) lief bisher **montags**. Bei 3-Tage-Takt trifft ein Lauf nur noch
+etwa jeden siebten einen Montag — aus wöchentlich wäre still dreiwöchentlich geworden. Der
+Prüfer hat das ausgerechnet (12 kommende Läufe, davon 2 an einem Montag). Die Bedingung hängt
+jetzt am Datum statt am Wochentag: „letzter HF-Pass ≥ 7 Tage her", festgehalten als
+`_Last HF pass: YYYY-MM-DD_` in `## AI/Agent Research`. Damit ist der Schritt taktunabhängig.
 
 Zweiter Teil: Der Pain-Point-Scan in Step 1b prüft jetzt zuerst, ob der Log-Eintrag die Lösung
 schon selbst nennt. Das war der `inert`-Fall vom 01.09. — ein ganzer Recherche-Slot für einen
