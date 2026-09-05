@@ -204,8 +204,11 @@ Läufen dieser Session schon leicht gedriftet, z. B. 697→689 Sessions).
 
 # Umsetzung (05.09.2026)
 
-Pakete **1, 2, 3 und 6 sind umgesetzt** (Commits `498a127`, `1897978`, `c30a7f6`).
-Pakete **4 und 5 bleiben offen** — sie brauchen weiterhin eine eigene Freigabe.
+**Alle Pakete sind umgesetzt** (Commits `498a127`, `1897978`, `c30a7f6`, `393815a` und die
+Researcher-Anpassung vom selben Tag). Paket 4 wurde in der Variante **a** freigegeben —
+seltener laufen, aber weiterhin ALLE Agents recherchieren. Variante b (ungenutzte Agents
+überspringen) wurde ausdrücklich **verworfen**: Steffens Begründung — wenn er einen bislang
+ungenutzten Agenten doch braucht, muss dieser auf dem aktuellen Wissensstand sein.
 
 Zwei unabhängige Prüfrunden (code-reviewer, qa-test-engineer) haben insgesamt sechs echte
 Mängel gefunden; alle wurden behoben. Der Ablauf ist hier festgehalten, weil die Fehler
@@ -254,10 +257,57 @@ lehrreich sind.
    Handsuche (11× schneller, gleiche Semantik).
 6. **Eine dritte Kopie der Trigger-Logik** lag unbemerkt in `OrchestratorView`.
 
-## Bewusst offen geblieben
+## Paket 4a — Takt (umgesetzt 05.09.2026)
 
-- **Paket 4** (Researcher-Takt auf 2×/Woche) und **Paket 5** (Adoption-Sektion ersetzen) —
-  Freigabe steht aus.
+`schedule: daily` → `schedule: every:4320` (alle 3 Tage). Erwartete Kosten: ≈ 38 $/Monat statt
+115 $, also rund **77 $ gespart**.
+
+**Korrektur am ursprünglichen Vorschlag:** „2×/Woche (Mo/Do)" ist nicht möglich. Die App kennt
+nur `hourly`, `daily`, `weekly` und `every:<Minuten>` (`AgentService.scheduleInterval`) — feste
+Wochentage gäbe es nur mit Code-Änderung. Gewählt wurden 3 Tage statt der besprochenen 3,5:
+Intervalle, die ein ganzes Vielfaches von 24 h sind, behalten die Uhrzeit bei (15:04). Bei
+3,5 Tagen wandert der Lauf abwechselnd in die Nacht.
+
+**Alle Agents bleiben in der Recherche.** Der Preis ist Aktualität, nicht Abdeckung: Meldungen
+sind bis zu 3 Tage alt statt 1 Tag. Braucht ein Agent kurzfristig frisches Wissen, startet der
+Knopf „Erneut ausführen" in der Agent-Ansicht (`AgentsView.onRerun` →
+`executeScheduledAgent`) sofort einen vollen Lauf.
+
+Die Budget-Regel (18 WebSearches nach 8 Agents) blieb unverändert. Sie ist eine Bremse gegen
+Ausreißer, kein Ziel; bisheriger Median 9–13. Ob sie beim größeren Nachrichtenfenster häufiger
+greift, zeigen die nächsten Berichte.
+
+## Paket 5 — Wirkung messen statt raten (umgesetzt 05.09.2026)
+
+Die Sektion `## Recommendation Adoption` ist ersetzt durch `## Delivery Impact (gemessen)`,
+gespeist aus einem neuen **Step 1c**. Der Researcher nimmt die 5 zuletzt gelieferten Einträge,
+zieht je einen unterscheidungskräftigen Kernbegriff (CVE-Nummer, Produkt + Version, exakter
+API-Name) und sucht ihn in den Transcripts:
+
+```bash
+grep -rl "daily_report" ~/.claude/projects/*/*.jsonl 2>/dev/null | sort > /tmp/res_own.txt
+for term in "<Begriff>"; do
+  n=$(grep -rl -- "$term" ~/.claude/projects/*/*.jsonl 2>/dev/null | sort \
+      | comm -23 - /tmp/res_own.txt | wc -l)
+  echo "$term -> $n"
+done
+```
+
+Der Ausschluss der eigenen Läufe ist der Kern: ohne ihn zählt der Researcher seine eigene
+Liefermeldung als Nutzung — genau das passierte in der Audit-Stichprobe.
+
+An echten Daten geprüft: `CVE-2026-85046` → 0, `CSS Mixins` → 0, `DuckDB` → 0, `inert` → 47.
+Der letzte Fall ist die Warnung, die auch im Prompt steht: **kein Allerweltswort als
+Kernbegriff** — „inert" trifft 47 fremde Sessions, ohne dass eine davon die Lieferung meint.
+
+Zweiter Teil: Der Pain-Point-Scan in Step 1b prüft jetzt zuerst, ob der Log-Eintrag die Lösung
+schon selbst nennt. Das war der `inert`-Fall vom 01.09. — ein ganzer Recherche-Slot für einen
+Fix, den der Agent am Vorabend selbst notiert hatte.
+
+Ausdrücklich beibehalten: Ein `unused`-Befund ist **kein** Grund, einen Agenten nicht mehr zu
+beliefern. Er steuert nur die Ausrichtung der Recherche; die Entscheidung bleibt bei Steffen.
+
+## Bewusst offen geblieben
 - **Präfix-Stufe routet Allerweltswörter mit.** Bestand schon vor dieser Session und wurde
   durch die Schwelle 3 → 4 nicht beseitigt, weil viele Alltagswörter ≥ 4 Zeichen haben:
   „über" → Trigger `Übersicht` (report-writer), „sicher" → `Sicherheit` (security-auditor),
