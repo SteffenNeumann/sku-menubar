@@ -199,3 +199,72 @@ Alle Zahlen sind Stichtags-Messungen vom 04.09.2026 aus:
 
 Vor jeder Umsetzung neu messen — das System ist lebend (Transcript-Zahlen zwischen den beiden
 Läufen dieser Session schon leicht gedriftet, z. B. 697→689 Sessions).
+
+---
+
+# Umsetzung (05.09.2026)
+
+Pakete **1, 2, 3 und 6 sind umgesetzt** (Commits `498a127`, `1897978`, `c30a7f6`).
+Pakete **4 und 5 bleiben offen** — sie brauchen weiterhin eine eigene Freigabe.
+
+Zwei unabhängige Prüfrunden (code-reviewer, qa-test-engineer) haben insgesamt sechs echte
+Mängel gefunden; alle wurden behoben. Der Ablauf ist hier festgehalten, weil die Fehler
+lehrreich sind.
+
+## Was umgesetzt wurde
+
+| Paket | Änderung | Ort |
+|---|---|---|
+| 1 | Personas + Researcher vom Auto-Trigger und vom Orchestrator-Routing ausgenommen | `ChatView.autoTriggerAgent`, `workAgents` |
+| 1 | Wortgrenzen-Matching statt Teilstring; Präfix-Stufe erst ab 4 Zeichen; neue Kompositum-Stufe | `OrchestratorLogic.inputMatchesTrigger` |
+| 1 | Leeres `name:`-Feld gilt wieder als nicht gesetzt; `Testkunde.md` repariert | `AgentService.parseAgent` |
+| 2 | Dream läuft nur bei verändertem `learning_log.txt` (mtime gegen `last_dream.txt`) | `AgentService.hasUnprocessedLearning` |
+| 2 | Log wird nach dem Dream auf 40 Zeilen gekappt, Rest nach `learning_log_archive.txt` | `AgentService.capLearningLog` |
+| 3 | Researcher-Prompt deckelt den Block auf 12 Bullets / 45 Tage | `agents/researcher …md` |
+| 3 | Einmalige Bereinigung: 386 Bullets geprüft, 330 archiviert, **0 verloren** | `agents/*.md` + `agent-memory/*/research-archive.md` |
+| 3 | Jeder Worker-Prompt sagt jetzt, wie der Block zu nutzen ist | `agents/*.md` |
+| 6 | `mainSkills()` startet nur an einer Überschrift; Cache auch für leere Ergebnisse | `SkillKeywords.swift` |
+| 6 | Dritte Trigger-Kopie im Orchestrator-Panel entfernt | `OrchestratorView.matchesTrigger` |
+
+## Gemessene Wirkung
+
+- **security-auditor**: 66,8 KB → 16,1 KB Prompt (96 → 12 Research-Bullets, ≈ 12,7k Tokens
+  weniger *pro Aufruf*). devops-engineer 43,3 → 16,5 KB. Insgesamt ≈ 37k Tokens gespart.
+- **Dream**: In der Nacht auf den 05.09. hätten 11 Agents geträumt; mit dem Skip sind es 0,
+  solange keine neue Log-Zeile dazukommt. Erwartete Ersparnis ≈ $50/Monat.
+- **Routing**: Über die echten Trigger simuliert — 4 Fehlrouten beseitigt
+  (Persona bei „kaum"/„sehr"/„bist du", devops bei „specific"), 0 richtige Treffer verloren.
+
+## Was die Prüfer gefunden haben (und was daraus zu lernen ist)
+
+1. **Meine Beispiele im ersten Commit waren schlicht falsch.** Ich hatte behauptet, der
+   Trigger „CI" treffe „Service" und „CD" treffe „Deutschland". Beides ist nicht wahr
+   („Service" enthält *ic*, nicht *ci*) — die beiden Tests waren schon vor der Änderung grün
+   und belegten nichts. Der Fehler war echt, betraf aber „specific" und „decision".
+   *Lehre: ein Test, der die Behauptung beweisen soll, muss gegen den ALTEN Stand rot sein.*
+2. **Die Wortgrenze kostete deutsche Komposita.** „Systemtest", „Codereview",
+   „Fehlerreport" fanden keinen Agenten mehr. Behoben durch eine Kompositum-Stufe.
+3. **Die Kompositum-Stufe riss die Lücke wieder auf.** „Protest" und „Attest" enden auf
+   „test". Behoben durch die zweite Schranke: auch das Bestimmungswort muss ≥ 4 Zeichen haben.
+4. **Der Researcher blieb im Orchestrator-Pfad hängen.** Der Filter war nur an einem der
+   beiden Aufrufer angebracht.
+5. **Der Wortgrenzen-Regex war im Tastendruck-Pfad.** `containsWholeWord` baute pro Aufruf
+   ein `NSRegularExpression`, und `.onChange(of: inputText)` ruft das über alle ~170 Trigger
+   bei jedem Tastenanschlag auf: gemessen 161 ms bei 4800 Zeichen Eingabe. Ersetzt durch
+   Handsuche (11× schneller, gleiche Semantik).
+6. **Eine dritte Kopie der Trigger-Logik** lag unbemerkt in `OrchestratorView`.
+
+## Bewusst offen geblieben
+
+- **Paket 4** (Researcher-Takt auf 2×/Woche) und **Paket 5** (Adoption-Sektion ersetzen) —
+  Freigabe steht aus.
+- **Präfix-Stufe routet Allerweltswörter mit.** Bestand schon vor dieser Session und wurde
+  durch die Schwelle 3 → 4 nicht beseitigt, weil viele Alltagswörter ≥ 4 Zeichen haben:
+  „über" → Trigger `Übersicht` (report-writer), „sicher" → `Sicherheit` (security-auditor),
+  „Formular" → `Form` (backend), „Modul" → `Module` (excel-vba), „Dokument" → `Doku`
+  (technical-writer). Sauberer Weg wäre, die Trigger-Listen selbst zu entschärfen statt die
+  Matching-Regel weiter zu verbiegen.
+- **Kosten des Tastendruck-Pfads.** Auch ohne Regex kostet eine 4800-Zeichen-Eingabe ≈ 60 ms
+  pro Tastendruck, weil jeder der ~170 Aufrufe den gesamten Text erneut kleinschreibt. Das war
+  vor dieser Session genauso (60,6 ms gemessen) — es fällt nur jetzt auf. Fix wäre, den Text
+  einmal kleinzuschreiben und durchzureichen.
