@@ -391,7 +391,12 @@ struct SingleChatSessionView: View {
                                              text: text,
                                              orchestratorActive: !orchestratorHistory.isEmpty)
         else { return nil }
+        // Personas und der Researcher sind ausgenommen: beide haben KEINE gepflegten Trigger,
+        // sondern die 6 ersten Wörter ihres Textes aus `extractKeywords` — „Kaum", „Sehr",
+        // „Design", „Search". Damit gewann eine Persona das erste-Treffer-Rennen (alphabetisch
+        // sortiert) bei völlig harmlosen Sätzen, statt des zuständigen Fach-Agenten.
         return state.agentService.agents.first { agent in
+            !agent.isPersona && !agent.isMaintainer &&
             agent.effectiveTriggers.contains { inputMatchesTrigger(text, trigger: $0) }
         }
     }

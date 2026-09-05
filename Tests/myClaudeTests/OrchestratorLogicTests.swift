@@ -345,6 +345,43 @@ final class OrchestratorLogicTests: XCTestCase {
         XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("hallo welt", trigger: "code review"))
     }
 
+    /// Audit 04.09.2026: Trigger galten als Teilstring — „CI" traf jedes „Service".
+    func testTriggerNeedsWordBoundary() {
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("der Service läuft", trigger: "CI"))
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("in Deutschland", trigger: "CD"))
+        // Echte Wortvorkommen müssen weiter greifen — auch mit Satzzeichen ringsum.
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("läuft die CI?", trigger: "CI"))
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("schreib Tests, bitte", trigger: "Tests"))
+    }
+
+    /// Die Präfix-Stufe stand bei 3 Zeichen — deutsche Füllwörter trafen echte Trigger.
+    func testTriggerPrefixIgnoresShortGermanWords() {
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("das ist Teil des Projekts", trigger: "Design"))
+        XCTAssertFalse(OrchestratorLogic.inputMatchesTrigger("was ist da los", trigger: "Issue"))
+        // Wortstämme bleiben erlaubt (ab 4 Zeichen auf der kürzeren Seite).
+        XCTAssertTrue(OrchestratorLogic.inputMatchesTrigger("beim Deploy klemmt es", trigger: "Deployment"))
+    }
+
+    /// Personas und der Researcher haben keine gepflegten Trigger, sondern die ersten Wörter
+    /// ihres Textes. Der Auto-Trigger muss sie überspringen (Filter in ChatView).
+    func testPersonaAndMaintainerAreFlagged() {
+        var persona = makeAgent(id: "Testkunde", name: "Testkunde")
+        persona = AgentDefinition(
+            id: persona.id, name: persona.name, description: "", model: "", color: nil,
+            memory: nil, portrait: nil, triggers: [], promptBody: "", filePath: "",
+            projectDirectory: nil, schedule: nil, isActive: false, timeoutMinutes: 30,
+            researchUpdatedAt: nil, skillsUpdatedAt: nil, dreamSchedule: nil,
+            category: "persona", customerName: nil, industry: nil, techLevel: nil,
+            priorities: [], dealbreakers: [], tone: nil, associatedProjects: [],
+            contextImages: [], emailDomain: nil, emailAddress: nil,
+            emailRoutingEnabled: false, requiredMCPs: []
+        )
+        XCTAssertTrue(persona.isPersona)
+        XCTAssertTrue(makeAgent(id: "r", name: "researcher").isMaintainer)
+        XCTAssertFalse(makeAgent(id: "q", name: "qa-test-engineer").isMaintainer)
+        XCTAssertFalse(makeAgent(id: "q", name: "qa-test-engineer").isPersona)
+    }
+
     // MARK: - Regression-Guards (aus QA-Review)
 
     func testParsePlanJSONWithBracesInPreambleFallsBack() {

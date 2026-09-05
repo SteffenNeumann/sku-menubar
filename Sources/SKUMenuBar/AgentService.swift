@@ -111,7 +111,10 @@ final class AgentService: ObservableObject {
             fields[key] = value
         }
 
-        let name        = fields["name"] ?? url.deletingPathExtension().lastPathComponent
+        // `name:` LEER behandeln wie „nicht gesetzt" — ein leerer Name sortiert alphabetisch
+        // ganz nach vorne und der Agent würde bei jeder Nachricht als Erstes geprüft.
+        let name        = fields["name"].flatMap { $0.isEmpty ? nil : $0 }
+                          ?? url.deletingPathExtension().lastPathComponent
         let description = fields["description"] ?? ""
         let model       = fields["model"] ?? "sonnet"
         let color       = fields["color"]
@@ -476,6 +479,59 @@ final class AgentService: ObservableObject {
         return fmt.date(from: s)
     }
 
+    /// Anzahl Log-Zeilen, die nach einem Dream stehen bleiben. Der Preamble injiziert die
+    /// letzten 20 — mit 40 bleibt Luft, ohne dass der Dream-Input unbegrenzt wächst.
+    private static let learningLogKeepLines = 40
+
+    /// true, wenn seit dem letzten Dream überhaupt etwas Neues zu verdichten da ist.
+    /// Verglichen werden die Änderungszeiten der Dateien, nicht das Datum IN `last_dream.txt`:
+    /// das hat nur Tages-Auflösung und würde einen Log-Eintrag vom selben Tag verschlucken.
+    ///
+    /// Ohne diesen Test lief jede Nacht für jeden Agenten ein voller LLM-Rewrite, auch wenn
+    /// seit Wochen keine Zeile dazugekommen war — im Audit vom 04.09.2026 traf das 7 von 11
+    /// Agents und war der größte Einzelposten der Wartungskosten.
+    private func hasUnprocessedLearning(for agent: AgentDefinition) -> Bool {
+        let (primary, secondary) = memoryDirs(for: agent)
+        let fm = FileManager.default
+        func mtime(_ url: URL) -> Date? {
+            (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        }
+        let dreamStamp = [primary, secondary]
+            .compactMap { mtime($0.appendingPathComponent("last_dream.txt")) }
+            .max()
+        guard let dreamStamp else { return true }   // noch nie geträumt → verdichten
+        let logStamp = [primary, secondary]
+            .compactMap { mtime($0.appendingPathComponent("learning_log.txt")) }
+            .max()
+        guard let logStamp else { return false }    // kein Log → nichts zu tun
+        return logStamp > dreamStamp
+    }
+
+    /// Kappt `learning_log.txt` auf die jüngsten `learningLogKeepLines` Zeilen; ältere wandern
+    /// nach `learning_log_archive.txt`. Wird nur nach einem erfolgreichen Dream aufgerufen —
+    /// alles Ältere steckt dann bereits verdichtet in MEMORY.md und blähte nur noch den
+    /// Dream-Input auf (gemessen: 115 Zeilen ≙ Ø 84k Input-Tokens pro Nacht).
+    private func capLearningLog(in dir: URL) {
+        let logURL = dir.appendingPathComponent("learning_log.txt")
+        guard let raw = try? String(contentsOf: logURL, encoding: .utf8) else { return }
+        var lines = raw.components(separatedBy: "\n")
+        if lines.last?.isEmpty == true { lines.removeLast() }   // Schluss-Newline ist keine Zeile
+        guard lines.count > Self.learningLogKeepLines else { return }
+
+        let archived = lines.prefix(lines.count - Self.learningLogKeepLines)
+        let kept     = lines.suffix(Self.learningLogKeepLines)
+        let archiveURL = dir.appendingPathComponent("learning_log_archive.txt")
+        let existing = (try? String(contentsOf: archiveURL, encoding: .utf8)) ?? ""
+        let separator = (existing.isEmpty || existing.hasSuffix("\n")) ? "" : "\n"
+        let newArchive = existing + separator + archived.joined(separator: "\n") + "\n"
+
+        // Erst archivieren, dann kürzen: scheitert das Schreiben, bleibt das Log unangetastet.
+        guard (try? newArchive.write(to: archiveURL, atomically: true, encoding: .utf8)) != nil
+        else { return }
+        try? (kept.joined(separator: "\n") + "\n")
+            .write(to: logURL, atomically: true, encoding: .utf8)
+    }
+
     /// Consolidates an agent's MEMORY.md + learning_log.txt into a cleaner MEMORY.md via Claude.
     func dreamAgent(_ agent: AgentDefinition) async {
         guard !dreamingAgents.contains(agent.id), let cli = cliService else { return }
@@ -542,6 +598,10 @@ Consolidate memory for "\(agent.name)".
         let today   = dateFmt.string(from: Date())
 
         try? trimmed.write(to: memURL, atomically: true, encoding: .utf8)
+        // Reihenfolge zählt: erst kürzen, dann den Zeitstempel setzen. Andersherum wäre das
+        // Log jünger als last_dream.txt und hasUnprocessedLearning() würde jede Nacht erneut
+        // anspringen — genau der Zustand, den der Skip verhindern soll.
+        capLearningLog(in: dir)
         try? today.write(
             to: dir.appendingPathComponent("last_dream.txt"),
             atomically: true, encoding: .utf8
@@ -866,7 +926,8 @@ Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte 
             if let ds = agent.dreamSchedule, !ds.isEmpty,
                !dreamingAgents.contains(agent.id) {
                 let lastDream = lastDreamDateAsDate(for: agent)
-                if isDue(schedule: ds, lastRun: lastDream, now: now) {
+                if isDue(schedule: ds, lastRun: lastDream, now: now),
+                   hasUnprocessedLearning(for: agent) {
                     await dreamAgent(agent)
                 }
             }

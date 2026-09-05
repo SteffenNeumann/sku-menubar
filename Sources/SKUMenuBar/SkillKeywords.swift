@@ -116,7 +116,10 @@ enum SkillKeywords {
     /// Aufzählungszeile zählt der erste Backtick-Name. Bewusst aus der Datei gelesen statt im
     /// Code gepflegt: ändert sich die Liste im Agenten, zieht die App ohne Build nach.
     static func mainSkills(inAgentBody body: String) -> [String] {
-        guard let marker = body.range(of: mainSkillMarker) else { return [] }
+        // Nur eine ÜBERSCHRIFT zählt als Blockanfang. Der Researcher erwähnt „⭐ Hauptskills"
+        // in seinen Arbeitsanweisungen im Fließtext; ohne diese Prüfung begann der Block dort
+        // und der Backtick-Parser las Bruchstücke wie `## Active Skills` als Skill-Namen.
+        guard let marker = headingRange(of: mainSkillMarker, in: body) else { return [] }
         let key = body.hashValue
         if let cached = mainSkillCache[key] { return cached }
 
@@ -137,6 +140,24 @@ enum SkillKeywords {
         }
         mainSkillCache[key] = found
         return found
+    }
+
+    /// Bereich des `marker` in der ersten Markdown-ÜBERSCHRIFT, die ihn enthält — also einer
+    /// Zeile, die (nach optionalen Leerzeichen) mit `#` beginnt. Erwähnungen im Fließtext
+    /// werden übersprungen.
+    private static func headingRange(of marker: String, in body: String) -> Range<String.Index>? {
+        var searchStart = body.startIndex
+        while let found = body.range(of: marker, range: searchStart..<body.endIndex) {
+            let lineStart = body[..<found.lowerBound].lastIndex(of: "\n")
+                .map { body.index(after: $0) } ?? body.startIndex
+            if body[lineStart..<found.lowerBound]
+                .trimmingCharacters(in: .whitespaces)
+                .hasPrefix("#") {
+                return found
+            }
+            searchStart = found.upperBound
+        }
+        return nil
     }
 
     /// Der Pflicht-Block ans Nachrichten-ENDE. Steht bewusst in der NACHRICHT: dieselbe

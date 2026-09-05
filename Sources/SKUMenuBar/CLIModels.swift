@@ -792,6 +792,10 @@ struct AgentDefinition: Identifiable, Hashable {
 
     var isPersona: Bool { category == "persona" }
 
+    /// Wartungs-Agent: läuft auf Zeitplan, nicht auf Zuruf. Vom Auto-Trigger ausgenommen —
+    /// seine Trigger kommen aus `extractKeywords` und sind Allerweltswörter („Design", „Search").
+    var isMaintainer: Bool { name.lowercased() == "researcher" }
+
     /// MCP server names the Researcher recommended for auto-activation, parsed from
     /// an `Enable-MCPs: name1, name2` line inside the `## 🛠 MCP & Tool Recommendations`
     /// section. The caller matches these against actually-installed servers, so

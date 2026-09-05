@@ -112,4 +112,32 @@ extension SkillKeywordsTests {
         XCTAssertTrue(hint.contains("`b`"))
         XCTAssertTrue(hint.contains("Skill-Tool"))
     }
+
+    /// Der Researcher erwähnt „⭐ Hauptskills" in seinen Arbeitsanweisungen im Fließtext.
+    /// Nur eine Überschrift darf den Block eröffnen — sonst las der Parser dort weiter und
+    /// zog Bruchstücke wie `## Active Skills` als Skill-Namen heraus.
+    func testMainSkillsIgnoresProseMention() {
+        let prose = """
+        ## Arbeitsanweisung
+
+        - **Respect the two-tier structure.** `## Active Skills` ist geteilt in
+          `### ⭐ Hauptskills — bei jeder Aufgabe laden` und `### Situativ`.
+        - Never touch a bullet marked `(eingebaut)`.
+        """
+        XCTAssertTrue(SkillKeywords.mainSkills(inAgentBody: prose).isEmpty)
+    }
+
+    /// Steht nach der Prosa-Erwähnung eine echte Überschrift, gewinnt diese.
+    func testMainSkillsFindsHeadingAfterProseMention() {
+        let mixed = """
+        - Hinweis auf `### ⭐ Hauptskills — bei jeder Aufgabe laden` im Fließtext mit `(eingebaut)`.
+
+        ### ⭐ Hauptskills — bei jeder Aufgabe laden
+        - **`ui-ux-pro-max`** — Text.
+
+        ### Situativ — laden, sobald das Thema auftaucht
+        - **`ponytail-lazy-code`** — Text.
+        """
+        XCTAssertEqual(SkillKeywords.mainSkills(inAgentBody: mixed), ["ui-ux-pro-max"])
+    }
 }

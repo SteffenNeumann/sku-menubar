@@ -122,19 +122,41 @@ deine eigene Prüfung im konkreten Fall.
     ///  1. Full-phrase: "code review" matches trigger "code review"
     ///  2. Word-level: "review" matches trigger "code review" (word in phrase)
     ///  3. Prefix: "review" matches trigger "Reviewer" (input is prefix of trigger word, or vice versa)
+    ///
+    /// Einzelwörter matchen nur an WORTGRENZEN. Als reiner Teilstring traf der Trigger „CI"
+    /// jedes „Service", „CD" jedes „Deutschland" — der halbe Alltagswortschatz löste damit
+    /// devops-engineer aus. Mehrwort-Phrasen bleiben Teilstring-Treffer: dort ist die Grenze
+    /// schon durch die Phrase gegeben.
     static func inputMatchesTrigger(_ input: String, trigger: String) -> Bool {
         let inputL   = input.lowercased()
         let triggerL = trigger.lowercased()
         // 1. Full phrase match
-        if inputL.contains(triggerL) { return true }
+        if triggerL.contains(" ") || triggerL.contains(".") {
+            if inputL.contains(triggerL) { return true }
+        } else if containsWholeWord(inputL, triggerL) {
+            return true
+        }
         let inputWords   = inputL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
         let triggerWords = triggerL.components(separatedBy: .whitespacesAndNewlines).filter { $0.count >= 3 }
-        // 2. Any trigger word as a substring of the input
-        if triggerWords.contains(where: { inputL.contains($0) }) { return true }
-        // 3. Bidirectional prefix: "review" matches "reviewer", "reviewing"
+        // 2. Any trigger word as a whole word in the input
+        if triggerWords.contains(where: { containsWholeWord(inputL, $0) }) { return true }
+        // 3. Bidirectional prefix: "review" matches "reviewer", "reviewing".
+        //    Mindestens 4 Zeichen auf der kürzeren Seite — bei 3 traf das deutsche „des"
+        //    den Trigger „Design" und „ist" den Trigger „Issue"/„Issues".
         return inputWords.contains { iw in
-            triggerWords.contains { tw in tw.hasPrefix(iw) || iw.hasPrefix(tw) }
+            triggerWords.contains { tw in
+                min(iw.count, tw.count) >= 4 && (tw.hasPrefix(iw) || iw.hasPrefix(tw))
+            }
         }
+    }
+
+    /// `word` als ganzes Wort in `text` (beide bereits kleingeschrieben). Buchstaben und Ziffern
+    /// gelten als Wortbestandteil, alles andere als Grenze — dieselbe Regel wie beim
+    /// MCP-Stichwort-Matching in ChatView.
+    private static func containsWholeWord(_ text: String, _ word: String) -> Bool {
+        guard !word.isEmpty else { return false }
+        let pattern = "(^|[^a-z0-9])" + NSRegularExpression.escapedPattern(for: word) + "([^a-z0-9]|$)"
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 
     // MARK: Komplexitäts-Heuristik
