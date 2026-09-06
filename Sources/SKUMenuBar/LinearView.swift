@@ -496,7 +496,14 @@ struct LinearView: View {
                         emptyPlaceholder("Projekt auswählen", icon: "sidebar.left")
                     } else {
                         let grouped = groupedFilteredIssues
-                        if grouped.isEmpty {
+                        // issues[pid] wird nur im Erfolgsfall gesetzt — nil heisst also
+                        // exakt "nie erfolgreich geladen", im Gegensatz zu einem leeren
+                        // Projekt, das legitim [] liefert.
+                        let neverLoaded = selectedProject.map { service.issues[$0.id] == nil } ?? false
+                        if neverLoaded, let err = service.error, !service.isLoading {
+                            // Fehlgeschlagenes Laden nicht als "leeres Projekt" tarnen.
+                            errorPlaceholder(err)
+                        } else if grouped.isEmpty {
                             emptyPlaceholder("Keine Issues", icon: "tray")
                         } else {
                             ForEach(grouped, id: \.state.id) { group in

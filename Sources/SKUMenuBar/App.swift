@@ -3,6 +3,11 @@ import AppKit
 
 @main
 struct SKUMenuBarApp: App {
+    /// Property-Initializer laufen in Deklarationsreihenfolge und vor dem init-Body —
+    /// deshalb steht das hier oben und nicht in init(). Ohne SIG_IGN beendet ein Write
+    /// auf eine geschlossene Pipe die App (SIGPIPE, exit 141), statt einen fangbaren
+    /// Fehler zu liefern.
+    private let sigpipeGuard: Void = { signal(SIGPIPE, SIG_IGN) }()
     @StateObject private var state = AppState()
     @StateObject private var themeManager = ThemeManager()
 

@@ -181,6 +181,7 @@ final class LinearService: ObservableObject {
 
     func loadIssues(projectId: String) async {
         isLoading = true
+        error = nil
         do {
             try await ensureConnected()
             guard let session else { throw LinearError.notConfigured }
@@ -206,6 +207,7 @@ final class LinearService: ObservableObject {
             guard let session else { return [] }
             let args: [String: Any] = ["teamIds": [teamId], "first": 100]
             let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
+            error = nil
             return parseIssues(from: raw)
         } catch {
             self.error = error.localizedDescription
@@ -220,6 +222,7 @@ final class LinearService: ObservableObject {
             guard let session else { throw LinearError.notConfigured }
             let raw = try await session.callTool(name: "linear_get_teams", arguments: [:])
             teams = parseTeams(from: raw)
+            error = nil
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false

@@ -325,7 +325,9 @@ final class ClaudeCLIService: ObservableObject {
                 do {
                     try process.run()
                     if let data = stdinText.data(using: .utf8) {
-                        stdinPipe.fileHandleForWriting.write(data)
+                        // write(contentsOf:) statt write(_:): letzteres wirft bei
+                        // geschlossener Pipe eine nicht fangbare ObjC-Exception.
+                        try? stdinPipe.fileHandleForWriting.write(contentsOf: data)
                     }
                     try? stdinPipe.fileHandleForWriting.close()
                     process.waitUntilExit()

@@ -3,7 +3,8 @@ import Foundation
 // MARK: - MCP Client Session
 // Lightweight MCP (Model Context Protocol) JSON-RPC client.
 // Supports stdio and HTTP(S) transports.
-// Calls are strictly sequential — no concurrent RPC supported by design.
+// Mehrere Calls duerfen gleichzeitig laufen; Antworten werden ueber die JSON-RPC-id
+// zugeordnet und Warter per NSCondition geweckt.
 
 final class MCPClientSession: @unchecked Sendable {
 
@@ -13,29 +14,96 @@ final class MCPClientSession: @unchecked Sendable {
     private var stdinHandle: FileHandle?
     private var stdoutHandle: FileHandle?
     private var nextId = 1
-    private let lock = NSLock()
-    private var readBuffer = ""
+    /// Deckt nextId, readBuffer, stderrTail, pendingResponses, awaitedIds und processExited ab
+    /// und weckt zugleich die Warter in waitForResponse.
+    private let lock = NSCondition()
+    private var stderrHandle: FileHandle?
+    /// Rohbytes; erst pro vollständiger Zeile dekodiert. Ein stdout-Chunk kann mitten in
+    /// einer UTF-8-Multibyte-Sequenz enden (z.B. Umlaut auf der 64-KiB-Grenze) — dekodiert
+    /// man chunkweise, liefert String(data:encoding:) nil und der Chunk geht still verloren.
+    private var readBuffer = Data()
+    /// Letzte stderr-Ausgabe des Servers, als Diagnosetext bei Timeout/Verbindungsfehler.
+    private var stderrTail = Data()
+    /// Notbremse gegen unbegrenztes Wachstum, falls ein Server nie "\n" sendet.
+    private static let readBufferCap = 32 * 1024 * 1024
+    private static let stderrTailCap = 16 * 1024
     // id → (result, errorMessage)
     private var pendingResponses: [Int: (result: [String: Any]?, error: String?)] = [:]
-    private let responseSemaphore = DispatchSemaphore(value: 0)
+    /// Ids, auf die gerade jemand wartet. Antworten auf abgelaufene Calls werden verworfen,
+    /// statt als Leichen in pendingResponses liegenzubleiben.
+    private var awaitedIds: Set<Int> = []
+    private var processExited = false
+    /// Zaehlt die Prozess-Generationen. Der terminationHandler eines abgeloesten
+    /// Prozesses feuert verzoegert und darf die neue Session nicht als tot markieren.
+    private var generation = 0
+    /// Laufender Verbindungsaufbau, damit parallele connect()-Aufrufe darauf warten,
+    /// statt einen zweiten Prozess zu starten.
+    private var connectTask: Task<Void, Error>?
+    /// Gesetzt, wenn readBufferCap gerissen wurde — die Session ist dann nicht mehr
+    /// synchron zum Server, weitere Antworten waeren Fragmente.
+    private var bufferOverflowed = false
     private var connected = false
 
+    /// Absicherung fuer Einstiege ohne App-Start (Tests, Kommandozeilen-Tools):
+    /// ohne SIG_IGN beendet ein Write auf eine geschlossene Pipe den gesamten Prozess
+    /// (SIGPIPE, exit 141) — write(contentsOf:) kommt gar nicht erst zum Werfen.
+    /// Die App setzt es zusaetzlich frueher, in SKUMenuBarApp.init().
+    private static let ignoreSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
+
     init(config: MCPServerConfig) {
+        _ = Self.ignoreSIGPIPE
         self.config = config
     }
 
     // MARK: - Connect
 
     func connect() async throws {
-        guard !connected else { return }
-        if config.transport == "stdio" {
-            try await connectStdio()
-        }
         // HTTP transport: no persistent connection; initialize is done per call
+        guard config.transport == "stdio" else {
+            connected = true
+            return
+        }
+
+        lock.lock()
+        // Nach Serverabsturz oder Pufferueberlauf ist die Session unbrauchbar —
+        // ohne diesen Pfad bliebe sie es bis zum App-Neustart.
+        let needsRestart = processExited || bufferOverflowed
+        if connected && !needsRestart { lock.unlock(); return }
+        // Zwei gleichzeitige Aufrufe duerfen sich nicht gegenseitig den frisch
+        // gestarteten Prozess abschiessen (connectStdio raeumt eine Vorsession ab).
+        let task: Task<Void, Error>
+        if let existing = connectTask {
+            task = existing
+        } else {
+            task = Task { [weak self] in
+                guard let self else { throw MCPClientError.disconnected }
+                try await self.connectStdio()
+            }
+            connectTask = task
+        }
+        lock.unlock()
+
+        do {
+            try await task.value
+        } catch {
+            clearConnectTask(task)
+            throw error
+        }
+        clearConnectTask(task)
         connected = true
     }
 
+    private func clearConnectTask(_ task: Task<Void, Error>) {
+        lock.lock()
+        if connectTask == task { connectTask = nil }
+        lock.unlock()
+    }
+
     private func connectStdio() async throws {
+        // Reste einer vorherigen Session abraeumen — sonst bleiben Handler und
+        // Deskriptoren der alten Pipes haengen (fd-Leak + Dauerlast nach EOF).
+        if process != nil { stop() }
+
         let proc = Process()
         var env = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
@@ -51,22 +119,68 @@ final class MCPClientSession: @unchecked Sendable {
 
         let inPipe  = Pipe()
         let outPipe = Pipe()
+        let errPipe = Pipe()
         proc.standardInput  = inPipe
         proc.standardOutput = outPipe
-        proc.standardError  = Pipe()
+        proc.standardError  = errPipe
+
+        lock.lock()
+        generation      += 1
+        let myGeneration = generation
+        processExited    = false
+        bufferOverflowed = false
+        readBuffer.removeAll(keepingCapacity: false)
+        stderrTail.removeAll(keepingCapacity: false)
+        lock.unlock()
+
+        // Stirbt der Server (Crash, Kommando nicht gefunden), sollen Warter das sofort
+        // erfahren statt volle 30s in den Timeout zu laufen.
+        proc.terminationHandler = { [weak self] _ in
+            guard let self else { return }
+            // Die Pipes dieser Generation direkt fassen, nicht self.stdoutHandle —
+            // das gehoert nach einem Reconnect schon der naechsten Session.
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+            self.lock.lock()
+            if self.generation == myGeneration {
+                self.processExited = true
+                self.lock.broadcast()
+            }
+            self.lock.unlock()
+        }
 
         try proc.run()
 
         self.process      = proc
         self.stdinHandle  = inPipe.fileHandleForWriting
         self.stdoutHandle = outPipe.fileHandleForReading
+        self.stderrHandle = errPipe.fileHandleForReading
 
-        // Set up async reader using readabilityHandler
+        // Set up async reader using readabilityHandler.
+        // Rohbytes werden gepuffert und erst zeilenweise geparst — niemals chunkweise dekodiert.
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            guard let self else { return }
+            guard let self else { fh.readabilityHandler = nil; return }
             let data = fh.availableData
-            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
-            self.processIncoming(str)
+            // Leeres availableData heisst EOF. Ohne Abhaengen ruft Foundation den
+            // Handler danach endlos erneut auf (gemessen: ~1,5 Mio Aufrufe/s).
+            guard !data.isEmpty else { fh.readabilityHandler = nil; return }
+            self.processIncoming(data)
+        }
+
+        // stderr muss mitgelesen werden: ist der Pipe-Puffer (64 KiB) voll, blockiert der
+        // Server im Schreibaufruf und liefert auch auf stdout nichts mehr.
+        errPipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            guard let self else { fh.readabilityHandler = nil; return }
+            let data = fh.availableData
+            guard !data.isEmpty else { fh.readabilityHandler = nil; return }   // EOF
+            self.lock.lock()
+            self.stderrTail.append(data)
+            if self.stderrTail.count > Self.stderrTailCap {
+                let overflow = self.stderrTail.count - Self.stderrTailCap
+                let cutEnd = self.stderrTail.index(self.stderrTail.startIndex, offsetBy: overflow)
+                self.stderrTail.removeSubrange(self.stderrTail.startIndex ..< cutEnd)
+            }
+            self.lock.unlock()
         }
 
         // MCP initialize handshake
@@ -82,29 +196,51 @@ final class MCPClientSession: @unchecked Sendable {
 
     // MARK: - Incoming data processing
 
-    private func processIncoming(_ str: String) {
+    private func processIncoming(_ chunk: Data) {
+        var completedLines: [Data] = []
+
         lock.lock()
-        readBuffer += str
-        var completedLines: [String] = []
-        while let nl = readBuffer.range(of: "\n") {
-            let line = String(readBuffer[..<nl.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            readBuffer.removeSubrange(..<nl.upperBound)
-            if !line.isEmpty { completedLines.append(line) }
+        // Was vor dem Anhaengen im Puffer stand, enthaelt per Invariante keine Newline
+        // mehr (unten wird bis zur letzten entfernt). Nur den neuen Bereich absuchen —
+        // sonst skaliert jeder Chunk mit der Gesamtgroesse, also quadratisch.
+        let searchFrom = readBuffer.count
+        readBuffer.append(chunk)
+        let searchStart = readBuffer.index(readBuffer.startIndex, offsetBy: searchFrom)
+        if let lastNL = readBuffer[searchStart...].lastIndex(of: 0x0a) {
+            var start = readBuffer.startIndex
+            var i = searchStart
+            while i <= lastNL {
+                if readBuffer[i] == 0x0a {
+                    if i > start { completedLines.append(Data(readBuffer[start ..< i])) }
+                    start = readBuffer.index(after: i)
+                }
+                i = readBuffer.index(after: i)
+            }
+            // Ein einziges removeSubrange bis zur letzten Newline statt eines pro Zeile.
+            readBuffer.removeSubrange(readBuffer.startIndex ... lastNL)
+        }
+        if readBuffer.count > Self.readBufferCap {
+            readBuffer.removeAll(keepingCapacity: false)
+            bufferOverflowed = true
+            lock.broadcast()     // sonst warten alle Calls sinnlos die vollen 30s ab
         }
         lock.unlock()
 
-        for line in completedLines {
-            guard let data = line.data(using: .utf8),
-                  let obj  = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id   = obj["id"] as? Int else { continue }
+        for var lineData in completedLines {
+            if lineData.last == 0x0d { lineData.removeLast() }   // CRLF
+            // JSONSerialization liest UTF-8-Bytes direkt — kein String-Umweg nötig.
+            guard let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let id  = obj["id"] as? Int else { continue }
 
             let result   = obj["result"] as? [String: Any]
             let errorMsg = (obj["error"] as? [String: Any])?["message"] as? String
 
             lock.lock()
-            pendingResponses[id] = (result: result, error: errorMsg)
+            if awaitedIds.contains(id) {
+                pendingResponses[id] = (result: result, error: errorMsg)
+                lock.broadcast()
+            }   // sonst: Antwort auf einen laengst abgelaufenen Call — verwerfen
             lock.unlock()
-            responseSemaphore.signal()
         }
     }
 
@@ -115,7 +251,9 @@ final class MCPClientSession: @unchecked Sendable {
         if let p = params { msg["params"] = p }
         guard let data = try? JSONSerialization.data(withJSONObject: msg) else { return }
         var line = data; line.append(0x0a)
-        stdinHandle?.write(line)
+        lock.lock(); let dead = processExited; lock.unlock()
+        guard !dead else { return }
+        try? stdinHandle?.write(contentsOf: line)
     }
 
     private func sendRPC(method: String, params: [String: Any]? = nil) async throws -> [String: Any] {
@@ -133,10 +271,23 @@ final class MCPClientSession: @unchecked Sendable {
         var msg: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method]
         if let p = params { msg["params"] = p }
         guard let data = try? JSONSerialization.data(withJSONObject: msg) else {
-            throw MCPClientError.encodingError
+            throw MCPClientError.encodingError   // id bleibt ungenutzt, kein Eintrag noetig
         }
         var lineData = data; lineData.append(0x0a)
-        stdinHandle?.write(lineData)
+
+        guard let stdin = stdinHandle else { throw MCPClientError.disconnected }
+        lock.lock()
+        let dead = processExited
+        if !dead { awaitedIds.insert(id) }
+        lock.unlock()
+        // Spart den zwecklosen Write; der eigentliche Schutz ist SIG_IGN oben.
+        if dead { throw MCPClientError.serverTerminated(recentStderr()) }
+        do {
+            try stdin.write(contentsOf: lineData)
+        } catch {
+            lock.lock(); awaitedIds.remove(id); lock.unlock()
+            throw MCPClientError.serverTerminated(recentStderr())
+        }
 
         // Wait for matching response in a background thread (blocks)
         return try await Task.detached(priority: .userInitiated) { [weak self] in
@@ -145,27 +296,56 @@ final class MCPClientSession: @unchecked Sendable {
         }.value
     }
 
-    /// Blocks until the response for `id` arrives or times out.
+    /// Blocks until the response for `id` arrives, the server dies, or the timeout expires.
     private func waitForResponse(id: Int, timeout: TimeInterval) throws -> [String: Any] {
-        let deadline = DispatchTime.now() + timeout
+        let deadline = Date().addingTimeInterval(timeout)
+        lock.lock()
+        defer {
+            awaitedIds.remove(id)
+            pendingResponses.removeValue(forKey: id)
+            lock.unlock()
+        }
         while true {
-            switch responseSemaphore.wait(timeout: deadline) {
-            case .timedOut:
-                throw MCPClientError.timeout
-            case .success:
-                lock.lock()
-                let response = pendingResponses.removeValue(forKey: id)
-                lock.unlock()
-
-                if let response {
+            if let response = pendingResponses[id] {
+                if let err = response.error { throw MCPClientError.serverError(err) }
+                return response.result ?? [:]
+            }
+            if bufferOverflowed {
+                throw MCPClientError.responseTooLarge
+            }
+            if processExited {
+                throw MCPClientError.serverTerminated(recentStderrLocked())
+            }
+            // Weckt bei jeder eintreffenden Antwort und beim Prozessende; die Schleife
+            // prueft erneut, statt auf einen Zaehler zu vertrauen.
+            if !lock.wait(until: deadline) {
+                // Antwort kann exakt am Deadline-Rand eingetroffen sein.
+                if let response = pendingResponses[id] {
                     if let err = response.error { throw MCPClientError.serverError(err) }
                     return response.result ?? [:]
                 }
-                // Signal was for a different ID — put it back and retry briefly
-                responseSemaphore.signal()
-                Thread.sleep(forTimeInterval: 0.001)
+                throw MCPClientError.timeout(recentStderrLocked())
             }
         }
+    }
+
+    /// Nimmt das Lock selbst — nur aus ungelockten Kontexten aufrufen.
+    private func recentStderr() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return recentStderrLocked()
+    }
+
+    /// Letzte stderr-Zeilen des Servers als lesbarer Diagnosetext (leer, wenn nichts anlag).
+    /// Erwartet ein bereits gehaltenes `lock` — NSCondition ist nicht rekursiv.
+    private func recentStderrLocked() -> String {
+        let tail = stderrTail
+        guard !tail.isEmpty else { return "" }
+        return String(decoding: tail, as: UTF8.self)
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .suffix(3)
+            .joined(separator: " | ")
     }
 
     private func sendHTTPRPC(method: String, params: [String: Any]?) async throws -> [String: Any] {
@@ -206,7 +386,7 @@ final class MCPClientSession: @unchecked Sendable {
 
     /// Connects (if needed) and returns available tools.
     func listTools() async throws -> [[String: Any]] {
-        if !connected { try await connect() }
+        try await connect()   // entscheidet selbst, ob ein Aufbau noetig ist
         let result = try await sendRPC(method: "tools/list")
         return (result["tools"] as? [[String: Any]]) ?? []
     }
@@ -233,12 +413,27 @@ final class MCPClientSession: @unchecked Sendable {
 
     func stop() {
         stdoutHandle?.readabilityHandler = nil
+        stderrHandle?.readabilityHandler = nil
         stdinHandle?.closeFile()
+        // Muss vor terminate() weg, sonst markiert der Handler die naechste Session als tot.
+        process?.terminationHandler = nil
         process?.terminate()
-        process   = nil
-        connected = false
+        // Lese-Deskriptoren schliessen — sonst leckt jeder Reconnect zwei fds.
+        try? stdoutHandle?.close()
+        try? stderrHandle?.close()
+        stdoutHandle = nil
+        stderrHandle = nil
+        stdinHandle  = nil
+        process      = nil
+        connected    = false
         lock.lock()
+        processExited = true
+        connectTask?.cancel()
+        connectTask = nil
         pendingResponses.removeAll()
+        awaitedIds.removeAll()
+        readBuffer.removeAll(keepingCapacity: false)
+        lock.broadcast()          // wartende Calls nicht bis zum Timeout haengen lassen
         lock.unlock()
     }
 
@@ -275,7 +470,10 @@ enum MCPClientError: LocalizedError {
     case invalidURL
     case invalidResponse
     case disconnected
-    case timeout
+    /// Assoziierter Wert: letzte stderr-Ausgabe des Servers (ggf. leer).
+    case timeout(String)
+    case serverTerminated(String)
+    case responseTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -284,7 +482,15 @@ enum MCPClientError: LocalizedError {
         case .invalidURL:         return "MCP invalid URL"
         case .invalidResponse:    return "MCP invalid response"
         case .disconnected:       return "MCP disconnected"
-        case .timeout:            return "MCP request timed out"
+        case .responseTooLarge:   return "MCP-Antwort zu gross — Verbindung nicht mehr synchron"
+        case .serverTerminated(let stderr):
+            return stderr.isEmpty
+                ? "MCP server beendet"
+                : "MCP server beendet — meldete: \(stderr)"
+        case .timeout(let stderr):
+            return stderr.isEmpty
+                ? "MCP request timed out"
+                : "MCP request timed out — Server meldete: \(stderr)"
         }
     }
 }

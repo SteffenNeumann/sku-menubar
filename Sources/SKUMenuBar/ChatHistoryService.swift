@@ -314,9 +314,12 @@ final class ChatHistoryService: ObservableObject {
                 if let handle = try? FileHandle(forReadingFrom: file) {
                     let data = handle.readData(ofLength: 8192)
                     try? handle.close()
-                    let lines = String(data: data, encoding: .utf8)?
+                    // String(decoding:) statt String(data:encoding:): der 8-KiB-Read endet
+                    // haeufig mitten in einem Multibyte-Zeichen — bei String(data:encoding:)
+                    // waere dann die gesamte Zeilenliste leer und die Session fiele raus.
+                    let lines = String(decoding: data, as: UTF8.self)
                         .components(separatedBy: "\n")
-                        .filter { !$0.isEmpty } ?? []
+                        .filter { !$0.isEmpty }
                     for line in lines.prefix(30) {
                         guard let lineData = line.data(using: .utf8),
                               let raw = try? JSONDecoder().decode(RawCLIMessage.self, from: lineData) else { continue }
