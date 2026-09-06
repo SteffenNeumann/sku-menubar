@@ -405,6 +405,14 @@ final class ChatHistoryService: ObservableObject {
                                                       input: block.toolInput,
                                                       workingDirectory: raw.cwd)
                     case "tool_result":
+                        // Abgelehnter Skill-Aufruf nachtragen. Der `tool_use` steht in einer
+                        // früheren Zeile — welche Nachricht ihn trägt, hängt am Zusammenfassen
+                        // reiner Tool-Nachrichten weiter unten, also rückwärts suchen.
+                        if block.isError, let id = block.toolUseId {
+                            for i in messages.indices.reversed() {
+                                if messages[i].markSkillFailed(toolUseId: id) { break }
+                            }
+                        }
                         guard let text = block.content?.displayText,
                               let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
                                                                         isError: block.isError),
@@ -435,7 +443,7 @@ final class ChatHistoryService: ObservableObject {
                     if block.name == "Skill", let skill = block.toolInput?.skill {
                         let clean = skill.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !clean.isEmpty, !usedSkills.contains(where: { $0.name == clean }) {
-                            usedSkills.append(SkillUse(name: clean, agent: nil))
+                            usedSkills.append(SkillUse(name: clean, agent: nil, toolUseId: block.id))
                         }
                     }
                 }

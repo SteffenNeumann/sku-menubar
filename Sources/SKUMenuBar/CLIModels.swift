@@ -134,6 +134,12 @@ struct NoteItem: Identifiable, Codable {
 struct SkillUse: Equatable, Hashable {
     let name: String
     var agent: String? = nil
+    /// `tool_use.id` des Aufrufs — nur zum Nachtragen des Ergebnisses, das erst im
+    /// `tool_result` steht (bei blockierten Skills sogar erst dort).
+    var toolUseId: String? = nil
+    /// Der Aufruf wurde abgelehnt oder scheiterte. Ohne das zeigte der Chip auch dann
+    /// „eingesetzt", wenn die CLI den Skill gar nicht geladen hat.
+    var failed: Bool = false
 }
 
 struct ChatMessage: Identifiable, Equatable {
@@ -197,11 +203,22 @@ struct ChatMessage: Identifiable, Equatable {
     }
 
     /// Fügt einen Skill-Einsatz hinzu; Duplikate (gleicher Skill, gleicher Agent) werden ignoriert.
-    mutating func noteSkillUse(_ name: String, agent: String? = nil) {
+    mutating func noteSkillUse(_ name: String, agent: String? = nil, toolUseId: String? = nil) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         guard !usedSkills.contains(where: { $0.name == clean && $0.agent == agent }) else { return }
-        usedSkills.append(SkillUse(name: clean, agent: agent))
+        usedSkills.append(SkillUse(name: clean, agent: agent, toolUseId: toolUseId))
+    }
+
+    /// Trägt das Fehlschlagen nach, sobald das `tool_result` eintrifft. Gibt zurück, ob ein
+    /// passender Aufruf gefunden wurde — der Verlaufs-Parser sucht damit die richtige Nachricht.
+    @discardableResult
+    mutating func markSkillFailed(toolUseId: String?) -> Bool {
+        guard let toolUseId,
+              let idx = usedSkills.firstIndex(where: { $0.toolUseId == toolUseId })
+        else { return false }
+        usedSkills[idx].failed = true
+        return true
     }
 }
 
@@ -634,6 +651,17 @@ struct HistoryMessage: Identifiable {
     /// plus dem zugehörigen `tool_result` im Transcript rekonstruiert. Ohne das wäre die
     /// Karte nach einem Neustart weg, obwohl die Seite weiter existiert.
     var artifacts: [ArtifactRef] = []
+
+    /// Wie `ChatMessage.markSkillFailed` — das `tool_result` steht auch im Transcript erst
+    /// in einer der folgenden Zeilen, der Aufruf muss also nachträglich markiert werden.
+    @discardableResult
+    mutating func markSkillFailed(toolUseId: String?) -> Bool {
+        guard let toolUseId,
+              let idx = usedSkills.firstIndex(where: { $0.toolUseId == toolUseId })
+        else { return false }
+        usedSkills[idx].failed = true
+        return true
+    }
 }
 
 // MARK: - History JSONL parsing helpers

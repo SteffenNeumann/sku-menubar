@@ -3820,7 +3820,8 @@ struct SingleChatSessionView: View {
                             } else if block.type == "tool_use" {
                                 if block.name == "Skill", let skillName = block.toolInput?.skill,
                                    messages.indices.contains(rIdx) {
-                                    messages[rIdx].noteSkillUse(skillName, agent: event.subagentType)
+                                    messages[rIdx].noteSkillUse(skillName, agent: event.subagentType,
+                                                                toolUseId: block.id)
                                 }
                                 artifactCollector.noteToolUse(id: block.id, name: block.name ?? "",
                                                               input: block.toolInput,
@@ -3832,6 +3833,11 @@ struct SingleChatSessionView: View {
                     // ausgerechnet im Orchestrator-Zweig unsichtbar.
                     if event.type == "user", let content = event.message?.content {
                         for block in content where block.type == "tool_result" {
+                            // Abgelehnter Skill (z. B. `disable-model-invocation`) — der Chip
+                            // darf dafür kein Erfolgssignal zeigen.
+                            if block.isError, messages.indices.contains(rIdx) {
+                                messages[rIdx].markSkillFailed(toolUseId: block.toolUseId)
+                            }
                             guard let text = block.toolResultText else { continue }
                             if let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
                                                                               isError: block.isError),
@@ -4481,7 +4487,8 @@ struct SingleChatSessionView: View {
                                         // Skill-Einsatz dem laufenden Spezialisten zuordnen.
                                         if block.name == "Skill", let skillName = block.toolInput?.skill,
                                            messages.indices.contains(progressIdx) {
-                                            messages[progressIdx].noteSkillUse(skillName, agent: agent.name)
+                                            messages[progressIdx].noteSkillUse(skillName, agent: agent.name,
+                                                                               toolUseId: block.id)
                                         }
                                         artifactCollector.noteToolUse(
                                             id: block.id, name: block.name ?? "",
@@ -4494,6 +4501,9 @@ struct SingleChatSessionView: View {
                                 // dann an den laufenden Fortschritts-Eintrag.
                                 guard let content = event.message?.content else { break }
                                 for block in content where block.type == "tool_result" {
+                                    if block.isError, messages.indices.contains(progressIdx) {
+                                        messages[progressIdx].markSkillFailed(toolUseId: block.toolUseId)
+                                    }
                                     guard let text = block.toolResultText else { continue }
                                     if let ref = artifactCollector.noteToolResult(id: block.toolUseId, text: text,
                                                                               isError: block.isError),
@@ -5669,7 +5679,8 @@ struct SingleChatSessionView: View {
                                 // Stammt das Event aus einem Sub-Agenten (Agent-Tool), liefert die CLI
                                 // subagent_type top-level mit — dann wird der Skill diesem zugeordnet.
                                 if name == "Skill", let skillName = block.toolInput?.skill {
-                                    messages[assistantIndex].noteSkillUse(skillName, agent: event.subagentType)
+                                    messages[assistantIndex].noteSkillUse(skillName, agent: event.subagentType,
+                                                                          toolUseId: block.id)
                                 }
                                 artifactCollector.noteToolUse(id: block.id, name: name,
                                                               input: block.toolInput,
@@ -5718,6 +5729,12 @@ struct SingleChatSessionView: View {
                     // Tool result events — match by tool_use_id and store output
                     if let content = event.message?.content {
                         for block in content where block.type == "tool_result" {
+                            // Vor dem Text-Guard: ein abgelehnter Skill-Aufruf
+                            // (`disable-model-invocation`) darf nicht als grüner Chip
+                            // stehenbleiben, auch wenn das Ergebnis leer wäre.
+                            if block.isError {
+                                messages[assistantIndex].markSkillFailed(toolUseId: block.toolUseId)
+                            }
                             guard let toolId = block.toolUseId,
                                   let resultText = block.toolResultText,
                                   !resultText.isEmpty else { continue }
@@ -7899,20 +7916,31 @@ struct MessageBubbleView: View, Equatable {
     @ViewBuilder
     private func usedSkillsBadges(_ skills: [SkillUse]) -> some View {
         ForEach(skills, id: \.self) { use in
+            let tint = use.failed ? theme.tertiaryText : theme.statusGreen
             HStack(spacing: 3) {
-                Image(systemName: "sparkles")
+                Image(systemName: use.failed ? "xmark.circle" : "sparkles")
                     .font(.system(size: 9, weight: .semibold))
                 Text(use.agent.map { "\(use.name) · \($0)" } ?? use.name)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(theme.statusGreen)
+            .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(theme.statusGreen.opacity(0.10), in: Capsule())
-            .help(use.agent.map { "Skill \(use.name) — eingesetzt von \($0)" }
-                  ?? "Skill \(use.name) — in dieser Antwort eingesetzt")
+            .background(tint.opacity(0.10), in: Capsule())
+            .help(skillBadgeTooltip(use))
         }
+    }
+
+    /// Der Chip zeigt den VERSUCH — ob er glückte, steht erst im `tool_result`. Ein
+    /// abgelehnter Skill (`disable-model-invocation`) muss das sagen, sonst liest sich das
+    /// Chip als Nachweis für Arbeit, die nie stattgefunden hat.
+    private func skillBadgeTooltip(_ use: SkillUse) -> String {
+        if use.failed {
+            return "Skill \(use.name) — Aufruf fehlgeschlagen, der Skill wurde NICHT geladen"
+        }
+        return use.agent.map { "Skill \(use.name) — eingesetzt von \($0)" }
+            ?? "Skill \(use.name) — in dieser Antwort eingesetzt"
     }
 
     /// Formate, die sich lokal im WebView sinnvoll darstellen lassen.

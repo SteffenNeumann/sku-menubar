@@ -394,18 +394,22 @@ struct HistoryView: View {
                 if !msg.usedSkills.isEmpty {
                     FlowLayout(spacing: 4) {
                         ForEach(msg.usedSkills, id: \.self) { use in
+                            // Grau + ✕, wenn die CLI den Aufruf abgelehnt hat — wie im Live-Chat.
+                            let tint = use.failed ? theme.tertiaryText : theme.statusGreen
                             HStack(spacing: 3) {
-                                Image(systemName: "sparkles")
+                                Image(systemName: use.failed ? "xmark.circle" : "sparkles")
                                     .font(.system(size: 9, weight: .semibold))
                                 Text(use.name)
                                     .font(.system(size: 11, weight: .medium))
                                     .lineLimit(1)
                             }
-                            .foregroundStyle(theme.statusGreen)
+                            .foregroundStyle(tint)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
-                            .background(theme.statusGreen.opacity(0.10), in: Capsule())
-                            .help("Skill \(use.name) — in dieser Antwort eingesetzt")
+                            .background(tint.opacity(0.10), in: Capsule())
+                            .help(use.failed
+                                  ? "Skill \(use.name) — Aufruf fehlgeschlagen, der Skill wurde NICHT geladen"
+                                  : "Skill \(use.name) — in dieser Antwort eingesetzt")
                         }
                     }
                     .frame(maxWidth: 520, alignment: .leading)

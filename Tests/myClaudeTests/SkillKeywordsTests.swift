@@ -38,11 +38,15 @@ extension SkillKeywordsTests {
     func testInstalledSkillsUmfasstPluginUndEingebauteSkills() {
         let all = SkillKeywords.installedSkills()
         XCTAssertTrue(all.contains("code-review"), "eingebauter Skill fehlt")
-        XCTAssertTrue(all.contains("deep-research"), "eingebauter Skill fehlt")
+        XCTAssertTrue(all.contains("run"), "eingebauter Skill fehlt")
         XCTAssertTrue(all.isSuperset(of: SkillKeywords.localSkills()),
                       "lokale Skills müssen enthalten bleiben")
-        XCTAssertFalse(all.contains("debug"),
-                       "debug ist disable-model-invocation und darf nicht angeboten werden")
+        // Alle drei sind im `skills`-Feld des init-Events gelistet, aber
+        // `disable-model-invocation` — das Skill-Tool lehnt sie ab.
+        for blocked in ["debug", "verify", "deep-research"] {
+            XCTAssertFalse(all.contains(blocked),
+                           "\(blocked) ist disable-model-invocation und darf nicht angeboten werden")
+        }
     }
 
     /// Plugin-Skills heißen `plugin:name` — sonst greift der Filter in `match` nicht.

@@ -64,9 +64,18 @@ enum SkillKeywords {
 
     /// Von der Claude-CLI mitgelieferte Skills. Sie liegen nicht auf der Platte, sind also nicht
     /// scannbar, sondern nur messbar. Hier stehen ausschließlich die fachlich nutzbaren, deren
-    /// Aufruf bestätigt ist. `debug` fehlt bewusst: gelistet, aber `disable-model-invocation`.
+    /// Aufruf bestätigt ist.
+    ///
+    /// „Gelistet" reicht NICHT: das `skills`-Feld des `init`-Events zählt auch Skills auf, die
+    /// das Modell gar nicht laden darf (`disable-model-invocation` — nur `/name` durch den
+    /// Menschen). Aufnahme also erst nach einem echten Testaufruf.
+    ///
+    /// Draußen bleiben deshalb `debug`, `verify` und `deep-research`. `verify` und
+    /// `deep-research` liefen unter CLI 2.1.186 noch, unter 2.1.243 antworten sie
+    /// „cannot be used with Skill tool due to disable-model-invocation" (gemessen 06.09.2026).
+    /// Ersatz für `verify` ist `run` — startet die App und fährt die geänderte Stelle an.
     static let builtInSkills: Set<String> = [
-        "code-review", "simplify", "verify", "deep-research", "claude-api",
+        "code-review", "simplify", "claude-api", "run",
     ]
 
     /// Erster Treffer in Reihenfolge von `map`, oder nil.
