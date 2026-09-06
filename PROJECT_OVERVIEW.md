@@ -71,7 +71,8 @@ hängt trotz Fix" ist oft eine veraltete Zombie-Instanz (überlebt `pkill` SIGTE
 | `AgentService.swift` | Worker-Agent-Fleet (Laden aus `~/.claude/agents/`), `fullSystemPrompt()`, Memory/Learning-Log, Skills |
 | `CLIModels.swift` | Geteilte Modelle: `ChatMessage`, `StreamEvent`, `AppSection`, `ToolCall`, … |
 | `AgentsView.swift` | Agent-Fleet-UI (Baseball-Cards), Personas, Editor, Skills, Email-Learning |
-| `MCPView.swift` / `MCPService.swift` / `MCPClientService.swift` | MCP-Server-Verwaltung (lokal/cloud), Health-Checks |
+| `MCPView.swift` / `MCPService.swift` | MCP-Server-Verwaltung (lokal/cloud), Health-Checks |
+| `MCPClientService.swift` | JSON-RPC-Client (stdio/HTTP). Byte-Puffer + zeilenweises Parsen, stderr-Drain, `NSCondition`-Wartelogik, Reconnect pro Prozess-Generation |
 | `LinearView.swift` / `LinearService.swift` | Linear-Integration (3-Spalten, GraphQL direkt — MCP-Delete kaputt) |
 | `CodeReviewView.swift` | Datei-Picker + Review-Config + Source-Viewer + Output (3-Spalten) |
 | `FileExplorerView.swift` | Datei-Baum, Sort/Group, Office-/HTML-Preview |
@@ -140,6 +141,16 @@ User-Nachricht
 - **File-Watcher** beobachtet `~/.claude/` (Eltern-Verzeichnis), nicht `history.jsonl` direkt
   (atomische Schreibvorgänge).
 - **Claude CLI** immer via stdin pipen — nie `--print` + `--add-dir` kombinieren.
+- **Gechunktes Lesen nie chunkweise dekodieren.** Bei `availableData` / `readData(ofLength:)`
+  endet ein Häppchen regelmäßig mitten in einer UTF-8-Multibyte-Sequenz (Umlaut auf der
+  64-KiB-Grenze) — `String(data:encoding:.utf8)` liefert dann `nil` und die Daten sind weg.
+  Rohbytes in `Data` puffern, an `0x0a` trennen, erst pro Zeile dekodieren; oder
+  `String(decoding:as: UTF8.self)`, das nie `nil` liefert. Vorlagen: `MCPClientService`,
+  `ClaudeCLIService`, `AgentService`. Hintergrund: Memory `project_mcp_utf8_chunk_bug`.
+- **SIGPIPE ist prozessweit ignoriert** (`SKUMenuBarApp`, Property-Initializer vor den
+  StateObjects). Ohne das beendet ein Write auf eine geschlossene Pipe die App still mit
+  exit 141 — `write(contentsOf:)` kommt gar nicht zum Werfen. Auf Pipes deshalb immer die
+  werfende Variante `write(contentsOf:)` nutzen, nie `write(_:)`.
 - **MCP/OAuth:** claude.ai-MCPs sind mit `--strict-mcp-config` inkompatibel; `buildMCPConfigJSON`
   gibt `(json, strict)` zurück. linear/make/figma **nie** lokal entfernen.
 - **codesign nach jedem `cp`** (macOS 26 Pflicht). **`gen-buildinfo.sh` VOR dem Build.**
@@ -169,6 +180,9 @@ liegen in `~/.claude/skills/<name>/SKILL.md` mit Frontmatter (`name`/`descriptio
 
 ## Tests
 
-`swift test` — u.a. `OrchestratorLogicTests` (Plan-Parsing, Agent-Resolve, Routing-Heuristik).
-Aktuell **37 Tests grün**. Neue Orchestrator-Logik immer als reine Funktion in
-`OrchestratorLogic.swift` + Test ergänzen.
+`swift test` — u.a. `OrchestratorLogicTests` (Plan-Parsing, Agent-Resolve, Routing-Heuristik) und
+`MCPClientSessionTests` (Fake-MCP-Server: große Antworten mit Umlaut auf der Chunk-Grenze,
+Reconnect, paralleles `connect()`, fd-Leaks). Aktuell **118 Tests grün**.
+
+Neue Orchestrator-Logik immer als reine Funktion in `OrchestratorLogic.swift` + Test ergänzen.
+Bei Bugfixes: der Test muss gegen den Stand **davor** fehlschlagen — sonst beweist er nichts.
