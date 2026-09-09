@@ -1161,7 +1161,7 @@ Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte 
                 model: agent.model.isEmpty ? nil : agent.model,
                 workingDirectory: agent.projectDirectory,
                 skipPermissions: true,
-                maxTurns: 30
+                maxTurns: 50
             )
             for try await event in stream {
                 if Date() > deadline { return .timedOut(partialOutput: outputText) }
