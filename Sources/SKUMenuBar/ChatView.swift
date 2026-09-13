@@ -1646,6 +1646,8 @@ struct SingleChatSessionView: View {
         let t = text.lowercased()
         return t.contains("authentication_error") || t.contains("invalid auth") ||
                t.contains("not logged in") || t.contains("unauthenticated") ||
+               t.contains("failed to authenticate") || t.contains("oauth session expired") ||
+               t.contains("could not be refreshed") ||
                (t.contains("401") && (t.contains("error") || t.contains("auth")))
     }
 
