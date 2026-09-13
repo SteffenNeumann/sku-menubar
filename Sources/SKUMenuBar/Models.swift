@@ -25,7 +25,7 @@ struct GitHubSettings: Codable {
     var copilotFallbackModel:   String = "github/claude-sonnet-4-5"
     // Token Optimierung
     var historyWindowSize: Int = 8   // Anzahl Turns (= Nachrichten-Paare) die im GitHub-Models-Verlauf mitgesendet werden
-    var maxTurns: Int = 10           // --max-turns für Claude CLI (0 = deaktiviert)
+    var maxTurns: Int = 25           // --max-turns für Claude CLI (0 = deaktiviert)
     var autoCompactThreshold: Int = 100000  // Input-Token-Schwelle für Auto-Compact (0 = deaktiviert)
     // Orchestrator
     var orchestratorMaxTurns: Int = 60      // --max-turns je Orchestrator-Agent (0 = Fallback auf maxTurns/Default)
@@ -75,7 +75,7 @@ struct GitHubSettings: Codable {
         if savedModel == "claude-sonnet-4-5" { savedModel = "github/claude-sonnet-4-5" }
         copilotFallbackModel = savedModel
         historyWindowSize       = (try? c.decodeIfPresent(Int.self, forKey: .historyWindowSize))       ?? 8
-        maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 10
+        maxTurns                = (try? c.decodeIfPresent(Int.self, forKey: .maxTurns))                ?? 25
         let savedThreshold = (try? c.decodeIfPresent(Int.self, forKey: .autoCompactThreshold)) ?? 100000
         autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
         orchestratorMaxTurns    = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorMaxTurns))    ?? 60

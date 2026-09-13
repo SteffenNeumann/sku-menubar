@@ -5607,9 +5607,11 @@ struct SingleChatSessionView: View {
                 }
             }
             skipMainSkillsOnce = false
-            // Agents brauchen mehr Turns für Tool-Calls; mindestens 12 wenn ein Agent aktiv ist.
+            // Agents brauchen mehr Turns für Tool-Calls; mindestens 30 wenn ein Agent aktiv ist.
+            // War 12 (Commit 2b15532) — Nebeneffekt einer Tokenspar-Aktion, nicht gemessen; brach
+            // reale Tool-lastige Läufe (Skills/Read/Bash/Playwright/MCP) vorzeitig ab.
             let rawMaxTurns = state.settings.maxTurns > 0 ? state.settings.maxTurns : nil
-            let effectiveMaxTurns: Int? = (effectiveAgent != nil) ? rawMaxTurns.map { max($0, 12) } : rawMaxTurns
+            let effectiveMaxTurns: Int? = (effectiveAgent != nil) ? rawMaxTurns.map { max($0, 30) } : rawMaxTurns
             let (mcpJson, mcpStrict) = await buildMCPConfigJSON()
             stream = state.cliService.send(
                 message: finalMessage,
