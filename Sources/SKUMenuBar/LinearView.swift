@@ -256,6 +256,7 @@ struct LinearView: View {
                 await restoreSelectionAndLoadIssues()
             } else if service.isStale {
                 await forceRefresh(silent: true)
+                await restoreSelectionAndLoadIssues()
             } else if let proj = selectedProject, service.issues[proj.id] == nil {
                 await service.loadIssues(projectId: proj.id)
                 restoreSelection()
@@ -267,6 +268,14 @@ struct LinearView: View {
         service.error = nil
         configured = false
         if let cfg = await state.cliService.getMCPServerConfig(name: "linear") {
+            // Schnelles Weg-und-zurück: ein früherer Mount hat inzwischen konfiguriert —
+            // nicht erneut configure() (würde dessen Session stoppen), laufendem Sync anschliessen.
+            if service.isConfigured {
+                configured = true
+                await service.refresh(projectId: nil)
+                await restoreSelectionAndLoadIssues()
+                return
+            }
             service.configure(config: cfg)
             configured = true
             await forceRefresh()

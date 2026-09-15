@@ -173,6 +173,7 @@ final class LinearService: ObservableObject {
     /// Laufender Sync — weitere Aufrufe hängen sich an statt parallel zu laden.
     /// Unstrukturierter Task: wird nicht abgebrochen, wenn LinearView beim Wegwechseln verschwindet.
     private var refreshTask: Task<Void, Never>?
+    private var refreshProjectId: String?
 
     func configure(config: MCPServerConfig) {
         session?.stop()
@@ -196,24 +197,30 @@ final class LinearService: ObservableObject {
     /// doppeltes session.connect() → Hang. `silent`: kein Spinner (Daten sind schon sichtbar).
     func refresh(projectId: String?, silent: Bool = false) async {
         if let running = refreshTask {
+            let runningProjectId = refreshProjectId
             await running.value
             // Der laufende Sync kann für ein anderes Projekt gestartet worden sein
-            if let pid = projectId, issues[pid] == nil { await loadIssues(projectId: pid, silent: silent) }
+            if let pid = projectId, pid != runningProjectId { await loadIssues(projectId: pid, silent: silent) }
             return
         }
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.loadProjects(silent: silent)
-            await self.loadTeams()
-            if let pid = projectId { await self.loadIssues(projectId: pid, silent: silent) }
-            if self.error == nil { self.lastRefresh = Date() }
+            let okProjects = await self.loadProjects(silent: silent)
+            let okTeams = await self.loadTeams()
+            var okIssues = true
+            if let pid = projectId { okIssues = await self.loadIssues(projectId: pid, silent: silent) }
+            if okProjects && okTeams && okIssues { self.lastRefresh = Date() }
+            // Hier statt nach `await task.value` — sonst hängt sich ein Nachzügler an den fertigen Task
+            self.refreshTask = nil
+            self.refreshProjectId = nil
         }
         refreshTask = task
+        refreshProjectId = projectId
         await task.value
-        refreshTask = nil
     }
 
-    func loadProjects(silent: Bool = false) async {
+    @discardableResult
+    func loadProjects(silent: Bool = false) async -> Bool {
         if !silent { isLoading = true }
         error = nil
         do {
@@ -225,11 +232,15 @@ final class LinearService: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
+            if !silent { isLoading = false }
+            return false
         }
         if !silent { isLoading = false }
+        return true
     }
 
-    func loadIssues(projectId: String, silent: Bool = false) async {
+    @discardableResult
+    func loadIssues(projectId: String, silent: Bool = false) async -> Bool {
         if !silent { isLoading = true }
         error = nil
         do {
@@ -247,8 +258,11 @@ final class LinearService: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
+            if !silent { isLoading = false }
+            return false
         }
         if !silent { isLoading = false }
+        return true
     }
 
     func loadAllIssues(teamId: String) async -> [LinearIssue] {
@@ -266,7 +280,8 @@ final class LinearService: ObservableObject {
         }
     }
 
-    func loadTeams() async {
+    @discardableResult
+    func loadTeams() async -> Bool {
         do {
             try await ensureConnected()
             guard let session else { throw LinearError.notConfigured }
@@ -277,7 +292,9 @@ final class LinearService: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
+            return false
         }
+        return true
     }
 
     func createIssue(teamId: String, title: String, description: String, priority: Int = 0, projectId: String? = nil) async throws -> String {
