@@ -40,7 +40,7 @@ verteilt.
 pkill -9 -f myClaude; sleep 0.3
 bash tools/gen-buildinfo.sh                 # BuildInfo.swift VOR dem Build generieren
 swift build -c release                      # NICHT --target myClaude (kompiliert nur, linkt nicht)
-cp .build/arm64-apple-macosx/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
+cp .build/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
 codesign --force --deep --sign - ~/Applications/myClaude.app   # macOS 26 Pflicht (sonst SIGKILL)
 open ~/Applications/myClaude.app
 printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
@@ -48,6 +48,8 @@ printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
 
 Verifikation nach Deploy: Binary-`mtime` vorher/nachher prüfen + laufende Instanz (`ps`) — „App
 hängt trotz Fix" ist oft eine veraltete Zombie-Instanz (überlebt `pkill` SIGTERM).
+Binary-Inhalt prüfen: `strings ~/Applications/myClaude.app/Contents/MacOS/myClaude | grep -c "<neuer String>"` —
+seit dem Xcode-Update 09/2026 liegt der alte Pfad `.build/arm64-apple-macosx/release/` veraltet herum.
 
 ---
 
@@ -73,7 +75,7 @@ hängt trotz Fix" ist oft eine veraltete Zombie-Instanz (überlebt `pkill` SIGTE
 | `AgentsView.swift` | Agent-Fleet-UI (Baseball-Cards), Personas, Editor, Skills, Email-Learning |
 | `MCPView.swift` / `MCPService.swift` | MCP-Server-Verwaltung (lokal/cloud), Health-Checks |
 | `MCPClientService.swift` | JSON-RPC-Client (stdio/HTTP). Byte-Puffer + zeilenweises Parsen, stderr-Drain, `NSCondition`-Wartelogik, Reconnect pro Prozess-Generation |
-| `LinearView.swift` / `LinearService.swift` | Linear-Integration (3-Spalten, GraphQL direkt — MCP-Delete kaputt) |
+| `LinearView.swift` / `LinearService.swift` | Linear-Integration (3-Spalten, GraphQL direkt — MCP-Delete kaputt). View wird bei Section-Wechsel neu gemountet; Daten + `viewMemory` (Auswahl/Filter/Breiten) liegen im Service, Sync nur bei Cache > 60 s (`refresh()`, dedupliziert) |
 | `CodeReviewView.swift` | Datei-Picker + Review-Config + Source-Viewer + Output (3-Spalten) |
 | `FileExplorerView.swift` | Datei-Baum, Sort/Group, Office-/HTML-Preview |
 | `HistoryView.swift` / `ChatHistoryService.swift` | Verlauf laden, File-Watcher auf `~/.claude/` |

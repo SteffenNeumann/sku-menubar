@@ -38,7 +38,7 @@ cd sku-menubar
 bash tools/gen-buildinfo.sh          # BuildInfo.swift VOR dem Build generieren
 swift build -c release               # NICHT --target myClaude (kompiliert nur, linkt nicht)
 
-cp .build/arm64-apple-macosx/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
+cp .build/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
 codesign --force --deep --sign - ~/Applications/myClaude.app   # macOS 26: Pflicht (sonst SIGKILL)
 open ~/Applications/myClaude.app
 ```
