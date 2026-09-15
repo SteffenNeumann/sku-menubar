@@ -129,6 +129,19 @@ struct LinearComment: Identifiable {
 
 // MARK: - Linear Service
 
+/// Ansichts-Zustand von LinearView, der das Neu-Mounten beim Section-Wechsel überlebt.
+struct LinearViewMemory {
+    var selectedProjectId: String?
+    var selectedIssueId: String?
+    var filterPriority: LinearPriority?
+    var filterStatus: String?
+    var searchText = ""
+    var hideSubIssues = false
+    var collapsedStatusGroups: Set<String> = []
+    var colWidthProject: CGFloat = 220
+    var colWidthIssue: CGFloat = 340
+}
+
 @MainActor
 final class LinearService: ObservableObject {
 
@@ -145,6 +158,21 @@ final class LinearService: ObservableObject {
     /// True sobald configure() einmal lief — erlaubt LinearView beim Neu-Mount zu erkennen,
     /// dass der geteilte Service schon eingerichtet ist (kein erneutes configure/Reload nötig).
     private(set) var isConfigured = false
+
+    /// Zuletzt gesehene Ansicht (Auswahl, Filter, Spaltenbreiten). Bewusst NICHT @Published:
+    /// LinearView wird bei jedem Section-Wechsel neu gemountet, liest das hier beim init und
+    /// schreibt es in onDisappear zurück — ohne dass jeder Klick andere Views neu rendert.
+    var viewMemory = LinearViewMemory()
+
+    /// Zeitpunkt des letzten erfolgreichen Komplett-Syncs. Rückkehr in die Section innerhalb
+    /// von `staleAfter` zeigt nur den Cache, danach wird still im Hintergrund synchronisiert.
+    private(set) var lastRefresh: Date = .distantPast
+    static let staleAfter: TimeInterval = 60
+    var isStale: Bool { Date().timeIntervalSince(lastRefresh) > Self.staleAfter }
+
+    /// Laufender Sync — weitere Aufrufe hängen sich an statt parallel zu laden.
+    /// Unstrukturierter Task: wird nicht abgebrochen, wenn LinearView beim Wegwechseln verschwindet.
+    private var refreshTask: Task<Void, Never>?
 
     func configure(config: MCPServerConfig) {
         session?.stop()
@@ -164,23 +192,45 @@ final class LinearService: ObservableObject {
         }
     }
 
-    func loadProjects() async {
-        isLoading = true
+    /// Projekte + Teams (+ Issues des Projekts) sequenziell laden — NICHT parallel, sonst
+    /// doppeltes session.connect() → Hang. `silent`: kein Spinner (Daten sind schon sichtbar).
+    func refresh(projectId: String?, silent: Bool = false) async {
+        if let running = refreshTask {
+            await running.value
+            // Der laufende Sync kann für ein anderes Projekt gestartet worden sein
+            if let pid = projectId, issues[pid] == nil { await loadIssues(projectId: pid, silent: silent) }
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.loadProjects(silent: silent)
+            await self.loadTeams()
+            if let pid = projectId { await self.loadIssues(projectId: pid, silent: silent) }
+            if self.error == nil { self.lastRefresh = Date() }
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    func loadProjects(silent: Bool = false) async {
+        if !silent { isLoading = true }
         error = nil
         do {
             try await ensureConnected()
             guard let session else { throw LinearError.notConfigured }
             let raw = try await session.callTool(name: "linear_list_projects", arguments: [:])
-            projects = parseProjects(from: raw)
+            guard let parsed = parseProjects(from: raw) else { throw LinearError.unreadableResponse }
+            projects = parsed
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
         }
-        isLoading = false
+        if !silent { isLoading = false }
     }
 
-    func loadIssues(projectId: String) async {
-        isLoading = true
+    func loadIssues(projectId: String, silent: Bool = false) async {
+        if !silent { isLoading = true }
         error = nil
         do {
             try await ensureConnected()
@@ -191,14 +241,14 @@ final class LinearService: ObservableObject {
                 "first": 100
             ]
             let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
-            issues[projectId] = parseIssues(from: raw)
-            // Enrich with parent/subissue info via GraphQL
-            await enrichParentInfo(projectId: projectId)
+            guard let parsed = parseIssues(from: raw) else { throw LinearError.unreadableResponse }
+            // Parent-Info VOR dem Zuweisen anreichern → nur ein Schreibvorgang, kein Flackern
+            issues[projectId] = await enrichParentInfo(parsed, previous: issues[projectId] ?? [])
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
         }
-        isLoading = false
+        if !silent { isLoading = false }
     }
 
     func loadAllIssues(teamId: String) async -> [LinearIssue] {
@@ -208,7 +258,7 @@ final class LinearService: ObservableObject {
             let args: [String: Any] = ["teamIds": [teamId], "first": 100]
             let raw = try await session.callTool(name: "linear_search_issues", arguments: args)
             error = nil
-            return parseIssues(from: raw)
+            return parseIssues(from: raw) ?? []
         } catch {
             self.error = error.localizedDescription
             sessionConnected = false
@@ -221,7 +271,8 @@ final class LinearService: ObservableObject {
             try await ensureConnected()
             guard let session else { throw LinearError.notConfigured }
             let raw = try await session.callTool(name: "linear_get_teams", arguments: [:])
-            teams = parseTeams(from: raw)
+            guard let parsed = parseTeams(from: raw) else { throw LinearError.unreadableResponse }
+            teams = parsed
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -309,7 +360,7 @@ final class LinearService: ObservableObject {
             """
             guard let token = linearAccessToken,
                   let url = URL(string: "https://api.linear.app/graphql") else {
-                comments[issueId] = []
+                keepOrEmptyComments(issueId)
                 return
             }
             var req = URLRequest(url: url, timeoutInterval: 15)
@@ -323,7 +374,7 @@ final class LinearService: ObservableObject {
                   let issue = dataObj["issue"] as? [String: Any],
                   let comms = issue["comments"] as? [String: Any],
                   let nodes = comms["nodes"] as? [[String: Any]] else {
-                comments[issueId] = []
+                keepOrEmptyComments(issueId)
                 return
             }
             let iso = ISO8601DateFormatter()
@@ -342,16 +393,34 @@ final class LinearService: ObservableObject {
                 )
             }.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
         } catch {
-            comments[issueId] = []
+            keepOrEmptyComments(issueId)   // z.B. Abbruch beim Wegwechseln
         }
     }
 
+    /// Fehlschlag (auch Abbruch) darf gecachte Kommentare nicht löschen.
+    private func keepOrEmptyComments(_ issueId: String) {
+        if comments[issueId] == nil { comments[issueId] = [] }
+    }
 
-    /// Enrich issues with parent/sub-issue relationships via GraphQL API
-    private func enrichParentInfo(projectId: String) async {
+
+    /// Enrich issues with parent/sub-issue relationships via GraphQL API.
+    /// Schlägt das fehl, wird die Parent-Info aus `previous` (Cache) übernommen statt verworfen.
+    private func enrichParentInfo(_ projectIssues: [LinearIssue], previous: [LinearIssue]) async -> [LinearIssue] {
+        let fallback: [LinearIssue] = {
+            let old = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            return projectIssues.map { issue in
+                guard let o = old[issue.id] else { return issue }
+                var updated = issue
+                updated.parentId = o.parentId
+                updated.parentIdentifier = o.parentIdentifier
+                updated.parentTitle = o.parentTitle
+                updated.subIssueCount = o.subIssueCount
+                return updated
+            }
+        }()
         guard let token = linearAccessToken,
               let url = URL(string: "https://api.linear.app/graphql"),
-              let projectIssues = issues[projectId], !projectIssues.isEmpty else { return }
+              !projectIssues.isEmpty else { return fallback }
 
         let ids = projectIssues.map { "\"\($0.id)\"" }.joined(separator: ",")
         let query = """
@@ -367,7 +436,7 @@ final class LinearService: ObservableObject {
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let dataObj = json["data"] as? [String: Any],
                   let issuesObj = dataObj["issues"] as? [String: Any],
-                  let nodes = issuesObj["nodes"] as? [[String: Any]] else { return }
+                  let nodes = issuesObj["nodes"] as? [[String: Any]] else { return fallback }
 
             // Build lookup: issueId → (parentId, parentIdentifier, parentTitle, subIssueCount)
             var parentMap: [String: (String, String, String)] = [:]
@@ -386,8 +455,7 @@ final class LinearService: ObservableObject {
                 }
             }
 
-            // Update issues in-place
-            issues[projectId] = projectIssues.map { issue in
+            return projectIssues.map { issue in
                 var updated = issue
                 if let (pid, pident, ptitle) = parentMap[issue.id] {
                     updated.parentId = pid
@@ -399,7 +467,9 @@ final class LinearService: ObservableObject {
                 }
                 return updated
             }
-        } catch { /* non-critical */ }
+        } catch {
+            return fallback   // non-critical
+        }
     }
 
     func createProject(teamId: String, name: String, description: String = "") async throws -> (id: String, name: String) {
@@ -413,7 +483,7 @@ final class LinearService: ObservableObject {
         // Response is plain text ("Project: <name>\nProject URL: ...") — no UUID available.
         // Fetch the real project ID by listing projects and matching by name.
         let listRaw = try await session.callTool(name: "linear_list_projects", arguments: [:])
-        let projectList = parseProjects(from: listRaw)
+        let projectList = parseProjects(from: listRaw) ?? []
         if let found = projectList.first(where: { $0.name == name }) {
             return (found.id, found.name)
         }
@@ -440,9 +510,10 @@ final class LinearService: ObservableObject {
     // MARK: - JSON Parsing helpers
     // Response format: { "projects": { "nodes": [...] } }
 
-    private func parseProjects(from raw: String) -> [LinearProject] {
+    /// nil = Antwort nicht lesbar (≠ leere Liste) — darf den Cache nicht überschreiben.
+    private func parseProjects(from raw: String) -> [LinearProject]? {
         guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
         let arr: [[String: Any]]
         if let outer = json["projects"] as? [String: Any],
@@ -453,7 +524,7 @@ final class LinearService: ObservableObject {
         } else if let direct = json["projects"] as? [[String: Any]] {
             arr = direct
         } else {
-            return []
+            return nil
         }
 
         return arr.compactMap { d -> LinearProject? in
@@ -475,9 +546,9 @@ final class LinearService: ObservableObject {
     }
 
     // Response format: { "issues": { "nodes": [...], "pageInfo": {...} } }
-    private func parseIssues(from raw: String) -> [LinearIssue] {
+    private func parseIssues(from raw: String) -> [LinearIssue]? {
         guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
         let arr: [[String: Any]]
         if let outer = json["issues"] as? [String: Any],
@@ -488,7 +559,7 @@ final class LinearService: ObservableObject {
         } else if let direct = json["issues"] as? [[String: Any]] {
             arr = direct
         } else {
-            return []
+            return nil
         }
 
         let iso = ISO8601DateFormatter()
@@ -547,9 +618,9 @@ final class LinearService: ObservableObject {
     }
 
     // Response format: { "teams": { "nodes": [...] } }
-    private func parseTeams(from raw: String) -> [LinearTeam] {
+    private func parseTeams(from raw: String) -> [LinearTeam]? {
         guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
         let arr: [[String: Any]]
         if let outer = json["teams"] as? [String: Any],
@@ -560,7 +631,7 @@ final class LinearService: ObservableObject {
         } else if let direct = json["teams"] as? [[String: Any]] {
             arr = direct
         } else {
-            return []
+            return nil
         }
 
         return arr.compactMap { d in
@@ -609,9 +680,11 @@ final class LinearService: ObservableObject {
 enum LinearError: LocalizedError {
     case notConfigured
     case apiError(String)
+    case unreadableResponse
     var errorDescription: String? {
         switch self {
         case .notConfigured: return "Linear nicht konfiguriert"
+        case .unreadableResponse: return "Linear-Antwort nicht lesbar"
         case .apiError(let msg): return "Linear API Fehler: \(msg)"
         }
     }
@@ -623,7 +696,4 @@ extension Notification.Name {
     /// Posted whenever a Linear MCP tool call completes in the chat (e.g. issue updated by agent).
     /// LinearView subscribes to this to trigger an immediate data refresh.
     static let linearMCPDidChange = Notification.Name("com.myClaude.linearMCPDidChange")
-    /// Posted by MainWindowView when the user navigates to the Linear section.
-    /// LinearView uses this to refresh stale data without a background polling timer.
-    static let linearViewBecameVisible = Notification.Name("com.myClaude.linearViewBecameVisible")
 }

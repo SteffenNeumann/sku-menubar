@@ -192,13 +192,10 @@ final class AppState: ObservableObject {
     lazy var mcpService: MCPService = MCPService(cliService: cliService)
     lazy var emailPollingService: EmailPollingService = EmailPollingService()
     var inquiryLinearService: LinearService?
-    // Geteilter Linear-Service + Auswahl: überleben das Neu-Mounten von LinearView beim
-    // Section-Wechsel (LinearView selbst ist NICHT persistent gemountet — nur Chat ist es,
-    // siehe MainWindowView SCHRITT 0). Dadurch bleibt beim Wechsel Chat→Linear die letzte
-    // Auswahl sichtbar und die Daten werden nur im Hintergrund synchronisiert (kein Reload).
+    // Geteilter Linear-Service: Daten + Ansichts-Zustand (viewMemory) überleben das Neu-Mounten
+    // von LinearView beim Section-Wechsel (LinearView selbst ist NICHT persistent gemountet — nur
+    // Chat ist es, siehe MainWindowView SCHRITT 0). Rückkehr zeigt sofort den Cache.
     let linearService = LinearService()
-    @Published var linearSelectedProjectId: String? = nil
-    @Published var linearSelectedIssueId: String? = nil
     lazy var customerInquiryWorkflow: CustomerInquiryWorkflow = {
         let wf = CustomerInquiryWorkflow(cliService: cliService, agentService: agentService)
         return wf

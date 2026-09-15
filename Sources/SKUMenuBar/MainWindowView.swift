@@ -176,9 +176,8 @@ struct MainWindowView: View {
         .onChange(of: selectedSection) { _, section in
             // Chat einmalig „scharf schalten" — danach bleibt es persistent gemountet.
             if section == .chat { chatLoaded = true }
-            // Hinweis: LinearView lädt jetzt via eigenem `.task` beim Frisch-Mount;
-            // die frühere .linearViewBecameVisible-Benachrichtigung (für den Persistenz-Fall)
-            // entfällt, weil die View bei jedem Wechsel neu erscheint.
+            // Hinweis: LinearView wird bei jedem Wechsel neu gemountet und zeigt sofort den Cache
+            // aus state.linearService (Daten + viewMemory); synchronisiert nur, wenn er veraltet ist.
         }
     }
 }

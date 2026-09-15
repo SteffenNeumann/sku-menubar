@@ -116,15 +116,30 @@ struct LinearView: View {
 
     init(service: LinearService) {
         _service = ObservedObject(wrappedValue: service)
+        // Letzten Ansichts-Zustand schon beim init setzen (nicht erst in .task) —
+        // sonst blitzt beim Zurückkehren kurz "Projekt auswählen" auf.
+        let mem = service.viewMemory
+        let project = service.projects.first { $0.id == mem.selectedProjectId }
+        _selectedProject = State(initialValue: project)
+        _selectedIssue = State(initialValue: project.flatMap { p in
+            service.issues[p.id]?.first { $0.id == mem.selectedIssueId }
+        })
+        _filterPriority = State(initialValue: mem.filterPriority)
+        _filterStatus = State(initialValue: mem.filterStatus)
+        _searchText = State(initialValue: mem.searchText)
+        _hideSubIssues = State(initialValue: mem.hideSubIssues)
+        _collapsedStatusGroups = State(initialValue: mem.collapsedStatusGroups)
+        _colWidthProject = State(initialValue: mem.colWidthProject)
+        _colWidthIssue = State(initialValue: max(mem.colWidthIssue, 320))
     }
 
     @State private var selectedProject: LinearProject?
     @State private var selectedIssue: LinearIssue?
     @State private var filterPriority: LinearPriority?
     @State private var filterStatus: String?
-    @State private var searchText = ""
-    @State private var colWidthProject: CGFloat = 220
-    @State private var colWidthIssue: CGFloat = 340
+    @State private var searchText: String
+    @State private var colWidthProject: CGFloat
+    @State private var colWidthIssue: CGFloat
     @State private var showNewIssueSheet = false
     @State private var showNewProjectSheet = false
     @State private var configured = false
@@ -135,14 +150,14 @@ struct LinearView: View {
     @State private var editedTitle = ""
     @State private var newCommentText = ""
     @State private var isLoadingComments = false
-    @State private var collapsedStatusGroups: Set<String> = []
+    @State private var collapsedStatusGroups: Set<String>
     @State private var copiedIdentifier = false
     @State private var issueToDelete: LinearIssue? = nil
     @State private var showDeleteConfirmation = false
     @State private var deleteError: String? = nil
     @State private var showDeleteError = false
     @State private var lastLinearRefresh: Date = .distantPast
-    @State private var hideSubIssues = false
+    @State private var hideSubIssues: Bool
 
     private var accentColor: Color {
         Color(red: theme.acR / 255, green: theme.acG / 255, blue: theme.acB / 255)
@@ -171,31 +186,30 @@ struct LinearView: View {
                 .frame(maxWidth: .infinity)
         }
         .background(theme.windowBg)
-        .onAppear {
-            // Clamp saved column width in case it was stored before minWidth was raised
-            if colWidthIssue < 320 { colWidthIssue = 320 }
-        }
         .task {
             await setupAndLoad()
         }
-        // Auswahl in AppState spiegeln, damit sie das Neu-Mounten beim Section-Wechsel überlebt
-        .onChange(of: selectedProject?.id) { _, newId in
-            state.linearSelectedProjectId = newId
+        // Ansichts-Zustand im Service ablegen — überlebt das Neu-Mounten beim Section-Wechsel.
+        // Einmal beim Verlassen statt per onChange: kein @Published, kein Re-Render anderer Views.
+        .onDisappear {
+            service.viewMemory = LinearViewMemory(
+                selectedProjectId: selectedProject?.id,
+                selectedIssueId: selectedIssue?.id,
+                filterPriority: filterPriority,
+                filterStatus: filterStatus,
+                searchText: searchText,
+                hideSubIssues: hideSubIssues,
+                collapsedStatusGroups: collapsedStatusGroups,
+                colWidthProject: colWidthProject,
+                colWidthIssue: colWidthIssue
+            )
         }
-        .onChange(of: selectedIssue?.id) { _, newId in
-            state.linearSelectedIssueId = newId
-        }
-        // Refresh when an agent updates a Linear issue via MCP in the chat
+        // Refresh when an agent updates a Linear issue via MCP in the chat.
+        // Vor abgeschlossenem Setup ignorieren — setupAndLoad lädt ohnehin frisch.
         .onReceive(NotificationCenter.default.publisher(for: .linearMCPDidChange)) { _ in
-            guard Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
+            guard configured, Date().timeIntervalSince(lastLinearRefresh) > 2 else { return }
             lastLinearRefresh = Date()
-            Task { await forceRefresh() }
-        }
-        // Refresh when user navigates to the Linear section (keyboard shortcut or sidebar tap)
-        .onReceive(NotificationCenter.default.publisher(for: .linearViewBecameVisible)) { _ in
-            guard Date().timeIntervalSince(lastLinearRefresh) > 3 else { return }
-            lastLinearRefresh = Date()
-            Task { await forceRefresh() }
+            Task { await forceRefresh(silent: true) }
         }
         .sheet(isPresented: $showNewIssueSheet) {
             NewIssueSheet(service: service,
@@ -208,7 +222,7 @@ struct LinearView: View {
         }
         .sheet(isPresented: $showNewProjectSheet) {
             NewProjectSheet(service: service, onCreated: {
-                Task { await setupAndLoad() }
+                Task { await forceRefresh() }
             })
         }
         .confirmationDialog(
@@ -233,69 +247,69 @@ struct LinearView: View {
     // MARK: - Setup
 
     private func setupAndLoad() async {
-        // Fall A: Geteilter Service ist schon eingerichtet UND hat Daten (vorheriger Mount).
-        // → KEIN Reload, keine neue Session. Letzte Auswahl sofort wiederherstellen (bleibt
-        //   sichtbar) und nur im Hintergrund synchronisieren.
-        if service.isConfigured && !service.projects.isEmpty {
-            configured = true
-            restoreSelection()
-            await forceRefresh()   // sequenziell; behält selectedProject + re-resolved selectedIssue
-            return
-        }
-
-        // Lokaler Erst-Mount, Service aber bereits konfiguriert (z.B. Daten noch am Laden) →
-        // nicht neu konfigurieren, nur Auswahl wiederherstellen sobald Daten da sind.
+        // Geteilter Service ist schon eingerichtet (vorheriger Mount) → nicht neu konfigurieren.
+        // Cache sofort zeigen; nur synchronisieren, wenn er älter als staleAfter ist — dann still.
         if service.isConfigured {
             configured = true
-            await service.loadProjects()
-            await service.loadTeams()
-            restoreSelection()
-            if let proj = selectedProject { await service.loadIssues(projectId: proj.id) }
-            restoreSelection()
+            if service.projects.isEmpty {
+                await forceRefresh()
+                await restoreSelectionAndLoadIssues()
+            } else if service.isStale {
+                await forceRefresh(silent: true)
+            } else if let proj = selectedProject, service.issues[proj.id] == nil {
+                await service.loadIssues(projectId: proj.id)
+                restoreSelection()
+            }
             return
         }
 
-        // Fall B: Allererster Aufruf dieser App-Session — Service einrichten + voll laden.
+        // Allererster Aufruf dieser App-Session — Service einrichten + voll laden.
         service.error = nil
         configured = false
         if let cfg = await state.cliService.getMCPServerConfig(name: "linear") {
             service.configure(config: cfg)
             configured = true
-            await service.loadProjects()
-            await service.loadTeams()
-            restoreSelection()
-            if let proj = selectedProject { await service.loadIssues(projectId: proj.id) }
-            restoreSelection()
+            await forceRefresh()
+            await restoreSelectionAndLoadIssues()
         } else {
             service.error = "Linear MCP nicht konfiguriert. Bitte in MCP-Einstellungen aktivieren."
         }
     }
 
-    /// Stellt die zuletzt gewählte Projekt-/Issue-Auswahl aus AppState wieder her,
-    /// indem die IDs gegen die bereits geladenen Service-Daten aufgelöst werden.
+    /// Stellt die zuletzt gewählte Projekt-/Issue-Auswahl aus dem Service-Gedächtnis wieder her.
     /// Idempotent — überschreibt eine bereits gesetzte Auswahl nicht.
     private func restoreSelection() {
-        if selectedProject == nil, let pid = state.linearSelectedProjectId {
+        let mem = service.viewMemory
+        if selectedProject == nil, let pid = mem.selectedProjectId {
             selectedProject = service.projects.first { $0.id == pid }
         }
-        if let proj = selectedProject, selectedIssue == nil, let iid = state.linearSelectedIssueId {
+        if let proj = selectedProject, selectedIssue == nil, let iid = mem.selectedIssueId {
             selectedIssue = service.issues[proj.id]?.first { $0.id == iid }
         }
     }
 
-    /// Refresh ohne Guard — für Refresh-Button und Section-Switch.
-    /// Sequenziell: loadProjects setzt sessionConnected=true, loadTeams kann Verbindung wiederverwenden.
-    /// NICHT async let / parallel — beide rufen ensureConnected() auf; wenn sessionConnected noch
-    /// false ist, würden beide session.connect() aufrufen → Doppel-Connect → Hang/Crash.
-    private func forceRefresh() async {
-        guard configured else { await setupAndLoad(); return }
-        await service.loadProjects()          // stellt Verbindung her (sessionConnected→true)
-        await service.loadTeams()             // nutzt bestehende Verbindung
-        if let proj = selectedProject {
+    /// Nach dem ersten Laden: Auswahl auflösen und Issues des Projekts nachladen, falls nötig.
+    private func restoreSelectionAndLoadIssues() async {
+        restoreSelection()
+        if let proj = selectedProject, service.issues[proj.id] == nil {
             await service.loadIssues(projectId: proj.id)
-            if let currentId = selectedIssue?.id {
-                selectedIssue = service.issues[proj.id]?.first { $0.id == currentId }
-            }
+            restoreSelection()
+        }
+    }
+
+    /// Refresh für Refresh-Button, neues Projekt, MCP-Änderung und veralteten Cache.
+    /// `silent`: kein Spinner, weil die Daten schon sichtbar sind.
+    private func forceRefresh(silent: Bool = false) async {
+        guard configured else { await setupAndLoad(); return }
+        await service.refresh(projectId: selectedProject?.id, silent: silent)
+        // Auswahl gegen frische Daten auflösen (aktuelle Namen/Status; weg, wenn gelöscht)
+        if let pid = selectedProject?.id {
+            selectedProject = service.projects.first { $0.id == pid }
+            if selectedProject == nil { selectedIssue = nil }
+        }
+        if let proj = selectedProject, let currentId = selectedIssue?.id,
+           let fresh = service.issues[proj.id] {
+            selectedIssue = fresh.first { $0.id == currentId }
         }
     }
 
