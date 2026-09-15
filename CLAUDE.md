@@ -41,13 +41,15 @@ bash tools/gen-buildinfo.sh
 swift build -c release
 
 # 5. Binary kopieren + App neu signieren + starten
-cp .build/arm64-apple-macosx/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
+cp .build/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
 codesign --force --deep --sign - ~/Applications/myClaude.app
 open ~/Applications/myClaude.app
 
 # 6. Gitstamp aktualisieren (Timestamp in der Sidebar)
 printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
 ```
+
+**Binary-Pfad:** immer `.build/release/myClaude` (Symlink) — seit Xcode-Update 09/2026 baut SwiftPM nach `.build/out/Products/Release/`, der alte Pfad `.build/arm64-apple-macosx/release/` bleibt veraltet liegen.
 
 **Schritte 3, 5 (codesign) und 6 niemals weglassen** — BuildInfo.swift muss vor dem Build generiert sein; codesign ist seit macOS 26 Pflicht (ohne Signatur: `SIGKILL Code Signature Invalid`).
 
