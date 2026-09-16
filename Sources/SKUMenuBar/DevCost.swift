@@ -42,6 +42,9 @@ enum DevCost {
         f.numberStyle           = .decimal
         f.minimumFractionDigits = fractionDigits
         f.maximumFractionDigits = fractionDigits
+        // Kaufmännisch runden. Der Default .halfEven macht aus 676,50 € ein
+        // "676 €" — bei Geldbeträgen erwartet man 677 €.
+        f.roundingMode          = .halfUp
         let s = f.string(from: NSNumber(value: amount)) ?? "0"
         return "\(s) €"
     }

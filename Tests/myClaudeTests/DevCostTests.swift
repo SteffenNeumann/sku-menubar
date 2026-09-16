@@ -68,6 +68,14 @@ final class DevCostTests: XCTestCase {
         XCTAssertEqual(DevCost.formatCompact(27), "27 €")
     }
 
+    func testFormatRoundsHalfUpNotHalfEven() {
+        // 15h 2m bei 45 €/h = 676,50 € — muss 677 € werden, nicht 676 €.
+        XCTAssertEqual(DevCost.formatCompact(DevCost.cost(seconds: (15 * 60 + 2) * 60, rate: 45)), "677 €")
+        XCTAssertEqual(DevCost.formatCompact(676.5), "677 €")
+        XCTAssertEqual(DevCost.formatCompact(677.5), "678 €")
+        XCTAssertEqual(DevCost.formatExact(1.005), "1,01 €")
+    }
+
     func testFormatExactUsesGermanDecimalComma() {
         XCTAssertEqual(DevCost.formatExact(4616.9167), "4.616,92 €")
     }
