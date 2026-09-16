@@ -460,11 +460,14 @@ struct SettingsFormView: View {
                             configRow(title: "TMetric",
                                       icon: "timer",
                                       hint: "Zeitdaten in der Home-Kachel") {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    fieldLabel("API Token")
-                                    SecureField("Dein TMetric API Token…", text: $draft.tmetricApiToken)
-                                        .textFieldStyle(.plain)
-                                        .styledInput(theme: theme)
+                                VStack(alignment: .leading, spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        fieldLabel("API Token")
+                                        SecureField("Dein TMetric API Token…", text: $draft.tmetricApiToken)
+                                            .textFieldStyle(.plain)
+                                            .styledInput(theme: theme)
+                                    }
+                                    hourlyRatesEditor
                                 }
                             }
                         }
@@ -795,6 +798,59 @@ struct SettingsFormView: View {
         Divider()
             .foregroundStyle(theme.cardBorder)
             .padding(.horizontal, 18)
+    }
+
+    // MARK: - Stundensätze (Entwicklerkosten)
+
+    @ViewBuilder
+    private var hourlyRatesEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            fieldLabel("Stundensätze (EUR/h)")
+            Text("Für die Entwicklerkosten in der Zeiterfassungs-Kachel. Welcher Satz aktiv ist, wählst du dort. Änderungen gelten nach „Speichern & Laden“.")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach($draft.hourlyRates) { $rate in
+                HStack(spacing: 8) {
+                    TextField("Bezeichnung", text: $rate.label)
+                        .textFieldStyle(.plain)
+                        .styledInput(theme: theme)
+                        .frame(maxWidth: 180)
+                    // Klemmt negative, unendliche und absurd hohe Eingaben ab —
+                    // ein negativer Satz erzeugt sonst negative Kosten.
+                    TextField("65", value: Binding(
+                        get: { rate.amount },
+                        set: { rate.amount = HourlyRate.sanitize($0) }
+                    ), format: .number)
+                        .textFieldStyle(.plain)
+                        .styledInput(theme: theme)
+                        .frame(width: 80)
+                    Text("€/h")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.tertiaryText)
+                    Spacer(minLength: 0)
+                    Button {
+                        draft.hourlyRates.removeAll { $0.id == rate.id }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Satz entfernen")
+                }
+            }
+
+            Button {
+                draft.hourlyRates.append(HourlyRate(label: "Neuer Satz", amount: 65))
+            } label: {
+                Label("Satz hinzufügen", systemImage: "plus")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(accent)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Field Label

@@ -1,7 +1,34 @@
 import Foundation
 
+// MARK: - Stundensatz
+
+/// Ein benannter Stundensatz für die Entwicklerkosten in der Zeiterfassungs-Kachel.
+/// Betrag ist immer EUR — die Währungseinstellung (currency/eurRate) gilt nur für
+/// USD-Rechnungsbeträge von GitHub/Anthropic und darf hier nicht angewendet werden.
+struct HourlyRate: Codable, Identifiable, Hashable {
+    var id: UUID = UUID()
+    var label:  String
+    var amount: Double   // EUR pro Stunde
+
+    static let defaults: [HourlyRate] = [
+        HourlyRate(label: "Junior",   amount: 45),
+        HourlyRate(label: "Standard", amount: 65),
+        HourlyRate(label: "Senior",   amount: 95)
+    ]
+
+    /// Klemmt unsinnige Eingaben (negativ, NaN, absurd hoch) beim Speichern ab.
+    static func sanitize(_ amount: Double) -> Double {
+        guard amount.isFinite, amount > 0 else { return 0 }
+        return min(amount, 10_000)
+    }
+}
+
 // MARK: - Settings
 
+// ACHTUNG: GitHubSettings hat KEIN eigenes CodingKeys-Enum und kein manuelles
+// encode(to:) — beides wird synthetisiert, weshalb `forKey: .xyz` für jede
+// gespeicherte Property automatisch existiert. Wer hier ein encode(to:) ergänzt,
+// zerstört die Synthese und damit init(from:) weiter unten.
 struct GitHubSettings: Codable {
     var token: String = ""
     var accountType: String = "user"   // "user" | "org"
@@ -40,6 +67,11 @@ struct GitHubSettings: Codable {
     var artifactsEnabled: Bool = true
     // TMetric time tracking
     var tmetricApiToken: String = ""
+    // Stundensätze für die Entwicklerkosten in der Zeiterfassungs-Kachel (EUR/h).
+    // Welcher davon aktiv ist, steht NICHT hier, sondern in @AppStorage
+    // ("tmetricSelectedRateId") — jede Änderung an settings startet sonst per
+    // didSet → reschedule() beide Polling-Timer neu.
+    var hourlyRates: [HourlyRate] = HourlyRate.defaults
     // Ollama / lokales LLM (kostenlos, kein API-Key nötig)
     var ollamaBaseUrl: String = "http://localhost:11434/v1"
     var ollamaModel:   String = "llama3.2"
@@ -85,6 +117,9 @@ struct GitHubSettings: Codable {
         conciseAgentOutput = (try? c.decodeIfPresent(Bool.self, forKey: .conciseAgentOutput)) ?? true
         artifactsEnabled   = (try? c.decodeIfPresent(Bool.self, forKey: .artifactsEnabled)) ?? true
         tmetricApiToken = (try? c.decodeIfPresent(String.self, forKey: .tmetricApiToken)) ?? ""
+        // decodeIfPresent liefert bei einer vom Nutzer geleerten Liste [] (nicht nil) —
+        // die Defaults kommen also nur bei fehlendem Schlüssel zurück, nicht als Zombies.
+        hourlyRates     = (try? c.decodeIfPresent([HourlyRate].self, forKey: .hourlyRates)) ?? HourlyRate.defaults
         ollamaBaseUrl   = (try? c.decodeIfPresent(String.self, forKey: .ollamaBaseUrl)) ?? "http://localhost:11434/v1"
         ollamaModel     = (try? c.decodeIfPresent(String.self, forKey: .ollamaModel))   ?? "llama3.2"
         discoveredModelIDs = (try? c.decodeIfPresent([String].self, forKey: .discoveredModelIDs)) ?? []

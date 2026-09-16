@@ -32,32 +32,42 @@ enum TMetricPeriod: String, CaseIterable, Codable {
         }
     }
 
+    /// Vergleichszeitraum für die Trend-Pfeile.
+    ///
+    /// Laufende Perioden werden nur bis zum gleichen Fortschritt verglichen:
+    /// "Monat" am 5. um 14 Uhr vergleicht gegen den 1.–5. des Vormonats, 14 Uhr.
+    /// Vorher lief hier eine angefangene Periode gegen eine volle Vorperiode —
+    /// der Pfeil zeigte dadurch am Monatsersten fast immer −99 %.
+    /// Nur `.lastMonth` ist bereits abgeschlossen und vergleicht gegen den
+    /// kompletten Monat davor.
     func previousPeriodRange() -> (from: Date, to: Date) {
         var gcal = Calendar(identifier: .gregorian)
         gcal.timeZone = TimeZone.current
         var isoCal = Calendar(identifier: .iso8601)
         isoCal.timeZone = TimeZone.current
-        let (curFrom, _) = dateRange()
+        let (curFrom, curTo) = dateRange()
+
+        // Beginn der vorangehenden Kalenderperiode
+        let prevFrom: Date
         switch self {
         case .today:
-            let prev = gcal.date(byAdding: .day, value: -1, to: curFrom)!
-            return (prev, curFrom)
+            prevFrom = gcal.date(byAdding: .day, value: -1, to: curFrom) ?? curFrom
         case .thisWeek:
-            let prev = isoCal.date(byAdding: .weekOfYear, value: -1, to: curFrom)!
-            return (prev, curFrom)
-        case .thisMonth:
-            let prev = gcal.date(byAdding: .month, value: -1, to: curFrom)!
-            return (prev, curFrom)
-        case .lastMonth:
-            let prev = gcal.date(byAdding: .month, value: -1, to: curFrom)!
-            return (prev, curFrom)
+            prevFrom = isoCal.date(byAdding: .weekOfYear, value: -1, to: curFrom) ?? curFrom
+        case .thisMonth, .lastMonth:
+            prevFrom = gcal.date(byAdding: .month, value: -1, to: curFrom) ?? curFrom
         case .thisQuarter:
-            let prev = gcal.date(byAdding: .month, value: -3, to: curFrom)!
-            return (prev, curFrom)
+            prevFrom = gcal.date(byAdding: .month, value: -3, to: curFrom) ?? curFrom
         case .thisYear:
-            let prev = gcal.date(byAdding: .year, value: -1, to: curFrom)!
-            return (prev, curFrom)
+            prevFrom = gcal.date(byAdding: .year, value: -1, to: curFrom) ?? curFrom
         }
+
+        // Abgeschlossene Periode: voller Kalendermonat davor.
+        if self == .lastMonth { return (prevFrom, curFrom) }
+
+        // Laufende Periode: gleicher Fortschritt wie bisher verstrichen.
+        let elapsed = max(0, curTo.timeIntervalSince(curFrom))
+        return (prevFrom, prevFrom.addingTimeInterval(elapsed))
     }
 
     func dateRange() -> (from: Date, to: Date) {

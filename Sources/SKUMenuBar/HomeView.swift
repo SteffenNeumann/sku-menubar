@@ -23,7 +23,21 @@ struct HomeView: View {
     @State private var selectedInquiry: CustomerInquiry?
     @State private var inquiryFilter: InquiryStatus? = nil
 
+    // Entwicklerkosten: gewählter Stundensatz. Bewusst @AppStorage und nicht in
+    // state.settings — dessen didSet startet über reschedule() beide Polling-Timer
+    // neu und der Settings-„Speichern"-Knopf überschreibt das ganze Objekt.
+    // Leerer String = Kostenanzeige aus.
+    @AppStorage("tmetricSelectedRateId") private var tmetricSelectedRateId: String = ""
+    @State private var showTMetricRatePicker = false
+
     private var accentColor: Color { theme.accentText }
+
+    /// Aktiver Stundensatz, oder nil wenn die Kostenanzeige aus ist bzw. der
+    /// gewählte Satz in den Einstellungen gelöscht wurde.
+    private var activeRate: HourlyRate? {
+        guard !tmetricSelectedRateId.isEmpty else { return nil }
+        return state.settings.hourlyRates.first { $0.id.uuidString == tmetricSelectedRateId }
+    }
 
     // Visible tiles in user-defined order
     private var orderedVisibleTiles: [HomeTileID] {
@@ -624,6 +638,39 @@ struct HomeView: View {
                                 }
                         }
                         Spacer(minLength: 0)
+
+                        // ── Stundensatz für die Entwicklerkosten ──────────
+                        Button { showTMetricRatePicker = true } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "eurosign.circle").font(.system(size: 10, weight: .medium))
+                                if let rate = activeRate {
+                                    Text(DevCost.formatRate(rate.amount))
+                                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                                }
+                            }
+                            .foregroundStyle(activeRate != nil ? Color.indigo : theme.tertiaryText)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(activeRate != nil ? Color.indigo.opacity(0.13) : Color.clear, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help(activeRate == nil
+                              ? "Stundenlohn wählen, um Entwicklerkosten anzuzeigen"
+                              : "Stundenlohn für die Kostenberechnung ändern")
+                        .popover(isPresented: $showTMetricRatePicker, arrowEdge: .bottom) {
+                            TMetricRatePopover(
+                                rates: state.settings.hourlyRates,
+                                selectedId: tmetricSelectedRateId
+                            ) { newId in
+                                tmetricSelectedRateId  = newId
+                                showTMetricRatePicker  = false
+                            } onOpenSettings: {
+                                showTMetricRatePicker = false
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    selectedSection = .settings
+                                }
+                            }
+                        }
+
                         Button {
                             tmetricDraftFrom = state.tmetricIsCustomRange ? state.tmetricCustomFrom : Calendar.current.startOfDay(for: Date())
                             tmetricDraftTo   = state.tmetricIsCustomRange ? state.tmetricCustomTo   : Date()
@@ -671,6 +718,9 @@ struct HomeView: View {
                         // ── Gesamt + Donut + Top-3-Cards ─────────────────
                         let totalSeconds = displayedProjects.map(\.totalSeconds).reduce(0, +)
                         let chartColors: [Color] = [.indigo, .blue, .cyan, .teal, .purple, .pink, theme.statusOrange, theme.statusGreen]
+                        // Gesamtkosten aus der Sekundensumme — nie aus den gerundeten
+                        // Einzelbeträgen der Zeilen aufaddieren (sonst driftet die Summe).
+                        let totalCost: Double? = activeRate.map { DevCost.cost(seconds: totalSeconds, rate: $0.amount) }
 
                         HStack(alignment: .center, spacing: 18) {
                             // ── Donut (A: größer, Gesamtzeit + Label) ────────
@@ -696,9 +746,16 @@ struct HomeView: View {
                                             .font(.system(size: 13).monospacedDigit())
                                             .foregroundStyle(theme.secondaryText)
                                     }
-                                    Text("Gesamt")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(theme.tertiaryText)
+                                    if let cost = totalCost {
+                                        Text(DevCost.formatCompact(cost))
+                                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                            .foregroundStyle(Color.indigo)
+                                            .help("Meine Kosten: \(DevCost.formatExact(cost)) bei \(DevCost.formatRate(activeRate?.amount ?? 0))")
+                                    } else {
+                                        Text("Gesamt")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(theme.tertiaryText)
+                                    }
                                 }
                             }
 
@@ -756,6 +813,15 @@ struct HomeView: View {
                                                 Text(p.formattedDuration)
                                                     .font(.system(size: 13, weight: .bold).monospacedDigit())
                                                     .foregroundStyle(color)
+                                                if let rate = activeRate {
+                                                    let c = DevCost.cost(seconds: p.totalSeconds, rate: rate.amount)
+                                                    Text(DevCost.formatCompact(c))
+                                                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                                        .foregroundStyle(theme.primaryText)
+                                                        .padding(.horizontal, 5).padding(.vertical, 2)
+                                                        .background(theme.primaryText.opacity(0.08), in: Capsule())
+                                                        .help("Meine Kosten: \(DevCost.formatExact(c))")
+                                                }
                                                 Text("\(pctInt)%")
                                                     .font(.system(size: 10, weight: .semibold).monospacedDigit())
                                                     .foregroundStyle(color.opacity(0.75))
@@ -829,8 +895,40 @@ struct HomeView: View {
                                         Text(project.formattedDuration)
                                             .font(.system(size: 11, weight: .semibold).monospacedDigit())
                                             .foregroundStyle(color)
+                                        if let rate = activeRate {
+                                            let c = DevCost.cost(seconds: project.totalSeconds, rate: rate.amount)
+                                            Text(DevCost.formatCompact(c))
+                                                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                                .foregroundStyle(theme.secondaryText)
+                                                .help("Meine Kosten: \(DevCost.formatExact(c))")
+                                        }
                                     }
                                     .padding(.vertical, 3)
+                                }
+
+                                // Sichtbar sind max. 8 Projekte, Donut und Gesamtsumme
+                                // rechnen über alle — ohne diesen Hinweis wirkt die
+                                // Summe (besonders in Euro) wie ein Rechenfehler.
+                                let hiddenCount = displayedProjects.count - 8
+                                if hiddenCount > 0 {
+                                    let hiddenSecs = displayedProjects.dropFirst(8).map(\.totalSeconds).reduce(0, +)
+                                    HStack(spacing: 7) {
+                                        Circle().fill(theme.tertiaryText.opacity(0.4)).frame(width: 6, height: 6)
+                                        Text("+\(hiddenCount) weitere")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(theme.tertiaryText)
+                                        Spacer(minLength: 4)
+                                        Text(formatDuration(seconds: hiddenSecs))
+                                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                            .foregroundStyle(theme.tertiaryText)
+                                        if let rate = activeRate {
+                                            Text(DevCost.formatCompact(DevCost.cost(seconds: hiddenSecs, rate: rate.amount)))
+                                                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                                                .foregroundStyle(theme.tertiaryText)
+                                        }
+                                    }
+                                    .padding(.vertical, 3)
+                                    .help("In Summe und Donut enthalten, aber nicht einzeln aufgelistet")
                                 }
                             }
                             .padding(.bottom, 4)
@@ -855,6 +953,14 @@ struct HomeView: View {
                                 Text("Aktualisiert \(fmt.localizedString(for: updated, relativeTo: Date()))")
                                     .font(.system(size: 11))
                                     .foregroundStyle(theme.tertiaryText)
+                            }
+                            if activeRate != nil {
+                                // Die Abfrage filtert fest auf die eigene userId — die
+                                // Beträge sind nie Projekt-, sondern immer eigene Kosten.
+                                Text("· nur meine Zeiten")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(theme.tertiaryText)
+                                    .help("TMetric wird nur für dein eigenes Konto abgefragt. Zeiten von Teammitgliedern sind nicht enthalten.")
                             }
                             Spacer()
                             Button { Task { await state.refreshTMetric(force: true) } } label: {
@@ -886,6 +992,13 @@ struct HomeView: View {
             }
             .onAppear { viewAppearDate = Date() }
         }
+    }
+
+    /// Gleiches Format wie TMetricProjectSummary.formattedDuration, aber für eine
+    /// freie Sekundenzahl (z.B. die Summe der nicht einzeln gelisteten Projekte).
+    private func formatDuration(seconds: Int) -> String {
+        let h = seconds / 3600, m = (seconds % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     private func formatElapsed(from start: Date, to now: Date) -> String {
@@ -1605,6 +1718,88 @@ private struct HomeTileCustomizeSheet: View {
         }
         .frame(width: 360, height: 420)
         .background(theme.cardSurface)
+    }
+}
+
+// MARK: - TMetric Stundensatz-Popover
+
+/// Auswahl des Stundensatzes für die Entwicklerkosten. Bewusst nur Auswahl —
+/// die Sätze selbst werden in den Einstellungen gepflegt, damit hier nichts in
+/// state.settings geschrieben wird (löst sonst reschedule() aus und kollidiert
+/// mit dem draft-Snapshot des Einstellungs-Formulars).
+private struct TMetricRatePopover: View {
+    @Environment(\.appTheme) var theme
+    let rates: [HourlyRate]
+    let selectedId: String
+    let onSelect: (String) -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Stundenlohn")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(theme.primaryText)
+
+            Text("Rechnet die gebuchten Stunden in Kosten um. Gilt für alle Projekte im gewählten Zeitraum.")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 0) {
+                rateRow(label: "Kosten aus", detail: nil, isSelected: selectedId.isEmpty) {
+                    onSelect("")
+                }
+                ForEach(rates) { rate in
+                    Divider().padding(.leading, 34)
+                    rateRow(label: rate.label,
+                            detail: DevCost.formatRate(rate.amount),
+                            isSelected: rate.id.uuidString == selectedId) {
+                        onSelect(rate.id.uuidString)
+                    }
+                }
+            }
+            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 10))
+
+            if rates.isEmpty {
+                Text("Noch keine Stundensätze hinterlegt.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+
+            Button(action: onOpenSettings) {
+                Label("Sätze bearbeiten", systemImage: "slider.horizontal.3")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.indigo)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .frame(width: 260)
+        .background(theme.cardSurface.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private func rateRow(label: String, detail: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13))
+                .foregroundStyle(isSelected ? Color.indigo : theme.tertiaryText)
+                .frame(width: 18)
+            Text(label)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
     }
 }
 
