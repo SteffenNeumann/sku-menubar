@@ -967,6 +967,13 @@ struct SingleChatSessionView: View {
             selectedModel = tab.model
             selectedAgent = tab.agentId
             selectedPersonaId = tab.personaId
+            // Frisch geöffnete Session: den Agenten wiederherstellen, der sie beantwortet hat —
+            // sonst füllt unten die Projekt-Erkennung einen geratenen Agenten ein.
+            if tab.messages.isEmpty, selectedAgent.isEmpty, !agentAutoTriggerSuppressed,
+               let entry = SessionAgentStore.shared.entry(for: sid),
+               state.agentService.agents.contains(where: { $0.id == entry.agentId }) {
+                selectedAgent = entry.agentId
+            }
             if tab.messages.isEmpty { resumeSession(sid) }
             else { messages = tab.messages }
         } else {
@@ -1179,9 +1186,20 @@ struct SingleChatSessionView: View {
             for project in allProjects {
                 if let session = project.sessions.first(where: { $0.sessionId == sessionId }) {
                     let histMsgs = await state.historyService.loadMessages(for: session)
+                    // Agent steht nicht im Transcript → aus dem SessionAgentStore. Aktueller
+                    // Name gewinnt (Agent evtl. umbenannt), gespeicherter ist der Fallback.
+                    let sessionAgentName: String? = SessionAgentStore.shared.entry(for: sessionId).map { entry in
+                        state.agentService.agents.first { $0.id == entry.agentId }?.name ?? entry.agentName
+                    }
                     let chatMsgs = histMsgs.compactMap { hm -> ChatMessage? in
                         guard hm.role == .user || hm.role == .assistant else { return nil }
                         var msg = ChatMessage(role: hm.role, content: hm.content)
+                        if hm.role == .assistant {
+                            // "<synthetic>" = CLI-interne Meldung, kein echtes Modell
+                            if let m = hm.model, !m.isEmpty, !m.hasPrefix("<") { msg.model = m }
+                            msg.agentName = sessionAgentName
+                            msg.usedSkills = hm.usedSkills
+                        }
                         // Karten aus dem Transcript wiederherstellen — die Seiten existieren
                         // weiter, nur die Anzeige ging beim Neustart bisher verloren.
                         if !hm.artifacts.isEmpty { msg.setArtifacts(hm.artifacts) }
@@ -5769,6 +5787,17 @@ struct SingleChatSessionView: View {
                     if let ot = event.outputTokens, ot > 0 { messages[assistantIndex].outputTokens = ot }
                     if let sid = event.sessionId {
                         currentSessionId = sid
+                    }
+                    // Agent der Session merken — das Transcript kennt ihn nicht, beim
+                    // Wiederöffnen wäre das Badge sonst weg.
+                    // Lief die Antwort ohne Agent (bewusst abgewählt), Eintrag löschen — sonst
+                    // käme der alte Agent beim Wiederöffnen zurück und würde wieder benutzt.
+                    if let sid = currentSessionId {
+                        if let agentId = effectiveAgent, let name = messages[assistantIndex].agentName {
+                            SessionAgentStore.shared.remember(sessionId: sid, agentId: agentId, agentName: name)
+                        } else if !isCompacting {
+                            SessionAgentStore.shared.forget(sessionId: sid)
+                        }
                     }
                     // Sauberes Ende markieren (kein Fehler)
                     if event.isError != true {
