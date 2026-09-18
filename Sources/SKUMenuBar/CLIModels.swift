@@ -200,6 +200,13 @@ struct ChatMessage: Identifiable, Equatable {
             // artifacts entstehen erst mit dem tool_result — toolCalls.count allein
             // ändert sich dabei nicht, die Karte bliebe sonst unsichtbar.
             && lhs.artifacts == rhs.artifacts
+            // Felder, die sich EINZELN ändern, müssen hier stehen: Ein Write, nach dem die
+            // Nachricht laut `==` „gleich" bleibt, ging im Live-Betrieb verloren — so fehlten
+            // Agent-Badge und Modell im Antwort-Header (Header zeigte „Claude · Claude").
+            && lhs.model == rhs.model && lhs.agentName == rhs.agentName
+            && lhs.source == rhs.source && lhs.resultSubtype == rhs.resultSubtype
+            && lhs.inputTokens == rhs.inputTokens && lhs.outputTokens == rhs.outputTokens
+            && lhs.costUsd == rhs.costUsd
     }
 
     /// Fügt einen Skill-Einsatz hinzu; Duplikate (gleicher Skill, gleicher Agent) werden ignoriert.
