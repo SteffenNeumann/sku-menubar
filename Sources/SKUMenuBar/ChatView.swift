@@ -946,6 +946,7 @@ struct SingleChatSessionView: View {
     }
 
     private func handleAppear() {
+        BadgeDiag.log("handleAppear tab=\(tab.id.uuidString.prefix(8)) sid=\(tab.sessionId?.prefix(8) ?? "nil") tabMsgs=\(tab.messages.count) localMsgs=\(messages.count) isStreaming=\(isStreaming)")
         inputFocused = true
         if isActive, let msg = state.pendingChatMessage {
             state.pendingChatMessage = nil
@@ -975,9 +976,9 @@ struct SingleChatSessionView: View {
                 selectedAgent = entry.agentId
             }
             if tab.messages.isEmpty { resumeSession(sid) }
-            else { messages = tab.messages }
+            else { BadgeDiag.log("handleAppear: messages = tab.messages (sid) \(tab.messages.count), last: \(BadgeDiag.describe(tab.messages.last)) isStreaming=\(isStreaming)"); messages = tab.messages }
         } else {
-            messages = tab.messages
+            BadgeDiag.log("handleAppear: messages = tab.messages (no sid) \(tab.messages.count) isStreaming=\(isStreaming)"); messages = tab.messages
             selectedModel = tab.model
             selectedAgent = tab.agentId
             selectedPersonaId = tab.personaId
@@ -997,12 +998,14 @@ struct SingleChatSessionView: View {
     }
 
     private func handleDisappear() {
+        BadgeDiag.log("handleDisappear tab=\(tab.id.uuidString.prefix(8)) isStreaming=\(isStreaming)")
         tab.inputText = inputText
         let tabId = tab.id
         Task { await state.stopTMetricTimer(tabId: tabId) }
     }
 
     private func syncMessagesOnChange() {
+        if let last = messages.last(where: { $0.role == .assistant }) { let d = BadgeDiag.describe(last); if BadgeDiag.changed(tab.id, d) { BadgeDiag.log("sync: tab=\(tab.id.uuidString.prefix(8)) isStreaming=\(isStreaming) count=\(messages.count) last: \(d)") } }
         if !isStreaming { tab.messages = messages }
         // FIX C (HIGH 3): Diese Badge/Diff-Schleife iteriert JEDE Nachricht × JEDEN toolCall
         // (Pfad-Resolve, Set-Inserts, gitDiff-Scan). Während des Streamings feuert
@@ -1171,6 +1174,7 @@ struct SingleChatSessionView: View {
     }
 
     private func resumeSession(_ sessionId: String) {
+        BadgeDiag.log("resumeSession start sid=\(sessionId.prefix(8)) isStreaming=\(isStreaming) count=\(messages.count)")
         messages = []
         currentSessionId = sessionId
         sessionTitle = tab.title
@@ -1207,6 +1211,7 @@ struct SingleChatSessionView: View {
                     }
                     await MainActor.run {
                         withAnimation(.spring(response: 0.3)) {
+                            BadgeDiag.log("resumeSession: messages = chatMsgs (\(chatMsgs.count)) isStreaming=\(isStreaming)")
                             messages = chatMsgs
                         }
                         inputFocused = true
@@ -2061,6 +2066,7 @@ struct SingleChatSessionView: View {
                 VStack(spacing: 10) {
                     Button {
                         withAnimation(.spring(response: 0.3)) {
+                            BadgeDiag.log("messages = [] @2064 tab=\(tab.id.uuidString.prefix(8))")
                             messages = []
                             inputText = ""
                             attachedFiles = []
@@ -3430,6 +3436,7 @@ struct SingleChatSessionView: View {
         streamingTask = nil
         isStreaming = false
         withAnimation(.spring(response: 0.3)) {
+            BadgeDiag.log("messages = [] @3433 tab=\(tab.id.uuidString.prefix(8))")
             messages = []
             currentSessionId = nil
             // Ohne Reset gilt jeder Skill als „schon angestoßen" — ab dem zweiten Chat im
@@ -3605,9 +3612,15 @@ struct SingleChatSessionView: View {
                 // (currentSessionId != nil) würde performSend den Agent-Prompt sonst überspringen.
                 if soloAgent != nil { currentSessionId = nil }
 
-                let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+                // Agent schon beim Anlegen mitgeben (siehe sendMessage) — in performSend
+                // gesetzte Werte gingen im Live-Betrieb verloren.
+                var assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+                assistantMsg.agentName = (soloAgent?.id).flatMap { id in
+                    state.agentService.agents.first { $0.id == id }?.name
+                } ?? (selectedAgent.isEmpty ? nil : state.agentService.agents.first { $0.id == selectedAgent }?.name)
                 messages.append(assistantMsg)
                 let assistantIndex = messages.count - 1
+                BadgeDiag.log("autoOrch solo: placeholder idx=\(assistantIndex) agentName=\(assistantMsg.agentName ?? "nil")")
 
                 let fileDirs = Array(Set(sentFiles.map { $0.url.deletingLastPathComponent().path }))
                 let imgPaths = sentFiles.filter { $0.isImage }.map { $0.url.path }
@@ -5176,6 +5189,7 @@ struct SingleChatSessionView: View {
             content: "**Konversation verdichtet.** Zusammenfassung wird als Kontext für weitere Nachrichten verwendet:\n\n\(summary)"
         )
         withAnimation(.spring(response: 0.3)) {
+            BadgeDiag.log("messages = [summaryNote] (compact) tab=\(tab.id.uuidString.prefix(8))")
             messages = [summaryNote]
             currentSessionId = nil
             hintedSkills = []          // frische CLI-Session → Skills müssen neu geladen werden
@@ -5384,12 +5398,6 @@ struct SingleChatSessionView: View {
 
         messages.append(ChatMessage(role: .user, content: displayText))
 
-        let assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
-        messages.append(assistantMsg)
-        let assistantIndex = messages.count - 1
-
-        isStreaming = true; streamingStartTime = Date()
-
         // Bei einfacher Anfrage mit Orchestrator-Auswahl → besten gewählten Agent nehmen
         // Sonst: Trigger-Keywords prüfen; Fallback auf letzten Solo-Orchestrator-Agent
         // (autoTriggerAgent() ist im Orchestrator-Kontext gesperrt → Solo-Agent explizit übergeben)
@@ -5399,6 +5407,22 @@ struct SingleChatSessionView: View {
                ? selectedAgent
                : (agentAutoTriggerSuppressed ? nil
                   : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId)))
+        let sendModel = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
+            ? state.settings.copilotFallbackModel
+            : selectedModel
+
+        // Modell + Agent schon beim Anlegen mitgeben, nicht erst in performSend: dort gesetzte
+        // Werte gingen im Live-Betrieb verloren (Header zeigte „Claude · Claude").
+        var assistantMsg = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        assistantMsg.model = sendModel
+        assistantMsg.agentName = triggerAgent.flatMap { id in
+            state.agentService.agents.first { $0.id == id }?.name
+        }
+        messages.append(assistantMsg)
+        let assistantIndex = messages.count - 1
+        BadgeDiag.log("sendMessage: placeholder idx=\(assistantIndex) id=\(assistantMsg.id.uuidString.prefix(8)) selectedAgent='\(selectedAgent)' trigger=\(triggerAgent ?? "nil") agentName=\(assistantMsg.agentName ?? "nil") model=\(sendModel)")
+
+        isStreaming = true; streamingStartTime = Date()
         // ⚡ Trigger-Badge: Name für Token-Counter-Anzeige merken
         if let tid = triggerAgent,
            let agentName = state.agentService.agents.first(where: { $0.id == tid })?.name {
@@ -5471,6 +5495,7 @@ struct SingleChatSessionView: View {
            let agentDef = state.agentService.agents.first(where: { $0.id == agentId }),
            messages.indices.contains(assistantIndex) {
             messages[assistantIndex].agentName = agentDef.name
+            BadgeDiag.log("performSend: set agentName idx=\(assistantIndex) effectiveAgent=\(effectiveAgent ?? "nil") retry=\(isErrorRetryAttempt) fallback=\(isFallbackAttempt) msg: \(BadgeDiag.describe(messages[assistantIndex]))")
         }
 
         // Inject agent system prompt (memory + write instruction + promptBody) on the first message of a session.
@@ -5665,6 +5690,7 @@ struct SingleChatSessionView: View {
 
                 switch event.type {
                 case "assistant":
+                    if BadgeDiag.firstEvent(assistantIndex, tab.id) { BadgeDiag.log("first assistant event: idx=\(assistantIndex) eventModel=\(event.message?.model ?? "nil") msg: \(BadgeDiag.describe(messages.indices.contains(assistantIndex) ? messages[assistantIndex] : nil))") }
                     if let content = event.message?.content {
                         for block in content {
                             switch block.type {
@@ -5781,6 +5807,7 @@ struct SingleChatSessionView: View {
                     state.claudeRateLimitActive = true
 
                 case "result":
+                    BadgeDiag.log("result: tab=\(tab.id.uuidString.prefix(8)) idx=\(assistantIndex) effectiveAgent=\(effectiveAgent ?? "nil") count=\(messages.count) msg: \(BadgeDiag.describe(messages.indices.contains(assistantIndex) ? messages[assistantIndex] : nil))")
                     messages[assistantIndex].costUsd = event.costUsd
                     // Token-Zählung aus result-Event übernehmen (GitHub Models liefert sie hier)
                     if let it = event.inputTokens,  it > 0 { messages[assistantIndex].inputTokens  = it }
