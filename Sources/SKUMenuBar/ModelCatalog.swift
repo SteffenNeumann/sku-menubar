@@ -137,6 +137,14 @@ enum ModelCatalog {
         return result
     }
 
+    /// Neueste Modell-ID eines Tiers ("haiku" | "sonnet" | "opus" | "fable"), z.B. für
+    /// Frontmatter-Kurznamen wie `model: sonnet`. nil = kein reiner Tier-Name (z.B. volle ID).
+    static func latestID(tier wanted: String, discovered: [String]) -> String? {
+        let t = wanted.lowercased()
+        guard ["haiku", "sonnet", "opus", "fable"].contains(t) else { return nil }
+        return anthropicModelIDs(discovered: discovered).first { tier(for: $0) == t }
+    }
+
     /// true = `discovered` stammt aus dem alten Format: damals wurden nur IDs gespeichert, die NICHT
     /// im (7er-)Katalog standen, ohne Reihenfolge → neu abfragen, damit die Sortierung stimmt.
     static func discoveredIsLegacy(_ discovered: [String]) -> Bool {

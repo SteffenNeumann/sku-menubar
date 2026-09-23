@@ -133,6 +133,7 @@ final class AppState: ObservableObject {
         didSet {
             persist(); reschedule()
             customerInquiryWorkflow.anthropicApiKey = settings.anthropicApiKey
+            customerInquiryWorkflow.discoveredModelIDs = settings.discoveredModelIDs
             customerInquiryWorkflow.ollamaBaseUrl   = settings.ollamaBaseUrl
             customerInquiryWorkflow.ollamaModel     = settings.ollamaModel
         }
@@ -338,6 +339,7 @@ final class AppState: ObservableObject {
                 inquiryLog("Linear MCP config NOT found — issue creation disabled")
             }
             self.customerInquiryWorkflow.anthropicApiKey = self.settings.anthropicApiKey
+            self.customerInquiryWorkflow.discoveredModelIDs = self.settings.discoveredModelIDs
             self.customerInquiryWorkflow.ollamaBaseUrl   = self.settings.ollamaBaseUrl
             self.customerInquiryWorkflow.ollamaModel     = self.settings.ollamaModel
             self.customerInquiryWorkflow.emailPollingService = self.emailPollingService

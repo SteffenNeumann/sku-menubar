@@ -18,7 +18,8 @@ final class CustomerInquiryWorkflow: ObservableObject {
     weak var emailPollingService: EmailPollingService?
 
     var anthropicApiKey: String = ""
-    var ollamaBaseUrl:   String = "http://localhost:11434/v1"
+    var discoveredModelIDs: [String] = []   // aus Settings, für resolveModelId (neueste je Tier)
+    var ollamaBaseUrl:  String = "http://localhost:11434/v1"
     var ollamaModel:     String = "llama3.2"
     private let anthropicAPI = AnthropicService()
 
@@ -214,7 +215,7 @@ Customer reply:
         if let m = persona?.model, !m.isEmpty {
             anthropicModelId = resolveModelId(m)
         } else {
-            anthropicModelId = "claude-sonnet-4-6-20250514"
+            anthropicModelId = resolveModelId("sonnet")
         }
 
         do {
@@ -254,13 +255,12 @@ Customer reply:
         }
     }
 
+    /// Kurzname aus dem Persona-Frontmatter (haiku/sonnet/opus/fable) → neueste echte ID laut
+    /// ModelCatalog. Volle IDs (claude-…) bleiben unverändert. Früher standen hier erfundene IDs
+    /// (claude-sonnet-4-6-20250514) → Anthropic antwortete 404 not_found_error.
     private func resolveModelId(_ shortName: String) -> String {
-        switch shortName.lowercased() {
-        case "haiku":  return "claude-haiku-4-5-20251001"
-        case "sonnet": return "claude-sonnet-4-6-20250514"
-        case "opus":   return "claude-opus-4-6-20250514"
-        default:       return shortName
-        }
+        guard !shortName.lowercased().hasPrefix("claude-") else { return shortName }
+        return ModelCatalog.latestID(tier: shortName, discovered: discoveredModelIDs) ?? shortName
     }
 
     // MARK: - Project management (Phase 2b)
