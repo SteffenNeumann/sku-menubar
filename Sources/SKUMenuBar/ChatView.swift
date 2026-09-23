@@ -15,8 +15,9 @@ private struct PickerOriginAnchorKey: PreferenceKey {
 }
 
 /// MARK: - Picker interaction tracker (suppresses dismiss when a row was clicked)
-// SwiftUI buttons fire on mouseUp; PickerDismissMonitor fires on mouseDown.
-// Without suppression the dismiss removes the button before mouseUp → action never fires.
+// SwiftUI buttons fire on mouseUp; PickerDismissMonitor fires (delayed) on mouseUp too.
+// Früher lauschte der Monitor auf mouseDown + 0,15 s → wer länger als 0,15 s drückte, verlor
+// die Auswahl (Panel weg vor mouseUp; gemessen: 0,3-s-Klick = Modell bleibt).
 private final class PickerInteractionTracker {
     static let shared = PickerInteractionTracker()
     private init() {}
@@ -39,10 +40,10 @@ private struct PickerDismissMonitor: NSViewRepresentable {
 
         func start() {
             guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                // Delay past mouseUp so that button actions (which fire on mouseUp) execute
-                // before we tear down the picker panel.  If a picker row was clicked the
-                // PickerInteractionTracker will have been set and we skip the dismiss.
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                // Erst nach dem mouseUp auswerten: dann ist die Button-Action (feuert auf mouseUp)
+                // garantiert gelaufen — egal wie lange gedrückt wurde. Wurde eine Picker-Zeile
+                // geklickt, ist der PickerInteractionTracker gesetzt und wir schließen nicht.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                     guard !PickerInteractionTracker.shared.isSuppressed else { return }
                     self?.onDismiss()
