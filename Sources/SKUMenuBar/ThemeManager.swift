@@ -75,22 +75,49 @@ struct AppTheme: Identifiable, Equatable, Codable {
         }
     }
 
+    // Kontrast-getunte Textfarben (primär / sekundär / tertiär) gegen windowBg.
+    // Ziel: primär 7–13:1 (nicht grell, gut lesbar), sekundär ~7:1, tertiär ≥ 4.5:1.
+    // Themes ohne Eintrag (ash, stone) liegen schon im Band und nutzen die Fallbacks unten.
+    private typealias RGB = (Double, Double, Double)
+    private static let textTones: [String: (p: RGB, s: RGB, t: RGB)] = [
+        "cyan":        ((203, 204, 206), (153, 156, 160), (120, 124, 129)), // 12.0 / 7.0 / 4.6
+        "emerald":     (( 80, 195, 110), (153, 156, 154), (120, 124, 122)), //  8.7 / 7.0 / 4.6 — DOS-Grün
+        "violet":      ((202, 201, 204), (155, 152, 159), (123, 120, 129)), // 12.0 / 7.0 / 4.6
+        "coffeeDark":  ((215, 205, 195), (164, 161, 161), (132, 129, 127)), // 11.4 / 7.0 / 4.6 — warm cream
+        "bitterDark":  ((210, 210, 210), (160, 160, 161), (128, 128, 129)), // 12.1 / 7.0 / 4.6
+        "coffeeLight": (( 48,  47,  45), ( 84,  81,  79), (112, 109, 105)), // 11.9 / 7.0 / 4.6
+        "bitterLight": (( 49,  49,  49), ( 84,  84,  83), (112, 112, 111)), // 12.0 / 7.0 / 4.6
+        "monoDark":    ((205, 206, 207), (156, 157, 160), (123, 125, 129)), // 12.0 / 7.0 / 4.6
+        "monoLight":   (( 50,  50,  51), ( 84,  85,  86), (112, 113, 114)), // 12.0 / 7.0 / 4.6
+        "eclipse":     ((216, 190, 157), (196, 156, 106), (174, 135,  85)), //  8.5 / 6.0 / 4.6 — Bronze bleibt
+        "iron":        ((202, 201, 204), (155, 153, 158), (124, 121, 127)), // 12.0 / 7.0 / 4.6
+        "basalt":      ((209, 209, 208), (160, 160, 159), (128, 127, 126)), // 12.0 / 7.0 / 4.6
+        "graphite":    ((209, 209, 209), (160, 160, 160), (127, 127, 128)), // 12.0 / 7.0 / 4.6
+        "fog":         (( 40,  40,  40), ( 76,  76,  76), (103, 103, 103)), // 12.0 / 7.0 / 4.6
+        "dusk":        (( 20,  20,  19), ( 63,  62,  60), ( 90,  88,  86)), // 12.0 / 7.0 / 4.6
+        "mist":        (( 21,  21,  22), ( 61,  62,  64), ( 87,  89,  92)), // 12.0 / 7.0 / 4.6
+        "cement":      ((  8,   8,   8), ( 56,  56,  56), ( 83,  83,  83)), // 12.0 / 7.0 / 4.6
+        "slate":       ((  0,   0,   0), ( 37,  39,  41), ( 55,  56,  60)), //  8.1 / 5.8 / 4.5 — Mittelton, max. möglich
+        "pewter":      ((  0,   0,   0), ( 37,  35,  34), ( 55,  54,  51)), //  7.8 / 5.8 / 4.5 — Mittelton, max. möglich
+    ]
+
     // Primary text — accent-as-text themes use accentFull; medium get dark; others near-white
     var primaryText: Color {
+        if let c = Self.textTones[id]?.p { return Color(r: c.0, g: c.1, b: c.2, a: 1) }
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 1.00) }
         if isLight || isMedium { return Color(white: 0.05) }
         if id == "ash"        { return Color(r: 208, g: 217, b: 224, a: 1) } // #D0D9E0 — 11.1:1
-        if id == "coffeeDark" { return Color(r: 215, g: 205, b: 195, a: 1) } // #D7CDC3 — warm cream, 11.9:1
-        if id == "emerald"    { return Color(r: 80,  g: 195, b: 110, a: 1) } // #50C36E — DOS-Grün, 9.8:1
         return Color(white: 0.95)
     }
     var secondaryText: Color {
+        if let c = Self.textTones[id]?.s { return Color(r: c.0, g: c.1, b: c.2, a: 1) }
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 0.68) }
         if isLight || isMedium { return Color(white: 0.25) }
         if (bgTopR + bgTopG + bgTopB) / 3.0 > 55 { return Color(white: 0.78) }
         return Color(white: 0.60)
     }
     var tertiaryText: Color {
+        if let c = Self.textTones[id]?.t { return Color(r: c.0, g: c.1, b: c.2, a: 1) }
         if useAccentAsText { return Color(r: acR, g: acG, b: acB, a: 0.42) }
         if isLight { return Color(white: 0.42) }
         if isMedium { return Color(white: 0.35) }
@@ -293,7 +320,7 @@ extension AppTheme {
     static let slate = AppTheme(
         id: "slate", name: "Slate",
         bgTopR: 176, bgTopG: 181, bgTopB: 192, bgTopA: 1.0,
-        bgBotR: 138, bgBotG: 143, bgBotB: 156, bgBotA: 1.0,
+        bgBotR: 156, bgBotG: 161, bgBotB: 172, bgBotA: 1.0,   // aufgehellt: Chat-Text jetzt 8.1:1 statt 6.0:1
         glowEnabled: false,
         acR: 37, acG: 139, acB: 242,
         acTextR: 11, acTextG: 41, acTextB: 72,
@@ -306,7 +333,7 @@ extension AppTheme {
     static let pewter = AppTheme(
         id: "pewter", name: "Pewter",
         bgTopR: 182, bgTopG: 177, bgTopB: 170, bgTopA: 1.0,
-        bgBotR: 140, bgBotG: 136, bgBotB: 130, bgBotA: 1.0,
+        bgBotR: 162, bgBotG: 157, bgBotB: 150, bgBotA: 1.0,   // aufgehellt: Chat-Text jetzt 7.8:1 statt 5.5:1
         glowEnabled: false,
         acR: 234, acG: 108, acB: 19,
         acTextR: 58, acTextG: 27, acTextB: 4,
