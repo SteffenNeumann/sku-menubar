@@ -2849,6 +2849,9 @@ struct SingleChatSessionView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         Button {
+            // Sonst schließt der Dismiss-Monitor den gerade geöffneten Picker 0,15 s später wieder
+            // (Wechsel direkt von Picker A zu Picker B).
+            PickerInteractionTracker.shared.didInteract()
             let wasOpen = isPresented.wrappedValue
             closeAllPickers()
             if !wasOpen { isPresented.wrappedValue = true }
