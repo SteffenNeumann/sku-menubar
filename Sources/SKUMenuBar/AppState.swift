@@ -284,6 +284,12 @@ final class AppState: ObservableObject {
         if !settings.anthropicAdminKey.isEmpty {
             Task { await refreshClaude() }
         }
+        // Modell-Katalog automatisch aktualisieren: höchstens 1× pro 24 h, nur mit Messages-API-Key.
+        if !settings.anthropicApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           (settings.modelsLastRefresh.map { Date().timeIntervalSince($0) > 86_400 } ?? true)
+            || ModelCatalog.discoveredIsLegacy(settings.discoveredModelIDs) {
+            Task { await refreshAvailableModels() }
+        }
         if !settings.tmetricApiToken.isEmpty {
             Task {
                 await refreshTMetric()
@@ -873,10 +879,10 @@ final class AppState: ObservableObject {
         do {
             let ids = try await AnthropicService().fetchModels(apiKey: key)
             let known = Set(ModelCatalog.anthropicBundled.map(\.apiName))
-            // Nur Modelle, die NICHT schon im Basis-Katalog stehen, merken.
-            let extras = ids.filter { !known.contains($0) }
-            let newOnes = extras.filter { !settings.discoveredModelIDs.contains($0) }
-            settings.discoveredModelIDs = extras          // ersetzt (entfernt verschwundene)
+                .union(settings.discoveredModelIDs)
+            let newOnes = ids.filter { !known.contains($0) }
+            // ALLE IDs in API-Reihenfolge (neueste zuerst) merken — bestimmt die Picker-Sortierung.
+            settings.discoveredModelIDs = ids             // ersetzt (entfernt verschwundene)
             settings.modelsLastRefresh = Date()           // triggert persist() via didSet
             if newOnes.isEmpty {
                 modelsRefreshResult = "Alles aktuell (\(ids.count) Modelle)"

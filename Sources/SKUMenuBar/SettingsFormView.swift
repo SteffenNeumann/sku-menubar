@@ -86,7 +86,7 @@ struct SettingsFormView: View {
                 .opacity(hasKey ? 1 : 0.5)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    let total = ModelCatalog.anthropicBundled.count + state.settings.discoveredModelIDs.count
+                    let total = ModelCatalog.anthropicModelIDs(discovered: state.settings.discoveredModelIDs).count
                     let stamp = state.settings.modelsLastRefresh
                         .map { " · " + $0.formatted(date: .abbreviated, time: .shortened) } ?? ""
                     Text("\(total) Modelle\(stamp)")

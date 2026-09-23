@@ -6,11 +6,12 @@ import Foundation
 // Ersetzt die früher verstreuten hartcodierten Modell-Listen (ChatView,
 // CodeReviewView) und die Tier-Heuristik in AppState.modelPrice.
 //
-// Preise = USD pro 1 Mio Token (Input / Output), Stand 2026-07 laut Anthropic
+// Preise = USD pro 1 Mio Token (Input / Output), Stand 2026-09 laut Anthropic
 // Docs. Anthropic liefert Preise über KEINE API — sie werden hier gepflegt.
-// Der „Modelle aktualisieren"-Button (GET /v1/models) ergänzt nur neu
-// entdeckte Modell-IDs; deren Preis fällt auf die Tier-Heuristik zurück, bis
-// hier ein exakter Wert eingetragen ist.
+// GET /v1/models (Button + automatisch beim Start, max. 1×/24 h) liefert die
+// verfügbaren IDs neueste zuerst → bestimmt die Picker-Reihenfolge. Preise neu
+// entdeckter Modelle fallen auf die Tier-Heuristik zurück („~"), bis hier ein
+// exakter Wert eingetragen ist.
 
 struct ModelInfo: Identifiable, Hashable {
     var id: String { apiName }
@@ -35,15 +36,21 @@ struct ModelInfo: Identifiable, Hashable {
 enum ModelCatalog {
 
     // MARK: Kuratierter Basis-Katalog (Anthropic)
-    // Preise laut https://platform.claude.com/docs/en/about-claude/models/overview
+    // Preise laut https://platform.claude.com/docs/en/about-claude/pricing (Stand 2026-09).
+    // Reihenfolge = neueste zuerst (gilt nur, solange noch nie per API aktualisiert wurde).
     static let anthropicBundled: [ModelInfo] = [
+        .init(apiName: "claude-opus-5-5",             displayName: "Opus 5.5",   tier: "opus",   inputPrice: 4,  outputPrice: 20, contextK: 1000, provider: "Anthropic"),
+        .init(apiName: "claude-fable-5-1",            displayName: "Fable 5.1",  tier: "fable",  inputPrice: 10, outputPrice: 50, contextK: 1000, provider: "Anthropic"),
+        .init(apiName: "claude-opus-5",               displayName: "Opus 5",     tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 1000, provider: "Anthropic"),
+        .init(apiName: "claude-sonnet-5",             displayName: "Sonnet 5",   tier: "sonnet", inputPrice: 2,  outputPrice: 10, contextK: 1000, provider: "Anthropic"),
         .init(apiName: "claude-fable-5",              displayName: "Fable 5",    tier: "fable",  inputPrice: 10, outputPrice: 50, contextK: 1000, provider: "Anthropic"),
         .init(apiName: "claude-opus-4-8",             displayName: "Opus 4.8",   tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 1000, provider: "Anthropic"),
         .init(apiName: "claude-opus-4-7",             displayName: "Opus 4.7",   tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 1000, provider: "Anthropic"),
-        .init(apiName: "claude-opus-4-6",             displayName: "Opus 4.6",   tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 1000, provider: "Anthropic"),
-        .init(apiName: "claude-sonnet-5",             displayName: "Sonnet 5",   tier: "sonnet", inputPrice: 3,  outputPrice: 15, contextK: 1000, provider: "Anthropic"),
         .init(apiName: "claude-sonnet-4-6",           displayName: "Sonnet 4.6", tier: "sonnet", inputPrice: 3,  outputPrice: 15, contextK: 1000, provider: "Anthropic"),
+        .init(apiName: "claude-opus-4-6",             displayName: "Opus 4.6",   tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 1000, provider: "Anthropic"),
+        .init(apiName: "claude-opus-4-5-20251101",    displayName: "Opus 4.5",   tier: "opus",   inputPrice: 5,  outputPrice: 25, contextK: 200,  provider: "Anthropic"),
         .init(apiName: "claude-haiku-4-5-20251001",   displayName: "Haiku 4.5",  tier: "haiku",  inputPrice: 1,  outputPrice: 5,  contextK: 200,  provider: "Anthropic"),
+        .init(apiName: "claude-sonnet-4-5-20250929",   displayName: "Sonnet 4.5", tier: "sonnet", inputPrice: 3,  outputPrice: 15, contextK: 200,  provider: "Anthropic"),
     ]
 
     // MARK: Tier-Erkennung + Preis-Fallback
@@ -116,17 +123,25 @@ enum ModelCatalog {
         return "\(name)   ·   ~\(info.priceLabel)"   // ~ = geschätzt
     }
 
-    /// Vollständige Anthropic-Modell-IDs: Basis-Katalog + per API entdeckte
-    /// (dedupliziert, Reihenfolge: Katalog zuerst, dann neue).
+    /// Vollständige Anthropic-Modell-IDs, neueste zuerst: per API entdeckte in API-Reihenfolge
+    /// (GET /v1/models liefert neueste zuerst), danach Katalog-Modelle, die die API nicht (mehr) kennt.
     static func anthropicModelIDs(discovered: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for m in anthropicBundled where seen.insert(m.apiName).inserted {
-            result.append(m.apiName)
-        }
         for id in discovered where seen.insert(id).inserted {
             result.append(id)
         }
+        for m in anthropicBundled where seen.insert(m.apiName).inserted {
+            result.append(m.apiName)
+        }
         return result
+    }
+
+    /// true = `discovered` stammt aus dem alten Format: damals wurden nur IDs gespeichert, die NICHT
+    /// im (7er-)Katalog standen, ohne Reihenfolge → neu abfragen, damit die Sortierung stimmt.
+    static func discoveredIsLegacy(_ discovered: [String]) -> Bool {
+        let oldCatalog: Set<String> = ["claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+                                       "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+        return !discovered.isEmpty && oldCatalog.isDisjoint(with: discovered)
     }
 }
