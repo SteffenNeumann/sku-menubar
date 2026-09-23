@@ -57,7 +57,7 @@ struct GitHubSettings: Codable {
     // Orchestrator
     var orchestratorMaxTurns: Int = 60      // --max-turns je Orchestrator-Agent (0 = Fallback auf maxTurns/Default)
     var orchestratorIdleTimeout: Int = 120  // Sekunden ohne Stream-Event bis Agent-Abbruch (0 = Default 120)
-    var autoOrchestrationEnabled: Bool = true  // false = lange Nachrichten lösen NIE automatisch eine Orchestrierung aus
+    var autoOrchestrationEnabled: Bool = false // false = lange Nachrichten lösen NIE automatisch eine Orchestrierung aus
     var autoActivateMCPByKeyword: Bool = true  // true = MCP-Stichwort im Chat (linear, make.com …) aktiviert den MCP automatisch
     var conciseAgentOutput: Bool = true  // true = Agents antworten knapp (Feedback/Prosa kurz; Deliverables bleiben vollständig)
     // true = der Chat-Agent darf echte claude.ai-Artifacts veröffentlichen (Artifact-Tool).
@@ -112,7 +112,7 @@ struct GitHubSettings: Codable {
         autoCompactThreshold = savedThreshold == 50000 ? 100000 : savedThreshold
         orchestratorMaxTurns    = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorMaxTurns))    ?? 60
         orchestratorIdleTimeout = (try? c.decodeIfPresent(Int.self, forKey: .orchestratorIdleTimeout)) ?? 120
-        autoOrchestrationEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .autoOrchestrationEnabled)) ?? true
+        autoOrchestrationEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .autoOrchestrationEnabled)) ?? false
         autoActivateMCPByKeyword = (try? c.decodeIfPresent(Bool.self, forKey: .autoActivateMCPByKeyword)) ?? true
         conciseAgentOutput = (try? c.decodeIfPresent(Bool.self, forKey: .conciseAgentOutput)) ?? true
         artifactsEnabled   = (try? c.decodeIfPresent(Bool.self, forKey: .artifactsEnabled)) ?? true

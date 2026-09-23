@@ -992,7 +992,6 @@ struct SingleChatSessionView: View {
            let detected = detectAgentForProject(dir) {
             selectedAgent = detected
         }
-        if selectedPersonaId.isEmpty { autoSelectPersonaForProject() }
         applyFallbackModelIfNeeded()
         tryAutoMatchTMetricProject()
     }
@@ -1099,7 +1098,6 @@ struct SingleChatSessionView: View {
     private func syncWorkingDirectoryOnChange() {
         tab.workingDirectory = workingDirectory
         fetchGitBranch()
-        autoSelectPersonaForProject()
     }
 
     private func handlePendingNewProject() {
@@ -5211,26 +5209,6 @@ struct SingleChatSessionView: View {
     }
 
     // MARK: - Persona Validation
-
-    /// Auto-selects the persona whose projectDirectory matches the current workingDirectory.
-    private func autoSelectPersonaForProject() {
-        guard let cwd = workingDirectory, !cwd.isEmpty else { return }
-        // Normalize paths (resolve symlinks, trailing slash)
-        let normalize: (String) -> String = { path in
-            URL(fileURLWithPath: path).standardized.path
-        }
-        let cwdNorm = normalize(cwd)
-        if let match = state.agentService.agents.first(where: {
-            $0.isPersona &&
-            !($0.projectDirectory ?? "").isEmpty &&
-            normalize($0.projectDirectory!) == cwdNorm
-        }) {
-            if selectedPersonaId != match.id {
-                selectedPersonaId = match.id
-                validationResult = nil
-            }
-        }
-    }
 
     private func triggerPersonaValidation() {
         guard !selectedPersonaId.isEmpty,

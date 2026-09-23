@@ -367,6 +367,13 @@ final class AppState: ObservableObject {
         } else if !s.tmetricApiToken.isEmpty {
             KeychainHelper.save(s.tmetricApiToken, key: "tmetricApiToken")
         }
+        // Einmalig: Auto-Orchestrierung ist jetzt standardmäßig aus — auch für
+        // bestehende Settings, die noch den alten Default `true` gespeichert haben.
+        let orchOffMigrationKey = "migration.autoOrchestrationDefaultOff"
+        if !ud.bool(forKey: orchOffMigrationKey) {
+            s.autoOrchestrationEnabled = false
+            ud.set(true, forKey: orchOffMigrationKey)
+        }
         settings = s
     }
 
