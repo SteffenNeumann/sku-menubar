@@ -81,28 +81,33 @@ private func makeAppIcon(size: Int = 512) -> NSImage {
                           end: CGPoint(x: s/2, y: 0),
                           options: [])
 
-    // ── Orange-Kreis #FF2301 mit leichter Corona ───────────────────────────
+    // ── Orange-Ring #FF2301 (ohne Füllung) mit leichter Corona ─────────────
     let c = CGPoint(x: s/2, y: s/2)
-    let discR = s * 0.17
+    let ringR = s * 0.20
+    let ringW = s * 0.032
     let orange = (r: 1.0, g: 35.0/255, b: 1.0/255)
+    let rgb = CGColorSpaceCreateDeviceRGB()
+    func glow(_ alphas: [CGFloat], _ locs: [CGFloat]) -> CGGradient {
+        CGGradient(colorsSpace: rgb,
+                   colors: alphas.map { CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: $0) } as CFArray,
+                   locations: locs)!
+    }
 
-    // Corona: weicher Lichtkranz, der vom Kreisrand nach außen ausläuft
-    let coronaColors = [
-        CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: 0.38),
-        CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: 0.10),
-        CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: 0.0)
-    ]
-    let coronaGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                colors: coronaColors as CFArray,
-                                locations: [0, 0.35, 1])!
-    cg.drawRadialGradient(coronaGrad,
-                          startCenter: c, startRadius: discR,
-                          endCenter: c, endRadius: discR * 2.1,
+    // Corona außen: weicher Lichtkranz, der vom Ring nach außen ausläuft
+    cg.drawRadialGradient(glow([0.38, 0.10, 0], [0, 0.35, 1]),
+                          startCenter: c, startRadius: ringR + ringW / 2,
+                          endCenter: c, endRadius: ringR * 1.8,
+                          options: [])
+    // Corona innen: nur ein Hauch, damit der Ring nicht flach wirkt
+    cg.drawRadialGradient(glow([0, 0.22], [0, 1]),
+                          startCenter: c, startRadius: ringR * 0.6,
+                          endCenter: c, endRadius: ringR - ringW / 2,
                           options: [])
 
-    // Kreis
-    cg.setFillColor(CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: 1))
-    cg.fillEllipse(in: CGRect(x: c.x - discR, y: c.y - discR, width: discR * 2, height: discR * 2))
+    // Ring
+    cg.setStrokeColor(CGColor(red: orange.r, green: orange.g, blue: orange.b, alpha: 1))
+    cg.setLineWidth(ringW)
+    cg.strokeEllipse(in: CGRect(x: c.x - ringR, y: c.y - ringR, width: ringR * 2, height: ringR * 2))
 
     NSGraphicsContext.restoreGraphicsState()
 
