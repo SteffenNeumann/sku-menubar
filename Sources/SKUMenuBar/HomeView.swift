@@ -1712,6 +1712,8 @@ private struct HomeLinearIssuesList: View {
     @AppStorage(HomeTileCollapse.storageKey) private var collapsedTilesRaw: String = ""
     /// Linear-Projekt-ID → lokaler Ordner (JSON). "_none" = Issues ohne Projekt.
     @AppStorage("linearProjectFolders") private var projectFoldersRaw: String = ""
+    /// Ausgeblendete Projekt-IDs (zeilengetrennt). Neue Projekte sind sichtbar.
+    @AppStorage(LinearProjectVisibility.storageKey) private var hiddenProjectsRaw: String = ""
 
     private static let noProject = "_none"
     private static let maxVisibleRows = 5
@@ -1725,7 +1727,9 @@ private struct HomeLinearIssuesList: View {
     }
 
     private var groups: [ProjectGroup] {
+        let hidden = LinearProjectVisibility.hiddenIds(hiddenProjectsRaw)
         let byProject = Dictionary(grouping: service.myIssues) { $0.projectId ?? Self.noProject }
+            .filter { !hidden.contains($0.key) }
         return byProject.map { key, issues in
             ProjectGroup(id: key,
                          name: issues.first?.projectName ?? "Ohne Projekt",
@@ -1750,6 +1754,11 @@ private struct HomeLinearIssuesList: View {
                     } else {
                         message(icon: "checkmark.circle", text: "Keine offenen Issues.")
                     }
+                }
+            } else if groups.isEmpty {
+                HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
+                         iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
+                    message(icon: "eye.slash", text: "Alle Projekte ausgeblendet — in „Dashboard anpassen“ wieder einblenden.")
                 }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12, alignment: .top)],
@@ -1908,6 +1917,76 @@ private func linearHexColor(_ hex: String?) -> Color {
                  blue: Double(v & 0xFF) / 255)
 }
 
+// MARK: - Linear-Projekte ein-/ausblenden
+
+enum LinearProjectVisibility {
+    static let storageKey = "linearHiddenProjects"
+
+    static func hiddenIds(_ raw: String) -> Set<String> {
+        Set(raw.split(separator: "\n").map(String.init))
+    }
+
+    static func setHidden(_ id: String, hidden: Bool, raw: inout String) {
+        var ids = hiddenIds(raw)
+        if hidden { ids.insert(id) } else { ids.remove(id) }
+        raw = ids.sorted().joined(separator: "\n")
+    }
+}
+
+/// Schalter je Linear-Projekt im „Dashboard anpassen"-Sheet. Eigene View, damit der
+/// LinearService beobachtet wird. Listet nur Projekte, in denen ich offene Issues habe.
+private struct LinearProjectToggles: View {
+    @ObservedObject var service: LinearService
+    let theme: AppTheme
+    @AppStorage(LinearProjectVisibility.storageKey) private var hiddenProjectsRaw: String = ""
+
+    private var projects: [(id: String, name: String, count: Int)] {
+        Dictionary(grouping: service.myIssues) { $0.projectId ?? "_none" }
+            .map { (id: $0.key, name: $0.value.first?.projectName ?? "Ohne Projekt", count: $0.value.count) }
+            .sorted {
+                if ($0.id == "_none") != ($1.id == "_none") { return $1.id == "_none" }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+    }
+
+    var body: some View {
+        if !projects.isEmpty {
+            Section {
+                ForEach(projects, id: \.id) { project in
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                        Text(project.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                        Text("\(project.count)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.tertiaryText)
+                        Spacer()
+                        Toggle(isOn: Binding(
+                            get: { !LinearProjectVisibility.hiddenIds(hiddenProjectsRaw).contains(project.id) },
+                            set: { LinearProjectVisibility.setHidden(project.id, hidden: !$0, raw: &hiddenProjectsRaw) }
+                        )) { EmptyView() }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
+                    .padding(.vertical, 4)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            } header: {
+                Text("LINEAR-PROJEKTE")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+                    .kerning(0.8)
+                    .padding(.top, 8)
+            }
+        }
+    }
+}
+
 // MARK: - HomeTile Einklappen
 
 /// Einklapp-Zustand einer Home-Kachel. Gespeichert als zeilengetrennte Schlüssel in AppStorage,
@@ -2012,6 +2091,7 @@ private struct HomeTileCustomizeSheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
     @Binding var isPresented: Bool
+    @AppStorage(LinearProjectVisibility.storageKey) private var hiddenProjectsRaw: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2081,6 +2161,8 @@ private struct HomeTileCustomizeSheet: View {
                 .onMove { from, to in
                     state.homeTileOrder.move(fromOffsets: from, toOffset: to)
                 }
+
+                LinearProjectToggles(service: state.linearService, theme: theme)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -2093,6 +2175,7 @@ private struct HomeTileCustomizeSheet: View {
                 Button {
                     state.homeTileOrder = HomeTileID.allCases
                     state.homeTileVisible = Set(HomeTileID.allCases)
+                    hiddenProjectsRaw = ""
                 } label: {
                     Text("Zurücksetzen")
                         .font(.system(size: 14))
@@ -2121,7 +2204,7 @@ private struct HomeTileCustomizeSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
         }
-        .frame(width: 360, height: 420)
+        .frame(width: 360, height: 520)
         .background(theme.cardSurface)
     }
 }
