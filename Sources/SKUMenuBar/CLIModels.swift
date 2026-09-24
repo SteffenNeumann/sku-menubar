@@ -5,7 +5,6 @@ import SwiftUI
 
 enum AppSection: String, CaseIterable, Hashable {
     case home        = "Home"
-    case dashboard   = "Dashboard"
     case chat        = "Chat"
     case history     = "Verlauf"
     case agents      = "Agents"
@@ -20,7 +19,6 @@ enum AppSection: String, CaseIterable, Hashable {
     var icon: String {
         switch self {
         case .home:       return "house.fill"
-        case .dashboard:  return "square.grid.2x2.fill"
         case .chat:       return "bubble.left.and.bubble.right.fill"
         case .history:    return "clock.fill"
         case .agents:     return "cpu.fill"
@@ -37,7 +35,6 @@ enum AppSection: String, CaseIterable, Hashable {
     func color(theme: AppTheme) -> Color {
         switch self {
         case .home:       return .blue
-        case .dashboard:  return .blue
         case .chat:       return theme.statusGreen
         case .history:    return theme.statusOrange
         case .agents:     return .purple

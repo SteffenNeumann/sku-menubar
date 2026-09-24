@@ -164,7 +164,6 @@ struct MainWindowView: View {
             case .files:      FileExplorerView()
             case .codeReview: CodeReviewView()
             case .linear:     LinearView(service: state.linearService)
-            case .dashboard:  DashboardView()
             case .history:    HistoryView()
             case .agents:     AgentsView()
             case .mcp:        MCPView()

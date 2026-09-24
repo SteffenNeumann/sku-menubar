@@ -39,10 +39,6 @@ struct SidebarView: View {
 
                         sectionDivider
 
-                        sectionGroup(title: "Übersicht", items: [.dashboard])
-
-                        sectionDivider
-
                         sectionGroup(title: "Claude CLI", items: [.chat, .history, .agents, .mcp, .codeReview])
 
                         sectionDivider
