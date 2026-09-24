@@ -151,6 +151,12 @@ final class LinearService: ObservableObject {
     @Published var comments: [String: [LinearComment]] = [:]  // keyed by issueId
     @Published var isLoading = false
     @Published var error: String?
+    /// Offene Issues, die mir zugewiesen sind (Home-Kachel). Eigener Fehler, damit
+    /// LinearView-Fehler und Home-Kachel sich nicht gegenseitig überschreiben.
+    @Published var myIssues: [LinearIssue] = []
+    @Published var myIssuesError: String?
+    @Published var myIssuesLoading = false
+    private(set) var myIssuesLoadedAt: Date = .distantPast
 
     private var session: MCPClientSession?
     private var sessionConnected = false
@@ -263,6 +269,52 @@ final class LinearService: ObservableObject {
         }
         if !silent { isLoading = false }
         return true
+    }
+
+    /// Offene, mir zugewiesene Issues direkt per GraphQL (viewer.assignedIssues).
+    /// Sortiert: Priorität (Urgent zuerst, ohne Priorität zuletzt), dann Fälligkeit.
+    func loadMyIssues() async {
+        guard !myIssuesLoading else { return }
+        guard let token = linearAccessToken,
+              let url = URL(string: "https://api.linear.app/graphql") else {
+            myIssuesError = LinearError.notConfigured.localizedDescription
+            return
+        }
+        // Linear schreibt den State-Typ "canceled" — "cancelled" nur zur Sicherheit mit drin
+        let query = """
+        query { viewer { assignedIssues(first: 250, filter: { state: { type: { nin: ["completed", "canceled", "cancelled"] } } }) { nodes { id identifier title priority url dueDate state { id name type color } team { id } project { id } } } } }
+        """
+        myIssuesLoading = true
+        defer { myIssuesLoading = false }
+        do {
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(token, forHTTPHeaderField: "Authorization")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw LinearError.unreadableResponse
+            }
+            if let errors = json["errors"] as? [[String: Any]],
+               let msg = errors.first?["message"] as? String {
+                throw LinearError.apiError(msg)
+            }
+            guard let viewer = (json["data"] as? [String: Any])?["viewer"] as? [String: Any],
+                  let assigned = viewer["assignedIssues"] as? [String: Any],
+                  let nodes = assigned["nodes"] as? [[String: Any]] else {
+                throw LinearError.unreadableResponse
+            }
+            let rank: (LinearPriority) -> Int = { $0 == .noPriority ? 5 : $0.rawValue }
+            myIssues = parseIssueNodes(nodes).sorted {
+                if rank($0.priority) != rank($1.priority) { return rank($0.priority) < rank($1.priority) }
+                return ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture)
+            }
+            myIssuesError = nil
+            myIssuesLoadedAt = Date()
+        } catch {
+            myIssuesError = error.localizedDescription
+        }
     }
 
     func loadAllIssues(teamId: String) async -> [LinearIssue] {
@@ -578,7 +630,10 @@ final class LinearService: ObservableObject {
         } else {
             return nil
         }
+        return parseIssueNodes(arr)
+    }
 
+    private func parseIssueNodes(_ arr: [[String: Any]]) -> [LinearIssue] {
         let iso = ISO8601DateFormatter()
 
         return arr.compactMap { d -> LinearIssue? in

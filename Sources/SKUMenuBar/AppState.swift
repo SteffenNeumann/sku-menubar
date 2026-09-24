@@ -118,6 +118,7 @@ final class AppState: ObservableObject {
     @Published var pendingChatSessionTitle: String? = nil
     @Published var pendingChatWorkingDirectory: String? = nil
     @Published var pendingChatNewProject: String? = nil   // path → new session in current tab
+    @Published var pendingNoteId: UUID? = nil             // Home-Kachel → NotesView wählt diese Notiz aus
     @Published var pendingChatMessage: String? = nil      // pre-fill chat input + navigate to chat
     @Published var pendingChatSetDirectory: String? = nil // set workingDirectory without new session
     @Published var pendingNavigateToChat: Bool = false    // trigger navigation to chat section

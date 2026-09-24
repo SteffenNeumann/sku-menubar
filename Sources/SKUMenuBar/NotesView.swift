@@ -102,6 +102,12 @@ struct NotesView: View {
                 .environmentObject(state)
                 .environment(\.appTheme, theme)
         }
+        // Sprung von einer Home-Kachel: Notiz direkt auswählen
+        .task(id: state.pendingNoteId) {
+            guard let id = state.pendingNoteId else { return }
+            selectedId = id
+            state.pendingNoteId = nil
+        }
     }
 
     // MARK: - Header

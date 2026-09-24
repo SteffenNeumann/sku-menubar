@@ -141,6 +141,9 @@ struct HomeView: View {
         case .kundenanfragen: kundenanfragenCard
         case .gitStatus:      gitStatusCard
         case .sessionAnalysis: SessionAnalysisCard()
+        case .linearIssues:   linearIssuesCard
+        case .openTasks:      openTasksCard
+        case .importantNotes: importantNotesCard
         }
     }
 
@@ -1268,6 +1271,136 @@ struct HomeView: View {
         .padding(.vertical, 16)
     }
 
+    // MARK: - Linear Issues Card
+
+    private var linearIssuesCard: some View {
+        HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
+                 iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
+            HomeLinearIssuesList(service: state.linearService, theme: theme) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selectedSection = .linear }
+            }
+        }
+    }
+
+    // MARK: - Open Tasks Card
+
+    /// Offene Aufgaben, angepinnte zuerst, dann neueste (Aufgaben haben kein Fälligkeitsdatum).
+    private var openTasks: [NoteItem] {
+        state.notes
+            .filter { $0.type == .task && !$0.done }
+            .sorted {
+                if $0.pinned != $1.pinned { return $0.pinned }
+                return $0.createdAt > $1.createdAt
+            }
+    }
+
+    private var openTasksCard: some View {
+        let tasks = openTasks
+
+        return HomeTile(title: "Offene Aufgaben", icon: "checkmark.square.fill", iconColor: theme.statusGreen, theme: theme) {
+            VStack(alignment: .leading, spacing: 6) {
+                if tasks.isEmpty {
+                    emptyState(icon: "checkmark.circle", text: "Keine offenen Aufgaben.")
+                } else {
+                    ForEach(tasks.prefix(5)) { task in
+                        HStack(spacing: 8) {
+                            Button {
+                                if let idx = state.notes.firstIndex(where: { $0.id == task.id }) {
+                                    withAnimation(.easeOut(duration: 0.2)) { state.notes[idx].done = true }
+                                }
+                            } label: {
+                                Image(systemName: "square")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Als erledigt markieren")
+
+                            noteRowButton(task, section: .tasks)
+                        }
+                    }
+                    if tasks.count > 5 {
+                        moreButton("\(tasks.count - 5) weitere") { selectedSection = .tasks }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // MARK: - Important Notes Card
+
+    private var importantNotes: [NoteItem] {
+        state.notes
+            .filter { note in
+                note.type == .note && note.tags.contains { $0.caseInsensitiveCompare("important") == .orderedSame }
+            }
+            .sorted {
+                if $0.pinned != $1.pinned { return $0.pinned }
+                return $0.createdAt > $1.createdAt
+            }
+    }
+
+    private var importantNotesCard: some View {
+        let notes = importantNotes
+
+        return HomeTile(title: "Wichtige Notizen", icon: "exclamationmark.bubble.fill", iconColor: .yellow, theme: theme) {
+            VStack(alignment: .leading, spacing: 6) {
+                if notes.isEmpty {
+                    emptyState(icon: "tag", text: "Keine Notizen mit Tag „important“.")
+                } else {
+                    ForEach(notes.prefix(5)) { note in
+                        noteRowButton(note, section: .notes)
+                    }
+                    if notes.count > 5 {
+                        moreButton("\(notes.count - 5) weitere") { selectedSection = .notes }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// Zeile für Notiz/Aufgabe — Klick öffnet sie in der Notizen-/Aufgaben-Ansicht.
+    private func noteRowButton(_ note: NoteItem, section: AppSection) -> some View {
+        Button {
+            state.pendingNoteId = note.id
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selectedSection = section }
+        } label: {
+            HStack(spacing: 6) {
+                if note.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.tertiaryText)
+                }
+                Text(note.title.isEmpty ? "Ohne Titel" : note.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.tertiaryText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func moreButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.tertiaryText)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
+    }
+
     // MARK: - Kundenanfragen Card
 
     private var kundenanfragenCard: some View {
@@ -1556,6 +1689,99 @@ struct HomeView: View {
         case .completed:              return theme.statusGreen
         case .blocked, .failed:       return theme.statusRed
         }
+    }
+}
+
+// MARK: - HomeLinearIssuesList
+
+/// Eigene View, damit die Kachel den LinearService beobachtet (HomeView sieht nur AppState).
+private struct HomeLinearIssuesList: View {
+    @EnvironmentObject var state: AppState
+    @ObservedObject var service: LinearService
+    let theme: AppTheme
+    let openLinear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if service.myIssues.isEmpty {
+                if service.myIssuesLoading {
+                    ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 16)
+                } else if let err = service.myIssuesError {
+                    message(icon: "exclamationmark.triangle", text: err)
+                } else {
+                    message(icon: "checkmark.circle", text: "Keine offenen Issues.")
+                }
+            } else {
+                ForEach(service.myIssues.prefix(6)) { issue in
+                    Button {
+                        if let url = URL(string: issue.url) { NSWorkspace.shared.open(url) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: issue.priority.icon)
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(issue.priority.color)
+                                .frame(width: 14)
+                            Text(issue.identifier)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(theme.tertiaryText)
+                            Text(issue.title)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            if let s = issue.state {
+                                Circle().fill(s.displayColor).frame(width: 7, height: 7).help(s.name)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("In Linear öffnen")
+                }
+                if service.myIssues.count > 6 {
+                    Button(action: openLinear) {
+                        Text("\(service.myIssues.count - 6) weitere")
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .task {
+            // Gleiches Muster wie LinearView: nur einmal konfigurieren, sonst Session-Neustart
+            if !service.isConfigured {
+                guard let cfg = await state.cliService.getMCPServerConfig(name: "linear") else {
+                    service.myIssuesError = "Linear MCP nicht konfiguriert."
+                    return
+                }
+                if !service.isConfigured { service.configure(config: cfg) }
+            }
+            if Date().timeIntervalSince(service.myIssuesLoadedAt) > LinearService.staleAfter {
+                await service.loadMyIssues()
+            }
+        }
+    }
+
+    private func message(icon: String, text: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(theme.tertiaryText)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(theme.tertiaryText)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
     }
 }
 

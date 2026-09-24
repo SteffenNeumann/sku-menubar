@@ -1438,6 +1438,9 @@ enum HomeTileID: String, CaseIterable, Codable {
     case kundenanfragen  = "kundenanfragen"
     case gitStatus       = "gitStatus"
     case sessionAnalysis = "sessionAnalysis"
+    case linearIssues    = "linearIssues"
+    case openTasks       = "openTasks"
+    case importantNotes  = "importantNotes"
 
     var displayName: String {
         switch self {
@@ -1450,6 +1453,9 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .kundenanfragen: return "Kundenanfragen"
         case .gitStatus:      return "Git Status"
         case .sessionAnalysis: return "Session-Analyse"
+        case .linearIssues:   return "Linear – Meine Issues"
+        case .openTasks:      return "Offene Aufgaben"
+        case .importantNotes: return "Wichtige Notizen"
         }
     }
 
@@ -1464,6 +1470,9 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .kundenanfragen: return "envelope.badge.fill"
         case .gitStatus:      return "arrow.triangle.branch"
         case .sessionAnalysis: return "waveform.path.ecg"
+        case .linearIssues:   return "arrow.triangle.2.circlepath"
+        case .openTasks:      return "checkmark.square.fill"
+        case .importantNotes: return "exclamationmark.bubble.fill"
         }
     }
 
