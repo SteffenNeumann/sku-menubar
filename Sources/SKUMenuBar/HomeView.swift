@@ -28,6 +28,7 @@ struct HomeView: View {
     // neu und der Settings-„Speichern"-Knopf überschreibt das ganze Objekt.
     // Leerer String = Kostenanzeige aus.
     @AppStorage("tmetricSelectedRateId") private var tmetricSelectedRateId: String = ""
+    @AppStorage(HomeTileCollapse.storageKey) private var collapsedTilesRaw: String = ""
     @State private var showTMetricRatePicker = false
 
     private var accentColor: Color { theme.accentText }
@@ -100,14 +101,22 @@ struct HomeView: View {
                 ForEach(tileRows.indices, id: \.self) { rowIndex in
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(tileRows[rowIndex]) { tileID in
+                            let collapse = tileCollapse(tileID)
                             tileView(for: tileID)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .environment(\.homeTileCollapse, collapse)
+                                .frame(maxWidth: .infinity, maxHeight: collapse?.isCollapsed == true ? nil : .infinity)
                         }
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
+    }
+
+    /// Linear-Slot selbst ist nicht einklappbar — dort klappt jede Projekt-Kachel einzeln.
+    private func tileCollapse(_ id: HomeTileID) -> HomeTileCollapse? {
+        guard id != .linearIssues else { return nil }
+        return HomeTileCollapse(key: id.rawValue, raw: $collapsedTilesRaw)
     }
 
     private var emptyDashboard: some View {
@@ -1274,11 +1283,8 @@ struct HomeView: View {
     // MARK: - Linear Issues Card
 
     private var linearIssuesCard: some View {
-        HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
-                 iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
-            HomeLinearIssuesList(service: state.linearService, theme: theme) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selectedSection = .linear }
-            }
+        HomeLinearIssuesList(service: state.linearService, theme: theme) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selectedSection = .chat }
         }
     }
 
@@ -1694,65 +1700,65 @@ struct HomeView: View {
 
 // MARK: - HomeLinearIssuesList
 
-/// Eigene View, damit die Kachel den LinearService beobachtet (HomeView sieht nur AppState).
+/// Eine Kachel pro Linear-Projekt mit meinen offenen Issues. Eigene View, damit der
+/// LinearService beobachtet wird (HomeView sieht nur AppState).
+/// Klick auf ein Issue → neuer Chat im zugeordneten Projektordner, Issue im Eingabefeld.
 private struct HomeLinearIssuesList: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var service: LinearService
     let theme: AppTheme
-    let openLinear: () -> Void
+    let openChat: () -> Void
+
+    @AppStorage(HomeTileCollapse.storageKey) private var collapsedTilesRaw: String = ""
+    /// Linear-Projekt-ID → lokaler Ordner (JSON). "_none" = Issues ohne Projekt.
+    @AppStorage("linearProjectFolders") private var projectFoldersRaw: String = ""
+
+    private static let noProject = "_none"
+    private static let maxVisibleRows = 5
+    private static let rowHeight: CGFloat = 32
+
+    private struct ProjectGroup: Identifiable {
+        let id: String
+        let name: String
+        let color: Color
+        let issues: [LinearIssue]
+    }
+
+    private var groups: [ProjectGroup] {
+        let byProject = Dictionary(grouping: service.myIssues) { $0.projectId ?? Self.noProject }
+        return byProject.map { key, issues in
+            ProjectGroup(id: key,
+                         name: issues.first?.projectName ?? "Ohne Projekt",
+                         color: linearHexColor(issues.first?.projectColor),
+                         issues: issues)   // Reihenfolge aus loadMyIssues (Priorität) bleibt
+        }
+        .sorted {
+            if ($0.id == Self.noProject) != ($1.id == Self.noProject) { return $1.id == Self.noProject }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        Group {
             if service.myIssues.isEmpty {
-                if service.myIssuesLoading {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 16)
-                } else if let err = service.myIssuesError {
-                    message(icon: "exclamationmark.triangle", text: err)
-                } else {
-                    message(icon: "checkmark.circle", text: "Keine offenen Issues.")
+                HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
+                         iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
+                    if service.myIssuesLoading {
+                        ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 16)
+                    } else if let err = service.myIssuesError {
+                        message(icon: "exclamationmark.triangle", text: err)
+                    } else {
+                        message(icon: "checkmark.circle", text: "Keine offenen Issues.")
+                    }
                 }
             } else {
-                ForEach(service.myIssues.prefix(6)) { issue in
-                    Button {
-                        if let url = URL(string: issue.url) { NSWorkspace.shared.open(url) }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: issue.priority.icon)
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(issue.priority.color)
-                                .frame(width: 14)
-                            Text(issue.identifier)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(theme.tertiaryText)
-                            Text(issue.title)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(theme.primaryText)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer(minLength: 4)
-                            if let s = issue.state {
-                                Circle().fill(s.displayColor).frame(width: 7, height: 7).help(s.name)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12, alignment: .top)],
+                          alignment: .leading, spacing: 12) {
+                    ForEach(groups) { group in
+                        projectTile(group)
                     }
-                    .buttonStyle(.plain)
-                    .help("In Linear öffnen")
-                }
-                if service.myIssues.count > 6 {
-                    Button(action: openLinear) {
-                        Text("\(service.myIssues.count - 6) weitere")
-                            .font(.system(size: 12))
-                            .foregroundStyle(theme.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
                 }
             }
-            Spacer(minLength: 0)
         }
         .task {
             // Gleiches Muster wie LinearView: nur einmal konfigurieren, sonst Session-Neustart
@@ -1767,6 +1773,113 @@ private struct HomeLinearIssuesList: View {
                 await service.loadMyIssues()
             }
         }
+    }
+
+    private func projectTile(_ group: ProjectGroup) -> some View {
+        let rows = VStack(spacing: 4) {
+            ForEach(group.issues) { issue in issueRow(issue, group: group) }
+        }
+        return HomeTile(title: "\(group.name) · \(group.issues.count)", icon: "square.stack.3d.up.fill",
+                        iconColor: group.color, theme: theme) {
+            // Überlauf verhindern: ab 6 Issues feste Höhe + Scrollen innerhalb der Kachel
+            if group.issues.count > Self.maxVisibleRows {
+                ScrollView(.vertical, showsIndicators: true) { rows }
+                    .frame(height: CGFloat(Self.maxVisibleRows) * Self.rowHeight)
+            } else {
+                rows
+            }
+        }
+        .environment(\.homeTileCollapse, HomeTileCollapse(key: "linear:\(group.id)", raw: $collapsedTilesRaw))
+        .contextMenu {
+            Button("Projektordner ändern …") { _ = pickFolder(for: group) }
+            if let path = folders[group.id] {
+                Text(path)
+            }
+        }
+    }
+
+    private func issueRow(_ issue: LinearIssue, group: ProjectGroup) -> some View {
+        Button {
+            openInChat(issue, group: group)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: issue.priority.icon)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(issue.priority.color)
+                    .frame(width: 14)
+                Text(issue.identifier)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(theme.tertiaryText)
+                Text(issue.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                if let s = issue.state {
+                    Circle().fill(s.displayColor).frame(width: 7, height: 7).help(s.name)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: Self.rowHeight - 4)
+            .background(theme.rowBg, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help("Neuer Chat im Projektordner")
+        .contextMenu {
+            Button("In Linear öffnen") {
+                if let url = URL(string: issue.url) { NSWorkspace.shared.open(url) }
+            }
+            Button("Projektordner ändern …") { _ = pickFolder(for: group) }
+        }
+    }
+
+    // MARK: Chat öffnen
+
+    private func openInChat(_ issue: LinearIssue, group: ProjectGroup) {
+        var path = folders[group.id]
+        if let p = path, !FileManager.default.fileExists(atPath: p) { path = nil }   // Ordner verschoben/gelöscht
+        if path == nil { path = pickFolder(for: group) }
+        guard let path else { return }
+
+        var prompt = ""
+        if group.id != Self.noProject { prompt += "Linear Projekt: **\(group.name)**\n" }
+        prompt += "Issue **\(issue.identifier)**: \(issue.title)\n\n"
+        if let st = issue.state { prompt += "Status: \(st.name)\n" }
+        prompt += "Priorität: \(issue.priority.label)\n"
+        if !issue.url.isEmpty { prompt += "Link: \(issue.url)\n" }
+        if !issue.description.isEmpty { prompt += "\n---\n\(issue.description)" }
+
+        state.pendingChatNewProject = path   // neue Session im aktuellen Chat-Tab + Ordner
+        state.pendingChatMessage = prompt    // nur ins Eingabefeld, nicht abschicken
+        openChat()
+    }
+
+    // MARK: Ordner-Zuordnung
+
+    private var folders: [String: String] {
+        guard let data = projectFoldersRaw.data(using: .utf8),
+              let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return map
+    }
+
+    /// Fragt nach dem Ordner und speichert die Zuordnung. nil = abgebrochen.
+    private func pickFolder(for group: ProjectGroup) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Zuordnen"
+        panel.message = "Ordner für Linear-Projekt „\(group.name)“ wählen"
+        if let current = folders[group.id] { panel.directoryURL = URL(fileURLWithPath: current) }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        var map = folders
+        map[group.id] = url.path
+        if let data = try? JSONEncoder().encode(map), let raw = String(data: data, encoding: .utf8) {
+            projectFoldersRaw = raw
+        }
+        return url.path
     }
 
     private func message(icon: String, text: String) -> some View {
@@ -1785,6 +1898,65 @@ private struct HomeLinearIssuesList: View {
     }
 }
 
+private func linearHexColor(_ hex: String?) -> Color {
+    guard let c = hex, c.hasPrefix("#"), c.count == 7,
+          let v = Int(c.dropFirst(), radix: 16) else {
+        return Color(red: 0.35, green: 0.35, blue: 0.95)
+    }
+    return Color(red: Double((v >> 16) & 0xFF) / 255,
+                 green: Double((v >> 8) & 0xFF) / 255,
+                 blue: Double(v & 0xFF) / 255)
+}
+
+// MARK: - HomeTile Einklappen
+
+/// Einklapp-Zustand einer Home-Kachel. Gespeichert als zeilengetrennte Schlüssel in AppStorage,
+/// damit HomeView (Raster-Höhe) und die Kachel (Inhalt ausblenden) denselben Stand sehen.
+struct HomeTileCollapse {
+    static let storageKey = "homeCollapsedTiles"
+    let key: String
+    let raw: Binding<String>
+
+    var isCollapsed: Bool { raw.wrappedValue.split(separator: "\n").contains { $0 == key } }
+
+    func toggle() {
+        var keys = raw.wrappedValue.split(separator: "\n").map(String.init)
+        if let i = keys.firstIndex(of: key) { keys.remove(at: i) } else { keys.append(key) }
+        raw.wrappedValue = keys.joined(separator: "\n")
+    }
+}
+
+private struct HomeTileCollapseKey: EnvironmentKey {
+    static let defaultValue: HomeTileCollapse? = nil
+}
+
+extension EnvironmentValues {
+    var homeTileCollapse: HomeTileCollapse? {
+        get { self[HomeTileCollapseKey.self] }
+        set { self[HomeTileCollapseKey.self] = newValue }
+    }
+}
+
+struct HomeTileCollapseButton: View {
+    let collapse: HomeTileCollapse
+    let theme: AppTheme
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { collapse.toggle() }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.tertiaryText)
+                .rotationEffect(.degrees(collapse.isCollapsed ? -90 : 0))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(collapse.isCollapsed ? "Aufklappen" : "Einklappen")
+    }
+}
+
 // MARK: - HomeTile
 
 private struct HomeTile<Content: View>: View {
@@ -1793,6 +1965,9 @@ private struct HomeTile<Content: View>: View {
     let iconColor: Color
     let theme: AppTheme
     @ViewBuilder let content: () -> Content
+    @Environment(\.homeTileCollapse) private var collapse
+
+    private var isCollapsed: Bool { collapse?.isCollapsed == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1809,13 +1984,17 @@ private struct HomeTile<Content: View>: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.tertiaryText)
                     .kerning(0.8)
+                    .lineLimit(1)
                 Spacer()
+                if let collapse { HomeTileCollapseButton(collapse: collapse, theme: theme) }
             }
 
-            content()
+            if !isCollapsed {
+                content()
+            }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: isCollapsed ? nil : .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(theme.cardSurface)

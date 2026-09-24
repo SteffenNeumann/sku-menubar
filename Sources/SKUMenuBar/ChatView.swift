@@ -983,6 +983,9 @@ struct SingleChatSessionView: View {
             selectedAgent = tab.agentId
             selectedPersonaId = tab.personaId
         }
+        // Erster Mount des Chats über „neuer Chat im Projekt" (Home/Sidebar): onChange feuert
+        // dann nicht, weil der Wert schon vor dem Mount gesetzt war.
+        handlePendingNewProject()
         // Auto-Erkennung nachziehen: oben überschreibt `selectedAgent = tab.agentId` das Ergebnis
         // von detectAgentForProject() bedingungslos, und für wiederhergestellte Tabs lief die
         // Erkennung nie. Nur FÜLLEN, nie überschreiben — und eine bewusste Abwahl respektieren:
@@ -1205,6 +1208,9 @@ struct SingleChatSessionView: View {
                         return msg
                     }
                     await MainActor.run {
+                        // Während des Ladens kann ein neuer Chat gestartet worden sein
+                        // (z. B. „neuer Chat im Projekt" beim ersten Mount) — dann nichts überschreiben.
+                        guard currentSessionId == sessionId else { return }
                         withAnimation(.spring(response: 0.3)) {
                             messages = chatMsgs
                         }

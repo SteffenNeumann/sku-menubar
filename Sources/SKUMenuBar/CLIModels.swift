@@ -1478,7 +1478,7 @@ enum HomeTileID: String, CaseIterable, Codable {
 
     var colSpan: Int {
         switch self {
-        case .zeiterfassung, .kundenanfragen, .gitStatus, .sessionAnalysis: return 3
+        case .zeiterfassung, .kundenanfragen, .gitStatus, .sessionAnalysis, .linearIssues: return 3
         default: return 1
         }
     }

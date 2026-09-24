@@ -81,6 +81,9 @@ struct LinearIssue: Identifiable {
     var parentIdentifier: String?
     var parentTitle: String?
     var subIssueCount: Int = 0
+    // Nur von loadMyIssues() befüllt (Home-Kacheln pro Projekt)
+    var projectName: String? = nil
+    var projectColor: String? = nil
 }
 
 struct LinearProject: Identifiable {
@@ -282,7 +285,7 @@ final class LinearService: ObservableObject {
         }
         // Linear schreibt den State-Typ "canceled" — "cancelled" nur zur Sicherheit mit drin
         let query = """
-        query { viewer { assignedIssues(first: 250, filter: { state: { type: { nin: ["completed", "canceled", "cancelled"] } } }) { nodes { id identifier title priority url dueDate state { id name type color } team { id } project { id } } } } }
+        query { viewer { assignedIssues(first: 250, filter: { state: { type: { nin: ["completed", "canceled", "cancelled"] } } }) { nodes { id identifier title description priority url dueDate state { id name type color } team { id } project { id name color } } } } }
         """
         myIssuesLoading = true
         defer { myIssuesLoading = false }
@@ -669,7 +672,7 @@ final class LinearService: ObservableObject {
             let cycleDict = d["cycle"] as? [String: Any]
             let cycleName = cycleDict?["name"] as? String
 
-            return LinearIssue(
+            var issue = LinearIssue(
                 id:           id,
                 identifier:   ident,
                 title:        title,
@@ -686,6 +689,10 @@ final class LinearService: ObservableObject {
                 cycleName:    cycleName,
                 url:          (d["url"] as? String) ?? ""
             )
+            let proj = d["project"] as? [String: Any]
+            issue.projectName  = proj?["name"]  as? String
+            issue.projectColor = proj?["color"] as? String
+            return issue
         }
     }
 

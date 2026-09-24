@@ -6,6 +6,7 @@ import Charts
 struct SessionAnalysisCard: View {
     @EnvironmentObject var state: AppState
     @Environment(\.appTheme) var theme
+    @Environment(\.homeTileCollapse) private var collapse
 
     @State private var selectedSessionId: String? = nil
     @State private var hoveredBar: String? = nil
@@ -21,6 +22,7 @@ struct SessionAnalysisCard: View {
             headerRow
                 .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
 
+            if collapse?.isCollapsed != true {
             if state.sessionAnalysisIsLoading && data.todaySessions.isEmpty {
                 HStack { Spacer(); ProgressView().controlSize(.regular); Spacer() }
                     .padding(.vertical, 32)
@@ -53,8 +55,9 @@ struct SessionAnalysisCard: View {
             // Footer
             footerRow
                 .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 16)
+            }
         }
-        .padding(.bottom, 12)   // visible gap between card and window edge
+        .padding(.bottom, collapse?.isCollapsed == true ? 4 : 12)   // visible gap between card and window edge
         .mirrorCard()
         .onAppear {
             if data.todaySessions.isEmpty && !state.sessionAnalysisIsLoading {
@@ -92,6 +95,7 @@ struct SessionAnalysisCard: View {
             if state.sessionAnalysisIsLoading {
                 ProgressView().scaleEffect(0.6)
             }
+            if let collapse { HomeTileCollapseButton(collapse: collapse, theme: theme) }
         }
     }
 
