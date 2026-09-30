@@ -307,17 +307,22 @@ struct ArtifactRef: Identifiable, Equatable {
 /// lesende Aktionen (`list`, `read`, `comments`) und `upload_asset` am `action`-Feld
 /// erkannt und ausgeschlossen werden können, statt am zusammengefassten Anzeigetext.
 struct ArtifactCollector {
-    /// toolUseId → Dateipfad (absolut, falls auflösbar)
-    private var pending: [String: String] = [:]
+    /// toolUseId → Dateipfad (absolut, falls auflösbar; nil beim Anlegen aus einem Typ)
+    /// und die Typ-URL, die im Ergebnis NICHT als neue Seite gelten darf.
+    private var pending: [String: (path: String?, typeUrl: String?)] = [:]
 
-    /// Merkt sich einen Publish-Aufruf. Alles andere wird ignoriert.
+    /// Merkt sich einen Publish-Aufruf: mit `file_path` oder als Anlegen aus einem Typ
+    /// (`type_url`, z. B. Claude Design — das hat keinen `file_path`). Alles andere wird ignoriert.
     mutating func noteToolUse(id: String?, name: String, input: StreamToolInput?,
                               workingDirectory: String?) {
-        guard name == "Artifact", let id, !id.isEmpty,
-              let path = input?.filePath, !path.isEmpty else { return }
+        guard name == "Artifact", let id, !id.isEmpty else { return }
         // Ohne `action` ist "publish" der Vorgabewert des Tools.
         if let action = input?.action, action != "publish" { return }
-        pending[id] = ArtifactCollector.absolutePath(path, workingDirectory: workingDirectory)
+        if let path = input?.filePath, !path.isEmpty {
+            pending[id] = (ArtifactCollector.absolutePath(path, workingDirectory: workingDirectory), nil)
+        } else if let type = input?.typeUrl, !type.isEmpty {
+            pending[id] = (nil, type)
+        }
     }
 
     /// Liefert die fertige Referenz, sobald das Ergebnis zum gemerkten Aufruf eintrifft.
@@ -327,8 +332,12 @@ struct ArtifactCollector {
     /// ohne diese Prüfung entstünde eine Karte "veröffentlicht" für einen abgelehnten
     /// Versuch. Fehlschläge ohne `is_error` bleiben ununterscheidbar.
     mutating func noteToolResult(id: String?, text: String, isError: Bool) -> ArtifactRef? {
-        guard let id, let path = pending.removeValue(forKey: id), !isError,
-              let url = ArtifactRef.firstArtifactURL(in: text) else { return nil }
+        guard let id, let entry = pending.removeValue(forKey: id), !isError else { return nil }
+        // Die Typ-URL ist selbst ein claude.ai-Link — aus dem Text nehmen, sonst würde sie
+        // als „neue Seite" gemeldet, falls das Ergebnis sie zuerst nennt.
+        let searched = entry.typeUrl.map { text.replacingOccurrences(of: $0, with: "") } ?? text
+        guard let url = ArtifactRef.firstArtifactURL(in: searched) else { return nil }
+        guard let path = entry.path else { return ArtifactRef(url: url, title: nil, localPath: nil) }
         let name = (path as NSString).lastPathComponent
         let exists = FileManager.default.fileExists(atPath: path)
         return ArtifactRef(url: url,
@@ -436,11 +445,13 @@ struct StreamToolInput: Decodable {
     /// jedes Tool, das die App noch nicht kennt, einen Chip mit leerem Text.
     let rawSummary: String?
     let action: String?       // Artifact / MCP-Tools: publish, list, read, …
+    let typeUrl: String?      // Artifact — Anlegen aus einem Artifact-Typ (z. B. Design), ohne file_path
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case command
         case filePath    = "file_path"
         case action
+        case typeUrl     = "type_url"
         case pattern
         case path
         case description
@@ -468,6 +479,7 @@ struct StreamToolInput: Decodable {
         command      = try? c.decodeIfPresent(String.self, forKey: .command)
         filePath     = try? c.decodeIfPresent(String.self, forKey: .filePath)
         action       = try? c.decodeIfPresent(String.self, forKey: .action)
+        typeUrl      = try? c.decodeIfPresent(String.self, forKey: .typeUrl)
         pattern      = try? c.decodeIfPresent(String.self, forKey: .pattern)
         path         = try? c.decodeIfPresent(String.self, forKey: .path)
         description  = try? c.decodeIfPresent(String.self, forKey: .description)
@@ -526,6 +538,7 @@ struct StreamToolInput: Decodable {
         self.command      = nil
         self.filePath     = nil
         self.action       = nil
+        self.typeUrl      = nil
         self.pattern      = nil
         self.path         = nil
         self.description  = description

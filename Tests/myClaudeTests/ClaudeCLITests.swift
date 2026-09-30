@@ -151,6 +151,35 @@ final class ArtifactRefTests: XCTestCase {
         XCTAssertNil(ref?.localPath, "die Datei existiert nicht — keine Vorschau anbieten")
     }
 
+    func testTypeUrlPublishWithoutFilePathYieldsRef() {
+        // Claude Design: Anlegen aus einem Typ hat keinen file_path. Die Typ-URL selbst darf
+        // nicht als neue Seite gelten, auch wenn das Ergebnis sie zuerst nennt.
+        var c = ArtifactCollector()
+        c.noteToolUse(id: "t1", name: "Artifact",
+                      input: input(#"{"type_url":"https://claude.ai/code/artifact/type-design","title":"Landing"}"#),
+                      workingDirectory: nil)
+        let ref = c.noteToolResult(id: "t1",
+                                   text: "Created from https://claude.ai/code/artifact/type-design → https://claude.ai/code/artifact/new1",
+                                   isError: false)
+        XCTAssertEqual(ref?.url, "https://claude.ai/code/artifact/new1")
+        XCTAssertNil(ref?.title)
+        XCTAssertNil(ref?.localPath)
+
+        var c2 = ArtifactCollector()
+        c2.noteToolUse(id: "t2", name: "Artifact",
+                       input: input(#"{"type_url":"https://claude.ai/code/artifact/type-design"}"#),
+                       workingDirectory: nil)
+        XCTAssertNil(c2.noteToolResult(id: "t2", text: "https://claude.ai/code/artifact/new2", isError: true),
+                     "Fehlschlag ergibt keine Karte")
+
+        // read mit type_url (Typ beschreiben) veröffentlicht nichts
+        var c3 = ArtifactCollector()
+        c3.noteToolUse(id: "t3", name: "Artifact",
+                       input: input(#"{"action":"read","type_url":"https://claude.ai/code/artifact/type-design"}"#),
+                       workingDirectory: nil)
+        XCTAssertNil(c3.noteToolResult(id: "t3", text: "https://claude.ai/code/artifact/other", isError: false))
+    }
+
     func testIgnoresOtherToolsAndUnknownIDs() {
         var c = ArtifactCollector()
         c.noteToolUse(id: "t1", name: "Bash",

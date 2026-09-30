@@ -320,8 +320,9 @@ struct SingleChatSessionView: View {
     @State private var injectedAgentId: String = ""
     /// Skills, auf die in DIESER Session bereits hingewiesen wurde — kein Wiederholen.
     @State private var hintedSkills: Set<String> = []
-    /// Voller Claude-Design-Ablauf in DIESER Session schon geschickt → danach nur Überarbeiten-Hinweis.
-    @State private var claudeDesignBriefed: Bool = false
+    /// Nachrichten-Index, ab dem in DIESER Session der volle Claude-Design-Ablauf gilt (nil = nie).
+    /// Gespeichert statt berechnet; die Phase wird nur beim Senden daraus abgeleitet.
+    @State private var claudeDesignBriefedAt: Int? = nil
     /// Setzt die ⭐ Pflicht-Skills für GENAU EINE Nachricht aus — per `kurz:`-Präfix oder
     /// per Knopf im Streifen über der Eingabezeile. `performSend` setzt ihn danach zurück.
     @State private var skipMainSkillsOnce: Bool = false
@@ -1184,6 +1185,7 @@ struct SingleChatSessionView: View {
     private func resumeSession(_ sessionId: String) {
         messages = []
         currentSessionId = sessionId
+        claudeDesignBriefedAt = nil
         sessionTitle = tab.title
         errorMessage = nil
         isAuthError = false
@@ -1222,6 +1224,10 @@ struct SingleChatSessionView: View {
                         guard currentSessionId == sessionId else { return }
                         withAnimation(.spring(response: 0.3)) {
                             messages = chatMsgs
+                        }
+                        // Claude-Design-Phase überlebt das Resume: das Transcript enthält den Block.
+                        claudeDesignBriefedAt = chatMsgs.lastIndex {
+                            $0.role == .user && ClaudeDesignHandoff.containsFullBlock($0.content)
                         }
                         inputFocused = true
                     }
@@ -2149,6 +2155,8 @@ struct SingleChatSessionView: View {
                             inputText = ""
                             attachedFiles = []
                         }
+                        // Session läuft weiter, nur die Anzeige ist leer → Briefing-Stelle an den Anfang.
+                        if claudeDesignBriefedAt != nil { claudeDesignBriefedAt = 0 }
                     } label: {
                         // Avoid reading messages.isEmpty in inputBar — use isStreaming + inputText instead
                         Image(systemName: "trash")
@@ -3547,7 +3555,7 @@ struct SingleChatSessionView: View {
             // Ohne Reset gilt jeder Skill als „schon angestoßen" — ab dem zweiten Chat im
             // selben Tab feuerte weder Stichwort- noch Pflicht-Block.
             hintedSkills = []
-            claudeDesignBriefed = false
+            claudeDesignBriefedAt = nil
             skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
@@ -5297,7 +5305,7 @@ struct SingleChatSessionView: View {
             messages = [summaryNote]
             currentSessionId = nil
             hintedSkills = []          // frische CLI-Session → Skills müssen neu geladen werden
-            claudeDesignBriefed = false
+            claudeDesignBriefedAt = nil
             skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
@@ -5742,11 +5750,15 @@ struct SingleChatSessionView: View {
             }
             skipMainSkillsOnce = false
             // 🎨 Claude Design: entschieden in sendMessage (Einzel-Agent-Pfad), hier nur angehängt.
-            // Voller Ablauf einmal pro Session, danach Überarbeiten-Hinweis statt Neu-Recherche.
+            // Phase einmal hier aus Fakten abgeleitet: voller Ablauf (Interview zuerst) → Fortsetzen
+            // → Überarbeiten, sobald seit dem Briefing ein Artifact veröffentlicht wurde.
             if claudeDesign {
-                let first = currentSessionId == nil || !claudeDesignBriefed
-                finalMessage += "\n\n" + ClaudeDesignHandoff.message(firstInSession: first)
-                claudeDesignBriefed = true
+                let phase = ClaudeDesignHandoff.phase(
+                    sessionRunning: currentSessionId != nil,
+                    briefedAt: claudeDesignBriefedAt,
+                    lastArtifactIndex: messages.lastIndex { !$0.artifacts.isEmpty })
+                finalMessage += "\n\n" + ClaudeDesignHandoff.message(for: phase)
+                if phase == .start { claudeDesignBriefedAt = assistantIndex }
             }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 30 wenn ein Agent aktiv ist.
             // War 12 (Commit 2b15532) — Nebeneffekt einer Tokenspar-Aktion, nicht gemessen; brach
@@ -6145,6 +6157,8 @@ struct SingleChatSessionView: View {
                messages[assistantIndex].content.isEmpty,
                messages[assistantIndex].toolCalls.isEmpty {
                 messages.remove(at: assistantIndex)
+                // Leere Fehl-Antwort: Modell hat den vollen Claude-Design-Block nie verarbeitet.
+                if claudeDesignBriefedAt == assistantIndex { claudeDesignBriefedAt = nil }
             } else if messages.indices.contains(assistantIndex) {
                 messages[assistantIndex].isStreaming = false
             }
