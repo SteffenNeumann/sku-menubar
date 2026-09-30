@@ -320,6 +320,8 @@ struct SingleChatSessionView: View {
     @State private var injectedAgentId: String = ""
     /// Skills, auf die in DIESER Session bereits hingewiesen wurde — kein Wiederholen.
     @State private var hintedSkills: Set<String> = []
+    /// Voller Claude-Design-Ablauf in DIESER Session schon geschickt → danach nur Überarbeiten-Hinweis.
+    @State private var claudeDesignBriefed: Bool = false
     /// Setzt die ⭐ Pflicht-Skills für GENAU EINE Nachricht aus — per `kurz:`-Präfix oder
     /// per Knopf im Streifen über der Eingabezeile. `performSend` setzt ihn danach zurück.
     @State private var skipMainSkillsOnce: Bool = false
@@ -350,6 +352,8 @@ struct SingleChatSessionView: View {
     // Plan-Modus: Agent erstellt nur einen Plan (--permission-mode plan), führt nichts aus.
     // Gegenseitig exklusiv mit autoApprove (siehe Permission-Picker).
     @AppStorage("chat.planMode") private var planMode: Bool = false
+    // Claude-Design-Schalter — wirkt nur, solange frontend-webdesigner der nächste Agent ist.
+    @AppStorage("chat.claudeDesignMode") private var claudeDesignMode: Bool = false
     @State private var isCompacting: Bool = false
     @State private var compactedSummary: String? = nil
     // Streaming timing (for Live-Plan-Panel)
@@ -896,6 +900,11 @@ struct SingleChatSessionView: View {
                     // Modus nicht vergessen wird (Symptom „Verlauf bleibt im Plan-Modus").
                     if planMode {
                         planModeBanner
+                    }
+
+                    // 🎨 Claude Design an — nur sichtbar, wenn er bei der nächsten Nachricht greift.
+                    if claudeDesignActive {
+                        claudeDesignBanner
                     }
 
                     inputBar
@@ -1909,10 +1918,11 @@ struct SingleChatSessionView: View {
     /// Leer ⇒ kein Streifen: entweder läuft die Session schon (Skills sind drin) oder der
     /// gewählte Agent hat keine Hauptskills. Damit zeigt der Streifen zugleich an, ob diese
     /// Nachricht die Skills bezahlt.
-    /// Der Agent, der bei der NÄCHSTEN Nachricht tatsächlich läuft. Gleiche Reihenfolge wie
-    /// `effectiveAgent` in `performSend` — inklusive Auto-Erkennung/Trigger, denn dort zeigt das
-    /// Chip einen Agenten an, während `selectedAgent` leer ist. Anzeige und Skill-Ladung dürfen
-    /// nicht auseinanderlaufen.
+    /// Der Agent, der bei der NÄCHSTEN Nachricht voraussichtlich läuft — inklusive
+    /// Auto-Erkennung/Trigger, denn dort zeigt das Chip einen Agenten an, während `selectedAgent`
+    /// leer ist. Achtung: NICHT dieselbe Reihenfolge wie `triggerAgent` in `sendMessage`
+    /// (dort zuerst `autoTriggerAgent(for:)`, dann Solo-/Session-Agent). Claude Design nutzt
+    /// deshalb `singleModeAgentId(autoTriggerId:)` statt dieser Eigenschaft.
     private var agentForNextMessage: AgentDefinition? {
         if !selectedAgent.isEmpty {
             return state.agentService.agents.first { $0.id == selectedAgent }
@@ -1964,6 +1974,75 @@ struct SingleChatSessionView: View {
         .padding(.vertical, 7)
         .background(accentColor.opacity(skipMainSkillsOnce ? 0.04 : 0.10),
                     in: RoundedRectangle(cornerRadius: 0))
+        .overlay(Rectangle().fill(accentColor.opacity(0.25)).frame(height: 0.5), alignment: .top)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// Agent, den `sendMessage` im Einzel-Agent-Pfad tatsächlich nimmt. EINE Auflösung für
+    /// Senden und Claude-Design-Anzeige, damit Schalter und Block nicht auseinanderlaufen.
+    /// `autoTriggerId` = Stichwort-Treffer für den Text (beim Tippen: `pendingTriggerAgentName`).
+    private func singleModeAgentId(autoTriggerId: String?) -> String? {
+        if !selectedAgent.isEmpty { return selectedAgent }
+        if agentAutoTriggerSuppressed { return nil }
+        return autoTriggerId ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId
+    }
+
+    /// Design-Agent, der bei der nächsten Nachricht im Einzel-Agent-Pfad läuft — sonst nil.
+    private var claudeDesignAgent: AgentDefinition? {
+        guard !orchestratorMode else { return nil }
+        let triggerId = pendingTriggerAgentName.flatMap { n in
+            state.agentService.agents.first { $0.name == n }?.id
+        }
+        guard let id = singleModeAgentId(autoTriggerId: triggerId),
+              let def = state.agentService.agents.first(where: { $0.id == id }),
+              ClaudeDesignHandoff.isDesignAgent(id: def.id, name: def.name) else { return nil }
+        return def
+    }
+
+    /// Der Schalter erscheint nur beim Design-Agenten.
+    private var claudeDesignAvailable: Bool { claudeDesignAgent != nil }
+
+    private var claudeDesignUnavailableReason: String? {
+        ClaudeDesignHandoff.unavailableReason(artifactsEnabled: state.settings.artifactsEnabled,
+                                              planMode: planMode)
+    }
+
+    /// Gleiche Bedingung wie beim Anhängen in `performSend`.
+    private var claudeDesignActive: Bool {
+        ClaudeDesignHandoff.shouldAppend(agentId: claudeDesignAgent?.id,
+                                         agentName: claudeDesignAgent?.name,
+                                         toggleOn: claudeDesignMode,
+                                         artifactsEnabled: state.settings.artifactsEnabled,
+                                         planMode: planMode)
+    }
+
+    private var claudeDesignBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "paintpalette.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(accentColor)
+            Text("Claude Design an — Dribbble-Inspiration → Wireframe → Farben → Design-Artifact, kein Code.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button {
+                claudeDesignMode = false
+            } label: {
+                Text("Aus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help("Claude Design ausschalten")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 0))
         .overlay(Rectangle().fill(accentColor.opacity(0.25)).frame(height: 0.5), alignment: .top)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -3115,6 +3194,31 @@ struct SingleChatSessionView: View {
                         }
                     }
                 }
+
+                // 🎨 Claude Design — nur beim Design-Agenten
+                if claudeDesignAvailable {
+                    stripSep
+                    let reason = claudeDesignUnavailableReason
+                    let on = claudeDesignActive
+                    Button {
+                        claudeDesignMode.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: on ? "paintpalette.fill" : "paintpalette")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Claude Design")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(on ? accentColor : theme.secondaryText.opacity(reason == nil ? 0.75 : 0.4))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(accentColor.opacity(on ? 0.10 : 0), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(reason != nil)
+                    .help(reason ?? (on ? "Claude Design ausschalten"
+                                        : "Claude Design: Dribbble-Inspiration → Wireframe → Farben → Design-Artifact"))
+                }
             }
 
             // Persona validation picker (only personas, teal color)
@@ -3443,6 +3547,7 @@ struct SingleChatSessionView: View {
             // Ohne Reset gilt jeder Skill als „schon angestoßen" — ab dem zweiten Chat im
             // selben Tab feuerte weder Stichwort- noch Pflicht-Block.
             hintedSkills = []
+            claudeDesignBriefed = false
             skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
@@ -5192,6 +5297,7 @@ struct SingleChatSessionView: View {
             messages = [summaryNote]
             currentSessionId = nil
             hintedSkills = []          // frische CLI-Session → Skills müssen neu geladen werden
+            claudeDesignBriefed = false
             skipMainSkillsOnce = false
             errorMessage = nil
             isAuthError = false
@@ -5382,10 +5488,14 @@ struct SingleChatSessionView: View {
         // (autoTriggerAgent() ist im Orchestrator-Kontext gesperrt → Solo-Agent explizit übergeben)
         let triggerAgent: String? = orchestratorMode
             ? selectedOrchestrators.first
-            : (!selectedAgent.isEmpty
-               ? selectedAgent
-               : (agentAutoTriggerSuppressed ? nil
-                  : (autoTriggerAgent(for: text)?.id ?? lastOrchestratorSoloAgentId ?? lastSessionAgentId)))
+            : singleModeAgentId(autoTriggerId: autoTriggerAgent(for: text)?.id)
+        // 🎨 Claude Design: nur im Einzel-Agent-Pfad, mit dem tatsächlich genutzten Agenten.
+        let claudeDesign = !orchestratorMode && ClaudeDesignHandoff.shouldAppend(
+            agentId: triggerAgent,
+            agentName: triggerAgent.flatMap { id in state.agentService.agents.first { $0.id == id }?.name },
+            toggleOn: claudeDesignMode,
+            artifactsEnabled: state.settings.artifactsEnabled,
+            planMode: planMode)
         let sendModel = state.claudeRateLimitActive && state.settings.copilotFallbackEnabled
             ? state.settings.copilotFallbackModel
             : selectedModel
@@ -5429,7 +5539,8 @@ struct SingleChatSessionView: View {
                 agentOverride: triggerAgent,
                 addDirs: fileDirs,
                 imageAttachments: imageAttachments,
-                cliImagePaths: imgPaths
+                cliImagePaths: imgPaths,
+                claudeDesign: claudeDesign
             )
         }
     }
@@ -5444,7 +5555,8 @@ struct SingleChatSessionView: View {
         imageAttachments: [GitHubImageAttachment] = [],
         cliImagePaths: [String] = [],
         isFallbackAttempt: Bool = false,
-        isErrorRetryAttempt: Bool = false
+        isErrorRetryAttempt: Bool = false,
+        claudeDesign: Bool = false
     ) async {
         let source: ChatProviderSource = inferredSource(from: model)
         if messages.indices.contains(assistantIndex) {
@@ -5629,6 +5741,13 @@ struct SingleChatSessionView: View {
                 }
             }
             skipMainSkillsOnce = false
+            // 🎨 Claude Design: entschieden in sendMessage (Einzel-Agent-Pfad), hier nur angehängt.
+            // Voller Ablauf einmal pro Session, danach Überarbeiten-Hinweis statt Neu-Recherche.
+            if claudeDesign {
+                let first = currentSessionId == nil || !claudeDesignBriefed
+                finalMessage += "\n\n" + ClaudeDesignHandoff.message(firstInSession: first)
+                claudeDesignBriefed = true
+            }
             // Agents brauchen mehr Turns für Tool-Calls; mindestens 30 wenn ein Agent aktiv ist.
             // War 12 (Commit 2b15532) — Nebeneffekt einer Tokenspar-Aktion, nicht gemessen; brach
             // reale Tool-lastige Läufe (Skills/Read/Bash/Playwright/MCP) vorzeitig ab.
@@ -5856,7 +5975,8 @@ struct SingleChatSessionView: View {
                                     addDirs: addDirs,
                                     imageAttachments: imageAttachments,
                                     cliImagePaths: cliImagePaths,
-                                    isFallbackAttempt: true
+                                    isFallbackAttempt: true,
+                                    claudeDesign: claudeDesign
                                 )
                                 return
                             }
@@ -5884,7 +6004,8 @@ struct SingleChatSessionView: View {
                                 addDirs: addDirs,
                                 imageAttachments: imageAttachments,
                                 cliImagePaths: cliImagePaths,
-                                isErrorRetryAttempt: true
+                                isErrorRetryAttempt: true,
+                                claudeDesign: claudeDesign
                             )
                             return
                         }
@@ -5909,7 +6030,8 @@ struct SingleChatSessionView: View {
                                 addDirs: addDirs,
                                 imageAttachments: imageAttachments,
                                 cliImagePaths: cliImagePaths,
-                                isErrorRetryAttempt: true
+                                isErrorRetryAttempt: true,
+                                claudeDesign: claudeDesign
                             )
                             return
                         }
@@ -6010,7 +6132,8 @@ struct SingleChatSessionView: View {
                         addDirs: addDirs,
                         imageAttachments: imageAttachments,
                         cliImagePaths: cliImagePaths,
-                        isFallbackAttempt: true
+                        isFallbackAttempt: true,
+                        claudeDesign: claudeDesign
                     )
                     return
                 }
