@@ -24,6 +24,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     else log "Läuft schon – Abbruch."; exit 0; fi
 fi
 trap 'rm -rf "$LOCK"' EXIT
+trap 'log "❌ Abbruch in Zeile $LINENO"' ERR
 
 cd "$REPO"
 case "$REPO" in
@@ -31,9 +32,13 @@ case "$REPO" in
         log "⚠️  Repo liegt in iCloud ($REPO) – dort entstehen kaputte ' 2'-Dateien. Bitte nach ~/Developer klonen." ;;
 esac
 
+BUILDINFO="Sources/SKUMenuBar/BuildInfo.swift"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-DIRTY="$(git status --porcelain --untracked-files=no)"
+# BuildInfo.swift schreibt jeder Build neu – zählt nicht als eigene Änderung. Ein abgebrochener
+# Lauf hinterlässt sie geändert; ohne diese Ausnahme bliebe das Auto-Update dauerhaft stehen.
+DIRTY="$(git status --porcelain --untracked-files=no -- . ":!$BUILDINFO")"
 if [ "$BRANCH" = "main" ] && [ -z "$DIRTY" ]; then
+    git checkout -- "$BUILDINFO"
     git fetch --quiet origin main
     git merge --ff-only --quiet origin/main || log "⚠️  main ist von origin/main abgewichen – baue lokalen Stand."
 elif [ "$FORCE" = 0 ]; then
@@ -59,7 +64,7 @@ bash "$SCRIPT_DIR/gen-buildinfo.sh" >/dev/null
 swift build -c release 2>&1 | tail -3
 BIN="$(swift build -c release --show-bin-path)"
 # BuildInfo.swift ist versioniert – zurücksetzen, damit der nächste Pull nicht blockiert.
-[ -z "$DIRTY" ] && git checkout -- Sources/SKUMenuBar/BuildInfo.swift
+[ -z "$DIRTY" ] && git checkout -- "$BUILDINFO"
 
 # App-Paket frisch zusammensetzen – alles unter Contents/, sonst kann codesign nicht versiegeln.
 STAGE="$(mktemp -d)/myClaude.app"
