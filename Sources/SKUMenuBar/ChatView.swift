@@ -2890,9 +2890,11 @@ struct SingleChatSessionView: View {
         defer { isLoadingMCPs = false }
         let servers = await state.cliService.listMCPServers()
         let hidden = hiddenMCPNames
-        // Fehlerhafte und lokal ausgeblendete Server nicht anzeigen
+        // Fehlerhafte, nicht eingerichtete und lokal ausgeblendete Server nicht anzeigen
         availableMCPs = servers.filter {
             if case .error = $0.status { return false }
+            // Plugin-Platzhalter ohne URL: "plugin:x:gmail:  (HTTP) - - Not configured"
+            if $0.detail.localizedCaseInsensitiveContains("not configured") { return false }
             if hidden.contains($0.name) { return false }
             return true
         }
