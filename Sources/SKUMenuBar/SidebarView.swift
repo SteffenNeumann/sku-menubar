@@ -619,6 +619,20 @@ struct SidebarView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(theme.secondaryText.opacity(0.3))
                 cliVersionLabel
+                Spacer()
+                Button {
+                    // Startet tools/update.sh über den launchd-Job (tools/install-autoupdate.sh).
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                    p.arguments = ["kickstart", "gui/\(getuid())/com.sku.myclaude.update"]
+                    try? p.run()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.secondaryText.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Jetzt aktualisieren: neuesten Stand von main holen, bauen und neu starten")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)

@@ -1,0 +1,23 @@
+diff --git a/src/classes/Highlightr.swift b/src/classes/Highlightr.swift
+index c8cee78..ddf7e8a 100644
+--- a/src/classes/Highlightr.swift
++++ b/src/classes/Highlightr.swift
+@@ -53,7 +53,17 @@ open class Highlightr
+         let window = JSValue(newObjectIn: jsContext)
+ 
+         #if SWIFT_PACKAGE
+-        let bundle = Bundle.module
++        let _bundleName = "Highlightr_Highlightr.bundle"
++        let _bundle: Bundle
++        if let resourceURL = Bundle.main.resourceURL,
++           let b = Bundle(url: resourceURL.appendingPathComponent(_bundleName)) {
++            _bundle = b
++        } else if let b = Bundle(url: Bundle.main.bundleURL.appendingPathComponent(_bundleName)) {
++            _bundle = b
++        } else {
++            _bundle = Bundle.module
++        }
++        let bundle = _bundle
+         #else
+         let bundle = Bundle(for: Highlightr.self)
+         #endif

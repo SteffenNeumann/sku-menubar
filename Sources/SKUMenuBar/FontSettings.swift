@@ -26,6 +26,17 @@ enum FontKey {
 
 enum FontManager {
 
+    // Im .app liegt das Bundle unter Contents/Resources (nur dort ist es mitsigniert).
+    // Bundle.module sucht nur in der App-Wurzel → erst Resources prüfen, dann Fallback.
+    private static let resourceBundle: Bundle = {
+        let name = "SKUMenuBar_myClaude.bundle"
+        for case let url? in [Bundle.main.resourceURL?.appendingPathComponent(name),
+                              Bundle.main.bundleURL.appendingPathComponent(name)] {
+            if let bundle = Bundle(url: url) { return bundle }
+        }
+        return Bundle.module
+    }()
+
     static func registerBundledFonts() {
         let names = [
             "JetBrainsMono-Regular",
@@ -35,7 +46,7 @@ enum FontManager {
         ]
         for name in names {
             // SPM .process() places files flat in the bundle resources
-            guard let url = Bundle.module.url(forResource: name, withExtension: "ttf") else { continue }
+            guard let url = resourceBundle.url(forResource: name, withExtension: "ttf") else { continue }
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }

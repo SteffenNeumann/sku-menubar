@@ -11,47 +11,30 @@ veralteten Builds ohne Fehlermeldung — ein nicht sichtbares Versionierungs-Pro
 ### Wenn die Session selbst in einem Worktree läuft
 
 Erkennbar am System-Prompt: `You are operating in a git worktree.`  
-Das echte Repo (main) liegt immer unter: `/Users/steffen/Documents/GitHub/sku-menubar/`
+Das echte Repo (main) liegt immer unter: `/Users/steffen/Developer/sku-menubar/`
 
 **Vorgehen:**
 1. Änderungen im Worktree normal vornehmen und committen
 2. Dateien per `cp` manuell ins echte Repo kopieren:
    ```bash
-   cp Sources/SKUMenuBar/GeänderteDatei.swift /Users/steffen/Documents/GitHub/sku-menubar/Sources/SKUMenuBar/
+   cp Sources/SKUMenuBar/GeänderteDatei.swift /Users/steffen/Developer/sku-menubar/Sources/SKUMenuBar/
    ```
 3. Im echten Repo committen und deployen — **niemals vom Worktree-Pfad aus bauen**
 4. Worktree danach aufräumen: `git worktree remove --force <pfad>`
 
 ---
 
-## Deploy-Workflow (5 Schritte — immer alle 5)
+## Deploy-Workflow
 
 ```bash
-# 1. Vor dem Deploy: Git-Stand prüfen
-git status
-git log --oneline -5
-
-# 2. App beenden
-pkill -f myClaude 2>/dev/null; sleep 0.3
-
-# 3. BuildInfo aktualisieren (SHA + Timestamp in der Sidebar)
-bash tools/gen-buildinfo.sh
-
-# 4. Release-Build (aus dem Projekt-Root)
-swift build -c release
-
-# 5. Binary kopieren + App neu signieren + starten
-cp .build/release/myClaude ~/Applications/myClaude.app/Contents/MacOS/myClaude
-codesign --force --deep --sign - ~/Applications/myClaude.app
-open ~/Applications/myClaude.app
-
-# 6. Gitstamp aktualisieren (Timestamp in der Sidebar)
-printf "%s\n%s\n" "$(git rev-parse HEAD)" "$(date)" > gitstamp
+bash tools/update.sh --force   # baut aktuellen Stand, setzt Paket neu zusammen, signiert, startet
 ```
 
-**Binary-Pfad:** immer `.build/release/myClaude` (Symlink) — seit Xcode-Update 09/2026 baut SwiftPM nach `.build/out/Products/Release/`, der alte Pfad `.build/arm64-apple-macosx/release/` bleibt veraltet liegen.
-
-**Schritte 3, 5 (codesign) und 6 niemals weglassen** — BuildInfo.swift muss vor dem Build generiert sein; codesign ist seit macOS 26 Pflicht (ohne Signatur: `SIGKILL Code Signature Invalid`).
+- Ohne `--force`: baut nur, wenn `origin/main` neuer ist als die installierte App (so läuft der launchd-Job).
+- Auto-Update pro Mac einmalig einrichten: `bash tools/install-autoupdate.sh` (Login + stündlich, Log: `~/Library/Logs/myClaude-update.log`). Knopf ⟳ in der Sidebar startet ihn sofort.
+- Repo **nie** unter `~/Documents` (iCloud erzeugt `* 2`-Dateien, die `.git` zerstören) — immer `~/Developer/sku-menubar`.
+- Ressourcen-Bundles liegen im Paket unter `Contents/Resources/` (nur dort versiegelt `codesign` sauber). Highlightr-Patch dafür: `tools/highlightr-bundle.patch`, wendet `update.sh` selbst an.
+- Paket-Eckdaten (Bundle-ID, Info.plist): `tools/Info.plist`.
 
 ---
 
