@@ -437,7 +437,7 @@ final class ClaudeCLIService: ObservableObject {
 
     func listMCPServers() async -> [MCPServer] {
         guard let output = try? await runCommand(["mcp", "list"]) else { return [] }
-        let servers = parseMCPList(output)
+        let servers = Self.parseMCPList(output)
         // claude mcp list nutzt GET für den Health-Check — manche HTTP-Server
         // (z.B. Google Stitch) erlauben nur POST. Nachprüfen per echtem MCP-POST.
         return await verifyFailedHttpServers(servers)
@@ -478,16 +478,17 @@ final class ClaudeCLIService: ObservableObject {
         } catch { return false }
     }
 
-    private func parseMCPList(_ output: String) -> [MCPServer] {
+    static func parseMCPList(_ output: String) -> [MCPServer] {
         var servers: [MCPServer] = []
         let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         for line in lines {
             // Formats emitted by current Claude CLI:
-            //   "  name: https://url (HTTP) - ✓ Connected"
-            //   "  name: https://url (SSE) - ✗ Failed to connect"
-            //   "  name: npx -y pkg --stdio - ✓ Connected"
+            //   "  name: https://url (HTTP) - ✔ Connected"
+            //   "  plugin:data:hex: https://url (HTTP) - ! Needs authentication"
+            //   "  name: npx -y pkg --stdio - ✘ Failed to connect — detail (with parens)"
             //   "  name (stdio): Connected"   (older format)
+            // Header "Checking MCP server health…" has no ": " and is skipped.
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
 
@@ -497,13 +498,15 @@ final class ClaudeCLIService: ObservableObject {
             var urlDetail = ""  // actual URL or command string for this server
 
             // Detect which format we have:
-            // Old format: "name (type): status"  → paren before first colon
-            // New format: "name: rest (TYPE) - status" → colon before first paren (or no paren)
+            // Old format: "name (type): status"  → paren before first ": "
+            // New format: "name: rest (TYPE) - status" → ": " before first paren (or no paren)
+            // Separator is ": " (colon + space): names like "plugin:data:hex" contain bare colons,
+            // URLs ("https://") never have a space after the colon.
 
-            let firstColon = trimmed.firstIndex(of: ":")
+            guard let sep = trimmed.range(of: ": ") else { continue }
             let firstParen = trimmed.firstIndex(of: "(")
 
-            if let pOpen = firstParen, let fc = firstColon, pOpen < fc {
+            if let pOpen = firstParen, pOpen < sep.lowerBound {
                 // Old format: "name (type): status"
                 if let pClose = trimmed[pOpen...].firstIndex(of: ")") {
                     transport = String(trimmed[trimmed.index(after: pOpen)..<pClose]).lowercased()
@@ -513,31 +516,27 @@ final class ClaudeCLIService: ObservableObject {
                         statusText = String(afterClose[afterClose.index(after: col)...]).trimmingCharacters(in: .whitespaces)
                     }
                 }
-            } else if let fc = firstColon {
-                // New format: "name: rest (TYPE) - ✓ status"
-                name = String(trimmed[..<fc]).trimmingCharacters(in: .whitespaces)
-                let rest = String(trimmed[trimmed.index(after: fc)...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                // New format: "name: rest (TYPE) - ✔ status"
+                name = String(trimmed[..<sep.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let rest = String(trimmed[sep.upperBound...]).trimmingCharacters(in: .whitespaces)
 
-                // Extract transport from (HTTP)/(SSE)/(stdio) in rest, URL is before the paren
+                // Split status after the first " - " — error details may contain parens
                 var urlOrCommand = rest
-                if let pOpen = rest.firstIndex(of: "("),
-                   let pClose = rest[pOpen...].firstIndex(of: ")") {
-                    transport = String(rest[rest.index(after: pOpen)..<pClose]).lowercased()
-                    urlOrCommand = String(rest[..<pOpen]).trimmingCharacters(in: .whitespaces)
-                }
-
-                // Extract status after " - "
                 if let dashRange = rest.range(of: " - ") {
+                    urlOrCommand = String(rest[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespaces)
                     statusText = String(rest[dashRange.upperBound...])
+                        .replacingOccurrences(of: "^[✓✔✗✘!?·\\-\\s]+", with: "", options: .regularExpression)
                         .trimmingCharacters(in: .whitespaces)
-                        .replacingOccurrences(of: "^[✓✗!?·\\s]+", with: "", options: .regularExpression)
-                        .trimmingCharacters(in: .whitespaces)
-                    // Also trim " - status" from the URL part
-                    if let dashInUrl = urlOrCommand.range(of: " - ") {
-                        urlOrCommand = String(urlOrCommand[..<dashInUrl.lowerBound]).trimmingCharacters(in: .whitespaces)
-                    }
                 } else {
                     statusText = rest
+                }
+
+                // Transport from trailing (HTTP)/(SSE)/(stdio) of the URL part only
+                if urlOrCommand.hasSuffix(")"),
+                   let pOpen = urlOrCommand.lastIndex(of: "(") {
+                    transport = String(urlOrCommand[urlOrCommand.index(after: pOpen)..<urlOrCommand.index(before: urlOrCommand.endIndex)]).lowercased()
+                    urlOrCommand = String(urlOrCommand[..<pOpen]).trimmingCharacters(in: .whitespaces)
                 }
                 // Store the actual URL/command separately so buildMCPConfigJSON can use it
                 urlDetail = urlOrCommand
@@ -547,12 +546,13 @@ final class ClaudeCLIService: ObservableObject {
 
             let lower = statusText.lowercased()
             let status: MCPStatus
-            if lower.contains("connect") {
-                status = .connected
+            // "Failed to connect" also contains "connect" → check failures first
+            if lower.contains("error") || lower.contains("fail") {
+                status = .error(statusText)
             } else if lower.contains("auth") || lower.contains("login") || lower.contains("needs") {
                 status = .needsAuth
-            } else if lower.contains("error") || lower.contains("fail") {
-                status = .error(statusText)
+            } else if lower.contains("connect") {
+                status = .connected
             } else {
                 status = .unknown
             }
