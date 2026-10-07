@@ -1231,6 +1231,12 @@ struct MCPServer: Identifiable, Hashable {
     let status: MCPStatus
     let detail: String
     var scope: MCPScope = .user
+
+    /// Kommt vom claude.ai-Konto (Connector oder gesynctes Plugin) – lokal nicht löschbar.
+    var isAccountManaged: Bool { name.hasPrefix("claude.ai ") || name.hasPrefix("plugin:") }
+
+    /// Plugin-Server, der noch nie angemeldet wurde – im Picker nutzlos.
+    var isPluginAwaitingAuth: Bool { name.hasPrefix("plugin:") && status == .needsAuth }
 }
 
 enum MCPStatus: Hashable {

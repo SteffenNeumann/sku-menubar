@@ -2895,6 +2895,8 @@ struct SingleChatSessionView: View {
             if case .error = $0.status { return false }
             // Plugin-Platzhalter ohne URL: "plugin:x:gmail:  (HTTP) - - Not configured"
             if $0.detail.localizedCaseInsensitiveContains("not configured") { return false }
+            // Vom Konto gesyncte Plugin-Server ohne Anmeldung
+            if $0.isPluginAwaitingAuth { return false }
             if hidden.contains($0.name) { return false }
             return true
         }

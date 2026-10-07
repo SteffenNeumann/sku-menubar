@@ -308,6 +308,8 @@ struct MCPView: View {
         hiddenServersRaw = s.joined(separator: "|")
     }
 
+    @State private var showHiddenList = false
+
     // Popover-State für cloud-Server Aktionsmenü
     @State private var cloudActionServer: MCPServer? = nil
 
@@ -462,19 +464,45 @@ struct MCPView: View {
                 .padding(.horizontal, 22)
                 .padding(.bottom, 12)
 
-            // Hinweis auf ausgeblendete cloud-Server
+            // Ausgeblendete Konto-Server – einzeln wieder einblendbar
             if !hiddenServers.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "eye.slash").font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
-                    Text("\(hiddenServers.count) Cloud-Server ausgeblendet")
-                        .font(.system(size: 12)).foregroundStyle(theme.tertiaryText)
-                    Spacer()
-                    Button("Einblenden") {
-                        hiddenServersRaw = ""
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) { showHiddenList.toggle() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: showHiddenList ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Image(systemName: "eye.slash").font(.system(size: 12))
+                                Text("Ausgeblendet (\(hiddenServers.count))").font(.system(size: 12))
+                            }
+                            .foregroundStyle(theme.tertiaryText)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Button("Alle einblenden") { hiddenServersRaw = "" }
+                            .font(.system(size: 12))
+                            .foregroundStyle(accentColor)
+                            .buttonStyle(.plain)
                     }
-                    .font(.system(size: 12))
-                    .foregroundStyle(accentColor)
-                    .buttonStyle(.plain)
+                    if showHiddenList {
+                        ForEach(hiddenServers.sorted(), id: \.self) { name in
+                            HStack(spacing: 6) {
+                                Text(name)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                Button("Einblenden") { unhideServer(name) }
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(accentColor)
+                                    .buttonStyle(.plain)
+                            }
+                            .padding(.leading, 22)
+                        }
+                    }
                 }
                 .padding(.horizontal, 22).padding(.bottom, 8)
                 .transition(.opacity)
@@ -682,7 +710,7 @@ struct MCPView: View {
     private func serverNodeCard(_ server: MCPServer) -> some View {
         let statusText     = healthStatusText(for: server)
         let statusColor    = healthStatusColor(for: server)
-        let isCloudServer  = server.name.hasPrefix("claude.ai ")
+        let isCloudServer  = server.isAccountManaged
         return VStack(alignment: .leading, spacing: 12) {
             // Name + status badge — badge floats top-right
             HStack(alignment: .center, spacing: 6) {
