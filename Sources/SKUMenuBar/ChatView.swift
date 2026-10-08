@@ -296,6 +296,12 @@ struct SingleChatSessionView: View {
     @State private var activePlan: String? = nil       // Orchestrator-Plan für rechtes Panel
     @State private var rightPanelShowsPlan: Bool = true // true = Plan-Tab aktiv
     @State private var diffPanelDismissed: Bool = false
+    // Agent-Flussbild: Graph der Subagenten der laufenden/letzten Antwort.
+    @State private var subagentGraph = SubagentGraph()
+    @State private var agentsPanelVisible = false
+    @State private var rightPanelShowsAgents = false
+    /// In dieser Antwort von Hand ausgeblendet → nicht automatisch wieder öffnen.
+    @State private var agentsPanelUserHidden = false
     @State private var autoTriggeredAgentName: String? = nil  // zeigt ⚡-Badge wenn Trigger matchte
     /// Nutzer hat „Kein Agent" gewählt. Ohne diesen Merker greift der Trigger beim nächsten
     /// Tastendruck sofort wieder — die Abwahl wirkte dadurch wie „wird nicht übernommen".
@@ -774,6 +780,17 @@ struct SingleChatSessionView: View {
                         .buttonStyle(.plain)
                         .help(showFilePanel ? "File Explorer schließen" : "File Explorer öffnen")
 
+                        Button {
+                            withAnimation(.spring(response: 0.3)) { setAgentsPanel(visible: !agentsPanelVisible) }
+                        } label: {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 13))
+                                .foregroundStyle(agentsPanelVisible ? accentColor : theme.secondaryText)
+                                .frame(width: 26, height: 26)
+                        }
+                        .buttonStyle(.plain)
+                        .help(agentsPanelVisible ? "Agenten-Panel ausblenden" : "Agenten-Panel einblenden")
+
                         if activeDiff != nil {
                             Button {
                                 withAnimation(.spring(response: 0.3)) {
@@ -932,7 +949,7 @@ struct SingleChatSessionView: View {
                 .onPreferenceChange(InputBarHeightKey.self) { inputBarHeight = $0 }
 
                 // Right: Plan- oder Diff-Panel (resizable) — bleibt geschlossen wenn vom User dismissed
-                if (activePlan != nil || activeDiff != nil) && !diffPanelDismissed {
+                if ((activePlan != nil || activeDiff != nil) && !diffPanelDismissed) || agentsPanelVisible {
                     PanelResizeHandle(width: $diffPanelWidth, minWidth: 320, maxWidth: 900, growsRight: false)
                         .frame(width: 10)
                     unifiedRightPanel()
@@ -5620,6 +5637,9 @@ struct SingleChatSessionView: View {
         }
         // Frische Session: sie trägt ab jetzt genau den Prompt dieses Agenten (oder keinen).
         if currentSessionId == nil { injectedAgentId = effectiveAgent ?? "" }
+        // Agent-Flussbild zeigt die Helfer DIESER Antwort.
+        subagentGraph = SubagentGraph()
+        agentsPanelUserHidden = false
 
         let stream: AsyncThrowingStream<StreamEvent, Error>
 
@@ -5798,6 +5818,8 @@ struct SingleChatSessionView: View {
         var pendingTokenCount = 0
         // Artifact-Veröffentlichungen: Pfad steht im tool_use, URL erst im tool_result.
         var artifactCollector = ArtifactCollector()
+        // Jeder Ausstieg (Ende, Fehler, Abbruch, Retry): was noch im Vordergrund „läuft“, ist vorbei.
+        defer { subagentGraph.streamEnded() }
 
         do {
             for try await event in stream {
@@ -5836,6 +5858,20 @@ struct SingleChatSessionView: View {
                                     toolUseId: block.id
                                 )
                                 messages[assistantIndex].toolCalls.append(tool)
+                                // Agent-Flussbild: neuer Subagent bzw. Tool-Aufruf eines Subagenten.
+                                if name == "Agent" || name == "Task", let id = block.id {
+                                    subagentGraph.agentStarted(toolUseId: id,
+                                                               parentToolUseId: event.parentToolUseId,
+                                                               type: block.toolInput?.subagentType,
+                                                               description: block.toolInput?.description)
+                                    if !agentsPanelVisible && !agentsPanelUserHidden {
+                                        withAnimation(.spring(response: 0.3)) { setAgentsPanel(visible: true) }
+                                    }
+                                } else if let parent = event.parentToolUseId {
+                                    subagentGraph.toolUsed(byAgent: parent, name: name,
+                                                           skill: block.toolInput?.skill,
+                                                           todoStatuses: block.toolInput?.todoStatuses)
+                                }
                                 // TodoWrite: Todo-Liste sofort in Message speichern
                                 if name == "TodoWrite", let todos = block.toolInput?.todos {
                                     messages[assistantIndex].currentTodos = todos
@@ -5900,6 +5936,12 @@ struct SingleChatSessionView: View {
                             if block.isError {
                                 messages[assistantIndex].markSkillFailed(toolUseId: block.toolUseId)
                             }
+                            if let tid = block.toolUseId, subagentGraph.node(tid) != nil {
+                                subagentGraph.agentReturned(toolUseId: tid, isError: block.isError,
+                                                            text: block.toolResultText,
+                                                            resultStatus: event.agentResultStatus,
+                                                            tokens: event.agentResultTokens)
+                            }
                             guard let toolId = block.toolUseId,
                                   let resultText = block.toolResultText,
                                   !resultText.isEmpty else { continue }
@@ -5922,6 +5964,13 @@ struct SingleChatSessionView: View {
 
                 case "rate_limit_event":
                     state.claudeRateLimitActive = true
+
+                case "system":
+                    // Ende eines (Hintergrund-)Subagenten — kommt auch nach dem ersten result.
+                    if event.subtype == "task_notification", let tid = event.taskToolUseId {
+                        subagentGraph.taskFinished(toolUseId: tid, status: event.taskStatus,
+                                                   tokens: event.taskTokens)
+                    }
 
                 case "result":
                     messages[assistantIndex].costUsd = event.costUsd
@@ -6466,18 +6515,41 @@ extension SingleChatSessionView {
 
     // MARK: Unified wrapper
 
+    func setAgentsPanel(visible: Bool) {
+        agentsPanelVisible = visible
+        rightPanelShowsAgents = visible
+        if !visible { agentsPanelUserHidden = true }
+    }
+
     @ViewBuilder
     func unifiedRightPanel() -> some View {
+        let planOrDiff = (activePlan != nil || activeDiff != nil) && !diffPanelDismissed
+        let showAgents = agentsPanelVisible && (rightPanelShowsAgents || !planOrDiff)
         let hasBoth = activePlan != nil && activeDiff != nil
+        let tabCount = (planOrDiff && activePlan != nil ? 1 : 0)
+                     + (planOrDiff && activeDiff != nil ? 1 : 0)
+                     + (agentsPanelVisible ? 1 : 0)
 
         VStack(spacing: 0) {
-            // Tab-Leiste nur wenn Plan UND Diff gleichzeitig existieren
-            if hasBoth {
+            // Tab-Leiste nur, wenn mehr als ein Inhalt da ist (Plan / Diff / Agenten)
+            if tabCount > 1 {
                 HStack(spacing: 0) {
-                    rightPanelTab(label: "Plan", icon: "list.clipboard",
-                                  selected: rightPanelShowsPlan) { rightPanelShowsPlan = true }
-                    rightPanelTab(label: "Diff", icon: "arrow.left.arrow.right",
-                                  selected: !rightPanelShowsPlan) { rightPanelShowsPlan = false }
+                    if planOrDiff, activePlan != nil {
+                        rightPanelTab(label: "Plan", icon: "list.clipboard",
+                                      selected: !showAgents && (rightPanelShowsPlan || activeDiff == nil)) {
+                            rightPanelShowsPlan = true; rightPanelShowsAgents = false
+                        }
+                    }
+                    if planOrDiff, activeDiff != nil {
+                        rightPanelTab(label: "Diff", icon: "arrow.left.arrow.right",
+                                      selected: !showAgents && (!rightPanelShowsPlan || activePlan == nil)) {
+                            rightPanelShowsPlan = false; rightPanelShowsAgents = false
+                        }
+                    }
+                    if agentsPanelVisible {
+                        rightPanelTab(label: "Agenten", icon: "point.3.connected.trianglepath.dotted",
+                                      selected: showAgents) { rightPanelShowsAgents = true }
+                    }
                     Spacer()
                     Button {
                         withAnimation(.spring(response: 0.3)) { diffPanelDismissed = true }
@@ -6496,7 +6568,11 @@ extension SingleChatSessionView {
             }
 
             // Inhalt
-            if rightPanelShowsPlan, let plan = activePlan {
+            if showAgents {
+                AgentFlowView(graph: subagentGraph, accent: accentColor) {
+                    withAnimation(.spring(response: 0.3)) { setAgentsPanel(visible: false) }
+                }
+            } else if rightPanelShowsPlan, let plan = activePlan {
                 planSidePanel(plan)
             } else if let diff = activeDiff {
                 diffSidePanel(diff)

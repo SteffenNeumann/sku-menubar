@@ -396,8 +396,21 @@ struct StreamEvent: Decodable {
     let parentToolUseId: String?
     let subagentType: String?
 
+    // Lebenszyklus von Sub-Agenten (Agent-Flussbild). Alle drei tolerant dekodiert:
+    // dieselben Keys tragen je nach Event andere Formen (tool_use_result ist mal Objekt,
+    // mal String) — ein Formfehler darf das Event nicht verwerfen.
+    /// system/task_*: tool_use-id des Agent-Aufrufs.
+    let taskToolUseId: String?
+    /// system/task_notification: "completed" / "failed" / …
+    let taskStatus: String?
+    /// system/task_notification: usage.total_tokens
+    let taskTokens: Int?
+    /// user-Event mit tool_result eines Agent-Aufrufs: tool_use_result.status / totalTokens.
+    let agentResultStatus: String?
+    let agentResultTokens: Int?
+
     enum CodingKeys: String, CodingKey {
-        case type, subtype, message, result, error, errors
+        case type, subtype, message, result, error, errors, status, usage
         case sessionId         = "session_id"
         case costUsd           = "cost_usd"
         case inputTokens       = "input_tokens"
@@ -405,6 +418,42 @@ struct StreamEvent: Decodable {
         case isError           = "is_error"
         case parentToolUseId   = "parent_tool_use_id"
         case subagentType      = "subagent_type"
+        case taskToolUseId     = "tool_use_id"
+        case toolUseResult     = "tool_use_result"
+    }
+
+    private struct TokenUsage: Decodable {
+        let totalTokens: Int?
+        enum CodingKeys: String, CodingKey { case totalTokens = "total_tokens" }
+    }
+    private struct ToolUseResult: Decodable {
+        let status: String?
+        let totalTokens: Int?
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Bestehende Felder streng wie bisher (synthetisierte Dekodierung).
+        type            = try c.decode(String.self, forKey: .type)
+        subtype         = try c.decodeIfPresent(String.self, forKey: .subtype)
+        sessionId       = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        message         = try c.decodeIfPresent(StreamMessage.self, forKey: .message)
+        costUsd         = try c.decodeIfPresent(Double.self, forKey: .costUsd)
+        inputTokens     = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens    = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
+        isError         = try c.decodeIfPresent(Bool.self, forKey: .isError)
+        result          = try c.decodeIfPresent(String.self, forKey: .result)
+        error           = try c.decodeIfPresent(String.self, forKey: .error)
+        errors          = try c.decodeIfPresent([String].self, forKey: .errors)
+        parentToolUseId = try c.decodeIfPresent(String.self, forKey: .parentToolUseId)
+        subagentType    = try c.decodeIfPresent(String.self, forKey: .subagentType)
+        // Neue Felder tolerant.
+        taskToolUseId   = try? c.decodeIfPresent(String.self, forKey: .taskToolUseId)
+        taskStatus      = try? c.decodeIfPresent(String.self, forKey: .status)
+        taskTokens      = (try? c.decodeIfPresent(TokenUsage.self, forKey: .usage))??.totalTokens
+        let tur         = (try? c.decodeIfPresent(ToolUseResult.self, forKey: .toolUseResult)) ?? nil
+        agentResultStatus = tur?.status
+        agentResultTokens = tur?.totalTokens
     }
 
     // Expliziter Initializer mit Defaults (errors am Ende), damit bestehende
@@ -419,6 +468,8 @@ struct StreamEvent: Decodable {
         self.isError = isError; self.result = result; self.error = error
         self.errors = errors
         self.parentToolUseId = nil; self.subagentType = nil
+        self.taskToolUseId = nil; self.taskStatus = nil; self.taskTokens = nil
+        self.agentResultStatus = nil; self.agentResultTokens = nil
     }
 }
 
@@ -446,6 +497,8 @@ struct StreamToolInput: Decodable {
     let rawSummary: String?
     let action: String?       // Artifact / MCP-Tools: publish, list, read, …
     let typeUrl: String?      // Artifact — Anlegen aus einem Artifact-Typ (z. B. Design), ohne file_path
+    /// TodoWrite — nur die Status-Werte, tolerant (für den Fortschritt im Agent-Flussbild).
+    let todoStatuses: [String]?
 
     enum CodingKeys: String, CodingKey, CaseIterable {
         case command
@@ -488,6 +541,8 @@ struct StreamToolInput: Decodable {
         args         = try? c.decodeIfPresent(String.self, forKey: .args)
         subagentType = try? c.decodeIfPresent(String.self, forKey: .subagentType)
         notebookPath = try? c.decodeIfPresent(String.self, forKey: .notebookPath)
+        struct TodoStatusOnly: Decodable { let status: String? }
+        todoStatuses = (try? c.decodeIfPresent([TodoStatusOnly].self, forKey: .todos))??.compactMap(\.status)
 
         // Unbekannte Keys einsammeln — nur skalare Werte, gekappt, höchstens drei.
         let known = Set(CodingKeys.allCases.map(\.stringValue))
@@ -548,6 +603,7 @@ struct StreamToolInput: Decodable {
         self.subagentType = nil
         self.notebookPath = nil
         self.rawSummary   = nil
+        self.todoStatuses = nil
     }
 }
 
