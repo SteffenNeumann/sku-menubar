@@ -251,12 +251,21 @@ final class AgentService: ObservableObject {
             guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
                   let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
             else { continue }
-            let newLine = "skills: " + wanted.joined(separator: ", ")
-            if let i = lines[1..<end].firstIndex(where: { $0.hasPrefix("skills:") }) {
-                lines[i] = newLine
-            } else {
-                lines.insert(newLine, at: end)
+            // Alle vorhandenen skills:-Zeilen samt eingerückter YAML-Listenzeilen darunter raus,
+            // dann genau eine einzeilige rein — sonst schreibt jedes Laden neu (Watcher-Schleife).
+            var head = Array(lines[1..<end])
+            var i = 0
+            while i < head.count {
+                if head[i].hasPrefix("skills:") {
+                    head.remove(at: i)
+                    while i < head.count, head[i].trimmingCharacters(in: .whitespaces).hasPrefix("- "),
+                          head[i].first == " " || head[i].first == "\t" {
+                        head.remove(at: i)
+                    }
+                } else { i += 1 }
             }
+            head.append("skills: " + wanted.joined(separator: ", "))
+            lines.replaceSubrange(1..<end, with: head)
             if (try? lines.joined(separator: "\n").write(toFile: agent.filePath, atomically: true, encoding: .utf8)) != nil {
                 changed = true
             }
