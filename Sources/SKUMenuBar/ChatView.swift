@@ -984,7 +984,6 @@ struct SingleChatSessionView: View {
         if isActive, let dir = state.pendingChatSetDirectory {
             state.pendingChatSetDirectory = nil
             workingDirectory = dir
-            if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
             autoSelectMCPsForProject(dir)
         }
         if let wd = tab.workingDirectory { workingDirectory = wd }
@@ -1013,15 +1012,6 @@ struct SingleChatSessionView: View {
         // Erster Mount des Chats über „neuer Chat im Projekt" (Home/Sidebar): onChange feuert
         // dann nicht, weil der Wert schon vor dem Mount gesetzt war.
         handlePendingNewProject()
-        // Auto-Erkennung nachziehen: oben überschreibt `selectedAgent = tab.agentId` das Ergebnis
-        // von detectAgentForProject() bedingungslos, und für wiederhergestellte Tabs lief die
-        // Erkennung nie. Nur FÜLLEN, nie überschreiben — und eine bewusste Abwahl respektieren:
-        // `selectedAgent.isEmpty` allein IST der Abwahl-Zustand und reichte dafür nicht.
-        if !agentAutoTriggerSuppressed,
-           selectedAgent.isEmpty, let dir = workingDirectory, !dir.isEmpty,
-           let detected = detectAgentForProject(dir) {
-            selectedAgent = detected
-        }
         applyFallbackModelIfNeeded()
         tryAutoMatchTMetricProject()
     }
@@ -1138,7 +1128,6 @@ struct SingleChatSessionView: View {
         workingDirectory = path
         tab.title = URL(fileURLWithPath: path).lastPathComponent
         withAnimation(.spring(response: 0.3)) { showFilePanel = true }
-        if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(path) { selectedAgent = agentId }
         autoSelectMCPsForProject(path)
     }
 
@@ -1158,7 +1147,6 @@ struct SingleChatSessionView: View {
             if let dir = state.pendingChatSetDirectory {
                 state.pendingChatSetDirectory = nil
                 workingDirectory = dir
-                if !agentAutoTriggerSuppressed, let agentId = detectAgentForProject(dir) { selectedAgent = agentId }
                 autoSelectMCPsForProject(dir)
             }
             // Sync badge sets to AppState so FileExplorerView can display them
@@ -3533,36 +3521,6 @@ struct SingleChatSessionView: View {
 
     // MARK: - Actions
 
-    /// Returns the best matching agent ID for a project directory.
-    /// Priority 1: agent whose projectDirectory or associatedProjects contains the path.
-    /// Priority 2: file-extension scan for known project types.
-    private func detectAgentForProject(_ path: String) -> String? {
-        let agents = state.agentService.agents.filter { !$0.isPersona }
-
-        if let exact = agents.first(where: {
-            $0.projectDirectory == path || $0.associatedProjects.contains(path)
-        }) {
-            return exact.id
-        }
-
-        let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(atPath: path) else { return nil }
-        let exts  = Set(files.map { URL(fileURLWithPath: $0).pathExtension.lowercased() })
-        let names = files.map { $0.lowercased() }
-
-        let excelExts: Set<String> = ["xlsm", "xlsb", "bas", "xls", "xlsx"]
-        if !exts.isDisjoint(with: excelExts) {
-            return agents.first { $0.id.contains("excel") || $0.id.contains("vba") }?.id
-        }
-
-        let makeMarkers = ["make.json", "blueprint"]
-        if names.contains(where: { n in makeMarkers.contains(where: { n.contains($0) }) }) {
-            return agents.first { $0.id.contains("workflow") || $0.id.contains("make") }?.id
-        }
-
-        return nil
-    }
-
     private func newSession() {
         // Laufende Orchestrierung/Stream ZUERST abbrechen — sonst schreibt der Hintergrund-Task
         // nach dem Leeren von messages[] auf gecachte Indizes → Index-out-of-bounds Crash.
@@ -3606,6 +3564,9 @@ struct SingleChatSessionView: View {
             lastOrchestratorSoloAgentId = nil
             lastOrchestratorSoloSessionId = nil
             lastSessionAgentId = nil
+            // Neue Session startet ohne Agent — auch nicht der des vorigen Chats in diesem Tab.
+            selectedAgent = ""
+            subagentGraph = SubagentGraph()
             // Fix B: verdichtete Zusammenfassung verwerfen — sonst leckt sie als falscher
             // Kontext in eine frische, unverwandte Session.
             compactedSummary = nil
