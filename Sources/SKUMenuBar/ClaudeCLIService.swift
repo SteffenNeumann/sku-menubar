@@ -38,7 +38,8 @@ final class ClaudeCLIService: ObservableObject {
         imagePaths: [String] = [],      // optional image files to attach (for persona reviews)
         disableTools: Bool = false,     // wenn true: --tools "" (keine Built-in-Tools) — für reine Reasoning-Phasen
         permissionMode: String? = nil,  // wenn gesetzt: --permission-mode <mode> (z.B. "plan" → nur planen, nichts ausführen)
-        enableArtifacts: Bool = false   // true = Artifact-Tool freischalten (veröffentlicht auf claude.ai!)
+        enableArtifacts: Bool = false,  // true = Artifact-Tool freischalten (veröffentlicht auf claude.ai!)
+        disallowedTools: [String] = []  // zusätzliche --disallowedTools-Regeln, z.B. "Agent(Karim -QA)"
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let path = claudePath
         return AsyncThrowingStream { continuation in
@@ -72,15 +73,16 @@ final class ClaudeCLIService: ObservableObject {
                 // die übrigen 7 kosten Kontext, und `SendUserFile` will eine Desktop-UI
                 // bedienen, die es in einem --print-Prozess nicht gibt. Deshalb explizit ab.
                 // (Gemessen: --disallowedTools entfernt sie wirklich aus der Tool-Liste.)
+                var denied = disallowedTools
                 if artifactsActive {
-                    args += ["--disallowedTools",
-                             "SendUserFile", "ListPlugins", "ListSkills",
-                             "SearchPlugins", "SearchSkills",
-                             "SuggestPluginInstall", "SuggestSkills"]
+                    denied += ["SendUserFile", "ListPlugins", "ListSkills",
+                               "SearchPlugins", "SearchSkills",
+                               "SuggestPluginInstall", "SuggestSkills"]
                     // Freigabe ohne Rundum-Erlaubnis: --allowedTools wirkt additiv, nicht
                     // als Whitelist (gemessen — Read/Bash bleiben unberührt).
                     if !skipPermissions { args += ["--allowedTools", "Artifact"] }
                 }
+                if !denied.isEmpty { args += ["--disallowedTools"] + denied }
 
                 if let sid = sessionId, !sid.isEmpty {
                     // --resume <sessionId> resumes a specific session by ID (each tab keeps

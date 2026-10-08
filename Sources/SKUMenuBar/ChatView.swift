@@ -5787,7 +5787,10 @@ struct SingleChatSessionView: View {
                 mcpStrictMode: mcpStrict,
                 imagePaths: cliImagePaths,
                 permissionMode: planMode ? "plan" : nil,
-                enableArtifacts: state.settings.artifactsEnabled && !planMode
+                enableArtifacts: state.settings.artifactsEnabled && !planMode,
+                // Personas sind Kunden-Perspektiven für Reviews, keine Helfer — die CLI darf
+                // sie nicht von sich aus als Subagent starten (gemessen: Namen mit Leerzeichen greifen).
+                disallowedTools: state.agentService.agents.filter(\.isPersona).map { "Agent(\($0.name))" }
             )
         }
 
