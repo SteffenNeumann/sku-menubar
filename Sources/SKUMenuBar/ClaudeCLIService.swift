@@ -26,6 +26,7 @@ final class ClaudeCLIService: ObservableObject {
         sessionId: String? = nil,
         agentName: String? = nil,
         systemPrompt: String? = nil,
+        appendSystemPrompt: Bool = false, // true: --append-system-prompt (CLI-Standard-Prompt bleibt), sonst --system-prompt (ersetzt ihn)
         model: String? = nil,
         fallbackModel: String? = nil,
         workingDirectory: String? = nil,
@@ -87,7 +88,7 @@ final class ClaudeCLIService: ObservableObject {
                     args += ["--resume", sid]
                 }
                 if let sp = systemPrompt, !sp.isEmpty {
-                    args += ["--system-prompt", sp]
+                    args += [appendSystemPrompt ? "--append-system-prompt" : "--system-prompt", sp]
                 }
                 if let m = model, !m.isEmpty {
                     args += ["--model", m]

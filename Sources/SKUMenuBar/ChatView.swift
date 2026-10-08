@@ -5774,6 +5774,9 @@ struct SingleChatSessionView: View {
                 message: finalMessage,
                 sessionId: currentSessionId,
                 systemPrompt: effectiveSystemPrompt,
+                // Interaktiver Chat: CLI-Standard-Prompt behalten (enthält u.a. die Regeln, wann
+                // Subagenten gestartet werden) und Gate/Agent-Definition nur anhängen.
+                appendSystemPrompt: true,
                 model: model,
                 fallbackModel: fallback,
                 workingDirectory: workingDirectory,

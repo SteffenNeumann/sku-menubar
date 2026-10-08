@@ -834,6 +834,9 @@ struct AgentDefinition: Identifiable, Hashable {
     let emailAddress: String?   // e.g. "ceo@mueller-gmbh.de" — exact match, higher priority
     let emailRoutingEnabled: Bool  // false = Automatik pausiert
     let requiredMCPs: [String]      // MCP server names to auto-activate
+    // Harte Zug-Grenze, wenn die CLI diesen Agenten als Subagent startet (Frontmatter `maxTurns`,
+    // von der CLI selbst ausgewertet). nil = keine Grenze.
+    var maxTurns: Int? = nil
 
     var isPersona: Bool { category == "persona" }
 
@@ -967,6 +970,7 @@ struct AgentDraft {
     var emailAddress: String = ""
     var emailRoutingEnabled: Bool = true
     var requiredMCPs: [String] = []
+    var maxTurns: String = ""  // empty = keine Grenze
 
     var isPersona: Bool { category == "persona" }
 
@@ -1000,6 +1004,7 @@ struct AgentDraft {
         emailAddress         = agent.emailAddress ?? ""
         emailRoutingEnabled  = agent.emailRoutingEnabled
         requiredMCPs         = agent.requiredMCPs
+        maxTurns             = agent.maxTurns.map(String.init) ?? ""
     }
 }
 

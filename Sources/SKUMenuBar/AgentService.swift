@@ -144,6 +144,9 @@ final class AgentService: ObservableObject {
             $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         } ?? []
 
+        // `maxTurns` ist der Schlüssel, den die CLI liest — so lassen, sonst greift die Grenze nicht.
+        let maxTurns = fields["maxTurns"].flatMap { Int($0) }.flatMap { $0 > 0 ? $0 : nil }
+
         let agentId = url.deletingPathExtension().lastPathComponent
         let contextImages = loadContextImages(for: agentId)
 
@@ -210,7 +213,8 @@ final class AgentService: ObservableObject {
             emailDomain: emailDomain,
             emailAddress: emailAddress,
             emailRoutingEnabled: emailRoutingEnabled,
-            requiredMCPs: requiredMCPs
+            requiredMCPs: requiredMCPs,
+            maxTurns: maxTurns
         )
     }
 
@@ -229,6 +233,9 @@ final class AgentService: ObservableObject {
         if !draft.schedule.isEmpty      { lines.append("schedule: \(draft.schedule)") }
         if !draft.dreamSchedule.isEmpty { lines.append("dream_schedule: \(draft.dreamSchedule)") }
         if !draft.timeoutMinutes.isEmpty { lines.append("timeout: \(draft.timeoutMinutes)") }
+        if let mt = Int(draft.maxTurns.trimmingCharacters(in: .whitespaces)), mt > 0 {
+            lines.append("maxTurns: \(mt)")
+        }
         if draft.isActive          { lines.append("active: true") }
         if !draft.category.isEmpty        { lines.append("category: \(draft.category)") }
         if !draft.customerName.isEmpty    { lines.append("customer_name: \"\(draft.customerName)\"") }
@@ -778,12 +785,12 @@ Ausnahme: NUR ausdrücklich angefragte Artefakte (Code, E-Mail, Dokument, Datei)
         return """
 ## Arbeitsweise für diese Aufgabe (verbindlich, überschreibt Format-Hinweise oben)
 
-Interviewe mich unerbittlich zu jedem Aspekt, bis wir ein geteiltes Verständnis erreichen. Geh jeden Ast des Entscheidungsbaums durch und löse Abhängigkeiten zwischen Entscheidungen eine nach der anderen auf. Für jede Frage nennst du deine empfohlene Antwort.
+Kläre mit mir jeden offenen Aspekt, bis wir ein geteiltes Verständnis erreichen. Geh den Entscheidungsbaum durch und löse Abhängigkeiten zwischen Entscheidungen auf. Für jede Frage nennst du deine empfohlene Antwort.
 
 - Ist die Aufgabe klein und eindeutig — eine Datei lesen, eine Wissensfrage, ein klar umrissener Einzelschritt, eine Rückfrage zu etwas, das gerade lief — dann mach sie einfach und lass das Interview weg. Das Interview gilt für alles, was gebaut, geplant, umgebaut oder entschieden wird.
-- Stelle die Fragen EINZELN — eine Frage, dann auf meine Rückmeldung warten, bevor du weitermachst. Mehrere Fragen auf einmal sind verwirrend.
-- Ist etwas ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, schau ihn selbst nach, statt mich zu fragen. Die ENTSCHEIDUNGEN aber sind meine — leg mir jede einzeln vor und warte auf meine Antwort.
-- Führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren.
+- Sammle die offenen Fragen und stelle sie in EINER Nachfrage — höchstens 2 Optionen je Frage, die empfohlene zuerst. Gib danach ein Zielbild aus: Ziel in 1–3 Sätzen, Nicht-Ziele, Fertig-Kriterium („fertig, wenn …").
+- Ist etwas ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, schau ihn selbst nach, statt mich zu fragen. Die ENTSCHEIDUNGEN aber sind meine — leg sie mir vor und warte auf meine Antwort.
+- Führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren — der Prüfer ist nie der Umsetzer. Jeder Spezialist bekommt ein Rundenbudget (Standard: 1 Runde). Prüfe am Ende das Ergebnis gegen das Zielbild und sag klar: erreicht / nicht erreicht.
 - Setze NICHTS um (keine Datei ändern, kein Code, kein Senden/Committen), bis ich bestätige, dass wir ein geteiltes Verständnis haben — warte auf mein ausdrückliches „Go".
 
 Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte bleiben vollständig.
