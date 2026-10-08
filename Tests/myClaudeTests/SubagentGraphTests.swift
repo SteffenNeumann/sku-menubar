@@ -76,6 +76,21 @@ final class SubagentGraphTests: XCTestCase {
         XCTAssertEqual(n?.todosTotal, 4)
     }
 
+    func testPreloadedSkillsShowAndMergeWithUsed() {
+        var g = SubagentGraph()
+        g.agentStarted(toolUseId: "a1", parentToolUseId: nil, type: "frontend-webdesigner", description: nil,
+                       preloadedSkills: ["10k-website-checklist", "shadcn"])
+        g.toolUsed(byAgent: "a1", name: "Skill", skill: "shadcn", todoStatuses: nil)
+        g.toolUsed(byAgent: "a1", name: "Skill", skill: "ponytail-lazy-code", todoStatuses: nil)
+        XCTAssertEqual(g.node("a1")?.skills, ["10k-website-checklist", "shadcn", "ponytail-lazy-code"])
+    }
+
+    func testSkillListParsesBothCliForms() {
+        XCTAssertEqual(AgentService.parseSkillList("a, b"), ["a", "b"])
+        XCTAssertEqual(AgentService.parseSkillList("[a, \"b\"]"), ["a", "b"])
+        XCTAssertEqual(AgentService.parseSkillList(""), [])
+    }
+
     // MARK: - Layout
 
     private func assertNoOverlap(_ g: SubagentGraph, file: StaticString = #filePath, line: UInt = #line) {

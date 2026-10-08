@@ -893,6 +893,10 @@ struct AgentDefinition: Identifiable, Hashable {
     // Harte Zug-Grenze, wenn die CLI diesen Agenten als Subagent startet (Frontmatter `maxTurns`,
     // von der CLI selbst ausgewertet). nil = keine Grenze.
     var maxTurns: Int? = nil
+    // Frontmatter `skills:` — die CLI lädt diese Skills beim Start des Subagenten selbst vor
+    // (gemessen: zuverlässig, unabhängig vom Modell). Quelle der Wahrheit bleibt der ⭐-Block
+    // im Text; AgentService.syncPreloadSkills() hält das Feld daran angeglichen.
+    var preloadSkills: [String] = []
 
     var isPersona: Bool { category == "persona" }
 

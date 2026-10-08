@@ -45,14 +45,17 @@ struct SubagentGraph: Equatable {
     }
 
     /// assistant/tool_use mit name "Agent" (früher "Task").
+    /// `preloadedSkills`: die per Frontmatter `skills:` vorgeladenen Skills des Agenten — die
+    /// CLI meldet sie im Stream nicht, darum kommen sie aus der Agent-Definition.
     mutating func agentStarted(toolUseId: String, parentToolUseId: String?,
-                               type: String?, description: String?) {
+                               type: String?, description: String?,
+                               preloadedSkills: [String] = []) {
         guard node(toolUseId) == nil else { return }
         // Nur bekannte Eltern übernehmen — so bleibt der Baum zyklenfrei.
         let parent = parentToolUseId.flatMap { node($0) == nil ? nil : $0 }
         let cleanType = type.flatMap { $0.isEmpty ? nil : $0 } ?? "general-purpose"
         nodes.append(SubagentNode(id: toolUseId, parentId: parent, type: cleanType,
-                                  task: description ?? ""))
+                                  task: description ?? "", skills: preloadedSkills))
     }
 
     /// Jeder andere tool_use, der aus einem Subagenten stammt (parent_tool_use_id gesetzt).

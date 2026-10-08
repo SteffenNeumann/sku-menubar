@@ -5822,10 +5822,13 @@ struct SingleChatSessionView: View {
                                 messages[assistantIndex].toolCalls.append(tool)
                                 // Agent-Flussbild: neuer Subagent bzw. Tool-Aufruf eines Subagenten.
                                 if name == "Agent" || name == "Task", let id = block.id {
+                                    let type = block.toolInput?.subagentType
                                     subagentGraph.agentStarted(toolUseId: id,
                                                                parentToolUseId: event.parentToolUseId,
-                                                               type: block.toolInput?.subagentType,
-                                                               description: block.toolInput?.description)
+                                                               type: type,
+                                                               description: block.toolInput?.description,
+                                                               preloadedSkills: state.agentService.agents
+                                                                   .first { $0.name == type }?.preloadSkills ?? [])
                                     if !agentsPanelVisible && !agentsPanelUserHidden {
                                         withAnimation(.spring(response: 0.3)) { setAgentsPanel(visible: true) }
                                     }

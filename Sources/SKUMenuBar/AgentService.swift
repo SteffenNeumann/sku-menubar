@@ -73,6 +73,11 @@ final class AgentService: ObservableObject {
             }
         }
         agents = result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Nach dem Angleichen neu einlesen — nur einmal, beim zweiten Durchlauf passt alles.
+        if syncPreloadSkills() {
+            agents = agents.compactMap { parseAgentFile(URL(fileURLWithPath: $0.filePath)) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
         Task { loadAllLogs() }
     }
 
@@ -146,6 +151,7 @@ final class AgentService: ObservableObject {
 
         // `maxTurns` ist der Schlüssel, den die CLI liest — so lassen, sonst greift die Grenze nicht.
         let maxTurns = fields["maxTurns"].flatMap { Int($0) }.flatMap { $0 > 0 ? $0 : nil }
+        let preloadSkills = fields["skills"].map(Self.parseSkillList) ?? []
 
         let agentId = url.deletingPathExtension().lastPathComponent
         let contextImages = loadContextImages(for: agentId)
@@ -214,8 +220,48 @@ final class AgentService: ObservableObject {
             emailAddress: emailAddress,
             emailRoutingEnabled: emailRoutingEnabled,
             requiredMCPs: requiredMCPs,
-            maxTurns: maxTurns
+            maxTurns: maxTurns,
+            preloadSkills: preloadSkills
         )
+    }
+
+    /// `a, b` oder `[a, b]` — beide Formen liest die CLI (gemessen); geschrieben wird `a, b`.
+    nonisolated static func parseSkillList(_ raw: String) -> [String] {
+        raw.trimmingCharacters(in: CharacterSet(charactersIn: "[] "))
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Hält das Frontmatter-Feld `skills:` gleich den ⭐-Hauptskills im Text. Grund: Ein
+    /// Subagent befolgt die ⭐-Anweisung in seinem Text nicht (gemessen 0/2), das Feld lädt die
+    /// CLI dagegen selbst. Der ⭐-Block bleibt die Quelle (der Researcher pflegt ihn), darum
+    /// wird bei jedem Laden angeglichen. Ersetzt nur die eine Zeile — der Rest der Datei bleibt
+    /// unberührt. Agenten ohne ⭐-Block werden nicht angefasst.
+    /// Gibt true zurück, wenn eine Datei geändert wurde.
+    @discardableResult
+    func syncPreloadSkills() -> Bool {
+        var changed = false
+        for agent in agents where !agent.isPersona {
+            let wanted = SkillKeywords.mainSkills(inAgentBody: agent.promptBody)
+            guard !wanted.isEmpty, wanted != agent.preloadSkills,
+                  let content = try? String(contentsOfFile: agent.filePath, encoding: .utf8)
+            else { continue }
+            var lines = content.components(separatedBy: "\n")
+            guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+                  let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" })
+            else { continue }
+            let newLine = "skills: " + wanted.joined(separator: ", ")
+            if let i = lines[1..<end].firstIndex(where: { $0.hasPrefix("skills:") }) {
+                lines[i] = newLine
+            } else {
+                lines.insert(newLine, at: end)
+            }
+            if (try? lines.joined(separator: "\n").write(toFile: agent.filePath, atomically: true, encoding: .utf8)) != nil {
+                changed = true
+            }
+        }
+        return changed
     }
 
     // MARK: - Preview file content
@@ -236,6 +282,9 @@ final class AgentService: ObservableObject {
         if let mt = Int(draft.maxTurns.trimmingCharacters(in: .whitespaces)), mt > 0 {
             lines.append("maxTurns: \(mt)")
         }
+        // Vorladen = ⭐-Hauptskills aus dem Text (siehe syncPreloadSkills).
+        let preload = draft.isPersona ? [] : SkillKeywords.mainSkills(inAgentBody: draft.promptBody)
+        if !preload.isEmpty { lines.append("skills: " + preload.joined(separator: ", ")) }
         if draft.isActive          { lines.append("active: true") }
         if !draft.category.isEmpty        { lines.append("category: \(draft.category)") }
         if !draft.customerName.isEmpty    { lines.append("customer_name: \"\(draft.customerName)\"") }
