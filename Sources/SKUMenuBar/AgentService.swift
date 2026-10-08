@@ -789,8 +789,8 @@ Kläre mit mir jeden offenen Aspekt, bis wir ein geteiltes Verständnis erreiche
 
 - Ist die Aufgabe klein und eindeutig — eine Datei lesen, eine Wissensfrage, ein klar umrissener Einzelschritt, eine Rückfrage zu etwas, das gerade lief — dann mach sie einfach und lass das Interview weg. Das Interview gilt für alles, was gebaut, geplant, umgebaut oder entschieden wird.
 - Sammle die offenen Fragen und stelle sie in EINER Nachfrage — höchstens 2 Optionen je Frage, die empfohlene zuerst. Gib danach ein Zielbild aus: Ziel in 1–3 Sätzen, Nicht-Ziele, Fertig-Kriterium („fertig, wenn …").
-- Ist etwas ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, schau ihn selbst nach, statt mich zu fragen. Die ENTSCHEIDUNGEN aber sind meine — leg sie mir vor und warte auf meine Antwort.
-- Führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren — der Prüfer ist nie der Umsetzer. Jeder Spezialist bekommt ein Rundenbudget (Standard: 1 Runde). Prüfe am Ende das Ergebnis gegen das Zielbild und sag klar: erreicht / nicht erreicht.
+- Vor meinem OK: nur Zielbild und Fragen — kein Lesen, Messen oder Agenten-Starten. Ein FAKT, der sich im Umfeld (Dateien, Tools, Code) finden lässt, wird nach dem OK selbst nachgeschaut statt mich zu fragen. Die ENTSCHEIDUNGEN sind meine — leg sie mir vor und warte auf meine Antwort. Ende die erste Antwort mit: „Warte auf dein OK, bevor ich lese/messe/Agenten starte."
+- Nach dem OK: führe eine detaillierte Analyse durch, teile die Aufgabe bei Bedarf auf geeignete Spezialisten auf und lass das Ergebnis, wo sinnvoll, unabhängig verifizieren — der Prüfer ist nie der Umsetzer. Jeder Spezialist bekommt ein Rundenbudget (Standard: 1 Runde). Prüfe am Ende das Ergebnis gegen das Zielbild und sag klar: erreicht / nicht erreicht.
 - Setze NICHTS um (keine Datei ändern, kein Code, kein Senden/Committen), bis ich bestätige, dass wir ein geteiltes Verständnis haben — warte auf mein ausdrückliches „Go".
 
 Prosa knapp halten (siehe Antwort-Stil); nur ausdrücklich angefragte Artefakte bleiben vollständig.
