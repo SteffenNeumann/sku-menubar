@@ -229,6 +229,7 @@ private struct AgentFlowCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 10).fill(theme.cardSurface))
+        .clipShape(RoundedRectangle(cornerRadius: 10))   // feste Kartengröße: nie über den Rand
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(statusColor.opacity(node.isActive ? 1 : 0.7), lineWidth: 1))
     }
 
@@ -255,6 +256,7 @@ private struct AgentFlowCard: View {
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .foregroundStyle(theme.tertiaryText)
+        .lineLimit(1)
     }
 
     private func bar(_ f: CGFloat, color: Color) -> some View {

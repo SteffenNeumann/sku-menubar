@@ -5639,7 +5639,8 @@ struct SingleChatSessionView: View {
         if currentSessionId == nil { injectedAgentId = effectiveAgent ?? "" }
         // Agent-Flussbild zeigt die Helfer DIESER Antwort.
         subagentGraph = SubagentGraph()
-        agentsPanelUserHidden = false
+        // Neuversuch derselben Antwort: manuelles Ausblenden gilt weiter.
+        if !isFallbackAttempt && !isErrorRetryAttempt { agentsPanelUserHidden = false }
 
         let stream: AsyncThrowingStream<StreamEvent, Error>
 
@@ -6551,8 +6552,11 @@ extension SingleChatSessionView {
                                       selected: showAgents) { rightPanelShowsAgents = true }
                     }
                     Spacer()
+                    // Schließt, was gerade zu sehen ist — nicht still den Tab dahinter.
                     Button {
-                        withAnimation(.spring(response: 0.3)) { diffPanelDismissed = true }
+                        withAnimation(.spring(response: 0.3)) {
+                            if showAgents { setAgentsPanel(visible: false) } else { diffPanelDismissed = true }
+                        }
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .medium))
@@ -6560,7 +6564,7 @@ extension SingleChatSessionView {
                     }
                     .buttonStyle(.plain)
                     .padding(.trailing, 12)
-                    .help("Panel schließen")
+                    .help(showAgents ? "Agenten-Panel ausblenden" : "Panel schließen")
                 }
                 .frame(height: 36)
                 .background(theme.windowBg)
