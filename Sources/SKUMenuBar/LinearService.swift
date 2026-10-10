@@ -283,9 +283,18 @@ final class LinearService: ObservableObject {
             myIssuesError = LinearError.notConfigured.localizedDescription
             return
         }
-        // Linear schreibt den State-Typ "canceled" — "cancelled" nur zur Sicherheit mit drin
+        // Linear schreibt den State-Typ "canceled" — "cancelled" nur zur Sicherheit mit drin.
+        // Zweiter Zweig: offene Issues OHNE Zuweisung in laufenden Projekten — sonst fehlen
+        // Projekte komplett, in denen nichts zugewiesen ist (Kachel pro Projekt bliebe leer).
+        let fields = "id identifier title description priority url dueDate state { id name type color } team { id } project { id name color status { type } }"
+        let openStates = """
+        state: { type: { nin: ["completed", "canceled", "cancelled"] } }
+        """
         let query = """
-        query { viewer { assignedIssues(first: 250, filter: { state: { type: { nin: ["completed", "canceled", "cancelled"] } } }) { nodes { id identifier title description priority url dueDate state { id name type color } team { id } project { id name color } } } } }
+        query {
+          viewer { assignedIssues(first: 250, filter: { \(openStates) }) { nodes { \(fields) } } }
+          unassigned: issues(first: 250, filter: { \(openStates), assignee: { null: true }, project: { null: false } }) { nodes { \(fields) } }
+        }
         """
         myIssuesLoading = true
         defer { myIssuesLoading = false }
@@ -303,13 +312,23 @@ final class LinearService: ObservableObject {
                let msg = errors.first?["message"] as? String {
                 throw LinearError.apiError(msg)
             }
-            guard let viewer = (json["data"] as? [String: Any])?["viewer"] as? [String: Any],
+            guard let dataObj = json["data"] as? [String: Any],
+                  let viewer = dataObj["viewer"] as? [String: Any],
                   let assigned = viewer["assignedIssues"] as? [String: Any],
                   let nodes = assigned["nodes"] as? [[String: Any]] else {
                 throw LinearError.unreadableResponse
             }
+            // Nicht zugewiesene nur aus laufenden Projekten — abgeschlossene/abgebrochene
+            // Projekte sollen keine neue Kachel aufmachen.
+            let unassignedNodes = ((dataObj["unassigned"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? [])
+                .filter { node in
+                    let type = ((node["project"] as? [String: Any])?["status"] as? [String: Any])?["type"] as? String
+                    return type == nil || !["completed", "canceled", "cancelled"].contains(type!)
+                }
+            let assignedIds = Set(nodes.compactMap { $0["id"] as? String })
+            let merged = nodes + unassignedNodes.filter { ($0["id"] as? String).map { !assignedIds.contains($0) } ?? false }
             let rank: (LinearPriority) -> Int = { $0 == .noPriority ? 5 : $0.rawValue }
-            myIssues = parseIssueNodes(nodes).sorted {
+            myIssues = parseIssueNodes(merged).sorted {
                 if rank($0.priority) != rank($1.priority) { return rank($0.priority) < rank($1.priority) }
                 return ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture)
             }
