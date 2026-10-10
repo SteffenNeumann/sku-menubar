@@ -1700,7 +1700,7 @@ struct HomeView: View {
 
 // MARK: - HomeLinearIssuesList
 
-/// Eine Kachel pro Linear-Projekt mit meinen offenen Issues. Eigene View, damit der
+/// Eine Kachel pro Linear-Projekt mit den offenen Issues (meine + noch niemandem zugewiesene). Eigene View, damit der
 /// LinearService beobachtet wird (HomeView sieht nur AppState).
 /// Klick auf ein Issue → neuer Chat im zugeordneten Projektordner, Issue im Eingabefeld.
 private struct HomeLinearIssuesList: View {
@@ -1745,7 +1745,7 @@ private struct HomeLinearIssuesList: View {
     var body: some View {
         Group {
             if service.myIssues.isEmpty {
-                HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
+                HomeTile(title: "Linear – Offene Issues", icon: "arrow.triangle.2.circlepath",
                          iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
                     if service.myIssuesLoading {
                         ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 16)
@@ -1756,7 +1756,7 @@ private struct HomeLinearIssuesList: View {
                     }
                 }
             } else if groups.isEmpty {
-                HomeTile(title: "Linear – Meine Issues", icon: "arrow.triangle.2.circlepath",
+                HomeTile(title: "Linear – Offene Issues", icon: "arrow.triangle.2.circlepath",
                          iconColor: Color(red: 0.35, green: 0.35, blue: 0.95), theme: theme) {
                     message(icon: "eye.slash", text: "Alle Projekte ausgeblendet — in „Dashboard anpassen“ wieder einblenden.")
                 }
@@ -1934,7 +1934,7 @@ enum LinearProjectVisibility {
 }
 
 /// Schalter je Linear-Projekt im „Dashboard anpassen"-Sheet. Eigene View, damit der
-/// LinearService beobachtet wird. Listet nur Projekte, in denen ich offene Issues habe.
+/// LinearService beobachtet wird. Listet nur Projekte, in denen es offene Issues gibt.
 private struct LinearProjectToggles: View {
     @ObservedObject var service: LinearService
     let theme: AppTheme

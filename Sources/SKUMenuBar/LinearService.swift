@@ -160,6 +160,9 @@ final class LinearService: ObservableObject {
     @Published var myIssuesError: String?
     @Published var myIssuesLoading = false
     private(set) var myIssuesLoadedAt: Date = .distantPast
+    /// Teams des angemeldeten Nutzers — begrenzt den Zweig „offen, aber niemandem zugewiesen"
+    /// auf die eigenen Teams. Einmal je App-Session geladen.
+    private var myTeamIds: [String] = []
 
     private var session: MCPClientSession?
     private var sessionConnected = false
@@ -276,6 +279,26 @@ final class LinearService: ObservableObject {
 
     /// Offene, mir zugewiesene Issues direkt per GraphQL (viewer.assignedIssues).
     /// Sortiert: Priorität (Urgent zuerst, ohne Priorität zuletzt), dann Fälligkeit.
+    /// Team-IDs des angemeldeten Nutzers. Fehlschlag ist nicht kritisch — dann entfällt nur der
+    /// Zweig mit den nicht zugewiesenen Issues.
+    private func loadMyTeamIds(token: String, url: URL) async {
+        do {
+            var req = URLRequest(url: url, timeoutInterval: 15)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(token, forHTTPHeaderField: "Authorization")
+            req.httpBody = try JSONSerialization.data(withJSONObject: [
+                "query": "query { viewer { teams(first: 50) { nodes { id } } } }"
+            ])
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let viewer = (json["data"] as? [String: Any])?["viewer"] as? [String: Any],
+                  let teams = viewer["teams"] as? [String: Any],
+                  let nodes = teams["nodes"] as? [[String: Any]] else { return }
+            myTeamIds = nodes.compactMap { $0["id"] as? String }
+        } catch { /* nicht kritisch */ }
+    }
+
     func loadMyIssues() async {
         guard !myIssuesLoading else { return }
         guard let token = linearAccessToken,
@@ -283,21 +306,35 @@ final class LinearService: ObservableObject {
             myIssuesError = LinearError.notConfigured.localizedDescription
             return
         }
+        myIssuesLoading = true
+        defer { myIssuesLoading = false }
+
+        if myTeamIds.isEmpty { await loadMyTeamIds(token: token, url: url) }
+
         // Linear schreibt den State-Typ "canceled" — "cancelled" nur zur Sicherheit mit drin.
-        // Zweiter Zweig: offene Issues OHNE Zuweisung in laufenden Projekten — sonst fehlen
-        // Projekte komplett, in denen nichts zugewiesen ist (Kachel pro Projekt bliebe leer).
-        let fields = "id identifier title description priority url dueDate state { id name type color } team { id } project { id name color status { type } }"
+        let fields = "id identifier title description priority url dueDate state { id name type color } assignee { name } team { id } project { id name color }"
         let openStates = """
         state: { type: { nin: ["completed", "canceled", "cancelled"] } }
+        """
+        // Zweiter Zweig: offene Issues OHNE Zuweisung — sonst fehlen Projekte komplett, in denen
+        // nichts zugewiesen ist (Kachel pro Projekt bliebe leer). Serverseitig eingegrenzt auf die
+        // eigenen Teams und auf Projekte, die weder abgeschlossen noch abgebrochen sind — ein
+        // Client-Filter käme zu spät, weil `first` schon vorher kappt.
+        // Ohne bekannte Team-IDs bleibt der Zweig weg, statt workspace-weit zu ziehen.
+        let unassignedBranch = myTeamIds.isEmpty ? "" : """
+        unassigned: issues(first: 250, filter: {
+            \(openStates),
+            assignee: { null: true },
+            team: { id: { in: [\(myTeamIds.map { "\"\($0)\"" }.joined(separator: ", "))] } },
+            project: { null: false, status: { type: { nin: ["completed", "canceled", "cancelled"] } } }
+        }) { nodes { \(fields) } }
         """
         let query = """
         query {
           viewer { assignedIssues(first: 250, filter: { \(openStates) }) { nodes { \(fields) } } }
-          unassigned: issues(first: 250, filter: { \(openStates), assignee: { null: true }, project: { null: false } }) { nodes { \(fields) } }
+          \(unassignedBranch)
         }
         """
-        myIssuesLoading = true
-        defer { myIssuesLoading = false }
         do {
             var req = URLRequest(url: url, timeoutInterval: 15)
             req.httpMethod = "POST"
@@ -308,31 +345,22 @@ final class LinearService: ObservableObject {
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw LinearError.unreadableResponse
             }
-            if let errors = json["errors"] as? [[String: Any]],
-               let msg = errors.first?["message"] as? String {
-                throw LinearError.apiError(msg)
+            // GraphQL liefert Fehler auch zusammen mit brauchbaren Teildaten: scheitert nur der
+            // unassigned-Zweig, bleibt die zugewiesene Liste trotzdem gültig.
+            let errorMessage = (json["errors"] as? [[String: Any]])?.first?["message"] as? String
+            let dataObj = json["data"] as? [String: Any]
+            guard let nodes = ((dataObj?["viewer"] as? [String: Any])?["assignedIssues"] as? [String: Any])?["nodes"] as? [[String: Any]] else {
+                throw errorMessage.map { LinearError.apiError($0) } ?? LinearError.unreadableResponse
             }
-            guard let dataObj = json["data"] as? [String: Any],
-                  let viewer = dataObj["viewer"] as? [String: Any],
-                  let assigned = viewer["assignedIssues"] as? [String: Any],
-                  let nodes = assigned["nodes"] as? [[String: Any]] else {
-                throw LinearError.unreadableResponse
-            }
-            // Nicht zugewiesene nur aus laufenden Projekten — abgeschlossene/abgebrochene
-            // Projekte sollen keine neue Kachel aufmachen.
-            let unassignedNodes = ((dataObj["unassigned"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? [])
-                .filter { node in
-                    let type = ((node["project"] as? [String: Any])?["status"] as? [String: Any])?["type"] as? String
-                    return type == nil || !["completed", "canceled", "cancelled"].contains(type!)
-                }
-            let assignedIds = Set(nodes.compactMap { $0["id"] as? String })
-            let merged = nodes + unassignedNodes.filter { ($0["id"] as? String).map { !assignedIds.contains($0) } ?? false }
+            let unassignedNodes = (dataObj?["unassigned"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+            // Kein Dedupe nötig: „mir zugewiesen" und „niemandem zugewiesen" schliessen sich aus.
+            let merged = nodes + unassignedNodes
             let rank: (LinearPriority) -> Int = { $0 == .noPriority ? 5 : $0.rawValue }
             myIssues = parseIssueNodes(merged).sorted {
                 if rank($0.priority) != rank($1.priority) { return rank($0.priority) < rank($1.priority) }
                 return ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture)
             }
-            myIssuesError = nil
+            myIssuesError = errorMessage   // Teilausfall sichtbar machen, Liste bleibt nutzbar
             myIssuesLoadedAt = Date()
         } catch {
             myIssuesError = error.localizedDescription

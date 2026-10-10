@@ -1537,7 +1537,7 @@ enum HomeTileID: String, CaseIterable, Codable {
         case .kundenanfragen: return "Kundenanfragen"
         case .gitStatus:      return "Git Status"
         case .sessionAnalysis: return "Session-Analyse"
-        case .linearIssues:   return "Linear – Meine Issues"
+        case .linearIssues:   return "Linear – Offene Issues"
         case .openTasks:      return "Offene Aufgaben"
         case .importantNotes: return "Wichtige Notizen"
         }
