@@ -41,7 +41,9 @@ bash tools/update.sh --force   # baut aktuellen Stand, setzt Paket neu zusammen,
 ## Git-Regeln
 
 - Immer auf `main` arbeiten — kein separater Feature-Branch nötig
-- Vor dem ersten Build in einer Session: `git log --oneline -3` prüfen ob der Stand aktuell ist
+- **Vor dem ersten Build in einer Session immer `git fetch && git status -sb`** — `git log` allein
+  zeigt nur den lokalen Stand. Am 10.10.2026 lag dieser Rechner 13 Commits hinter `origin/main`;
+  der Build enthielt die fehlenden Commits nicht. Bei „hinterher N": erst `git pull --rebase`.
 - Wenn ein Worktree existiert: Änderungen per `git cherry-pick` zurück auf `main` holen, dann Worktree löschen
 
 ---
