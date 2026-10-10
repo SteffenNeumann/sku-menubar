@@ -987,6 +987,10 @@ struct SingleChatSessionView: View {
             autoSelectMCPsForProject(dir)
         }
         if let wd = tab.workingDirectory { workingDirectory = wd }
+        if tab.openFilePanelOnAppear {
+            tab.openFilePanelOnAppear = false
+            showFilePanel = true   // ohne Animation: parallel zum Section-Wechsel sonst Layout-Loop
+        }
         fetchGitBranch()
         if let sid = tab.sessionId {
             currentSessionId = sid
@@ -1010,8 +1014,10 @@ struct SingleChatSessionView: View {
             selectedPersonaId = tab.personaId
         }
         // Erster Mount des Chats über „neuer Chat im Projekt" (Home/Sidebar): onChange feuert
-        // dann nicht, weil der Wert schon vor dem Mount gesetzt war.
-        handlePendingNewProject()
+        // dann nicht, weil der Wert schon vor dem Mount gesetzt war. Nur für Tabs ohne eigenen
+        // Ordner — ein Tab, der seinen Ordner mitbringt (Linear-Issue), darf nicht überschrieben
+        // werden, falls noch ein fremder Pending-Wert offen ist.
+        if tab.workingDirectory == nil { handlePendingNewProject() }
         applyFallbackModelIfNeeded()
         tryAutoMatchTMetricProject()
     }

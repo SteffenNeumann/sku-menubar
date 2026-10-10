@@ -12,6 +12,8 @@ struct ChatTab: Identifiable {
     var error: String?
     var inputText: String = ""
     var workingDirectory: String?
+    /// Einmalig beim ersten Mount das File-Panel öffnen (Tab kam aus Home/Linear mit Projektordner).
+    var openFilePanelOnAppear: Bool = false
     var orchestratorMode: Bool = false
     // TMetric: per-tab project association + timer state
     var tmetricProjectId:       Int?    = nil

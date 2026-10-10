@@ -1860,8 +1860,21 @@ private struct HomeLinearIssuesList: View {
         if !issue.url.isEmpty { prompt += "Link: \(issue.url)\n" }
         if !issue.description.isEmpty { prompt += "\n---\n\(issue.description)" }
 
-        state.pendingChatNewProject = path   // neue Session im aktuellen Chat-Tab + Ordner
-        state.pendingChatMessage = prompt    // nur ins Eingabefeld, nicht abschicken
+        // Eigener Tab statt neuer Session im aktiven Tab — sonst löscht der Klick den
+        // laufenden Chat. Alles am Tab setzen; handleAppear() übernimmt es beim Mount.
+        // Offene Pending-Werte verwerfen, damit sie nicht den neuen Tab kapern.
+        state.pendingChatNewProject = nil
+        state.pendingChatMessage = nil
+
+        var tab = ChatTab(title: issue.identifier)
+        if state.chatTabs.indices.contains(state.selectedChatTabIndex) {
+            tab.model = state.chatTabs[state.selectedChatTabIndex].model   // nicht still auf Default zurückfallen
+        }
+        tab.workingDirectory = path
+        tab.inputText = prompt               // nur ins Eingabefeld, nicht abschicken
+        tab.openFilePanelOnAppear = true
+        state.chatTabs.append(tab)
+        state.selectedChatTabIndex = state.chatTabs.count - 1
         openChat()
     }
 
